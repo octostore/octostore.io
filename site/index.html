@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OctoStore - Leader election as a service. That's it.</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #0a0a0b;
+            color: #e5e5e5;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 60px;
+        }
+
+        h1 {
+            font-size: 4rem;
+            font-weight: 700;
+            margin-bottom: 20px;
+            color: #ffffff;
+        }
+
+        .hero-icon {
+            font-size: 3rem;
+            margin-right: 15px;
+        }
+
+        .tagline {
+            font-size: 1.5rem;
+            color: #a1a1aa;
+            margin-bottom: 30px;
+        }
+
+        .disclaimer {
+            background-color: #1a1a1b;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 40px 0;
+            text-align: center;
+        }
+
+        .disclaimer p {
+            color: #a1a1aa;
+            font-size: 1.1rem;
+        }
+
+        section {
+            margin-bottom: 50px;
+        }
+
+        h2 {
+            font-size: 2rem;
+            margin-bottom: 20px;
+            color: #ffffff;
+        }
+
+        h3 {
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+            color: #e5e5e5;
+        }
+
+        p {
+            margin-bottom: 15px;
+            color: #a1a1aa;
+        }
+
+        .api-overview {
+            background-color: #111111;
+            border-radius: 8px;
+            padding: 25px;
+            margin: 20px 0;
+        }
+
+        .endpoint {
+            margin-bottom: 20px;
+        }
+
+        .endpoint-title {
+            font-weight: 600;
+            color: #ffffff;
+            margin-bottom: 8px;
+        }
+
+        pre {
+            background-color: #0a0a0b;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 15px;
+            overflow-x: auto;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
+            font-size: 14px;
+            color: #e5e5e5;
+        }
+
+        .constraints {
+            background-color: #1a1a1b;
+            border-left: 4px solid #6366f1;
+            padding: 20px;
+            margin: 20px 0;
+        }
+
+        .constraints h4 {
+            color: #ffffff;
+            margin-bottom: 10px;
+        }
+
+        .constraints ul {
+            margin-left: 20px;
+        }
+
+        .constraints li {
+            margin-bottom: 5px;
+            color: #a1a1aa;
+        }
+
+        .cta {
+            text-align: center;
+            margin: 40px 0;
+        }
+
+        .cta-link {
+            display: inline-block;
+            background-color: #6366f1;
+            color: #ffffff;
+            text-decoration: none;
+            padding: 15px 30px;
+            border-radius: 6px;
+            font-weight: 600;
+            transition: background-color 0.2s;
+        }
+
+        .cta-link:hover {
+            background-color: #5b5ce8;
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 80px;
+            padding-top: 40px;
+            border-top: 1px solid #333;
+            color: #6b7280;
+            font-style: italic;
+        }
+
+        .architecture {
+            background-color: #111111;
+            border-radius: 8px;
+            padding: 25px;
+            margin: 20px 0;
+        }
+
+        .get-started {
+            background-color: #1a1a1b;
+            border-radius: 8px;
+            padding: 25px;
+            margin: 20px 0;
+        }
+
+        .get-started ol {
+            margin-left: 20px;
+        }
+
+        .get-started li {
+            margin-bottom: 10px;
+            color: #a1a1aa;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><span class="hero-icon">🐙</span>OctoStore</h1>
+            <p class="tagline">Leader election as a service. That's it.</p>
+        </header>
+
+        <div class="disclaimer">
+            <p>This is a free thing. There's no business model. No VC funding. No enterprise tier. Just a lock service.</p>
+        </div>
+
+        <section>
+            <h2>What it does</h2>
+            <p>OctoStore provides distributed locking and leader election via a simple HTTP API. Sign up with GitHub, get a bearer token, start locking.</p>
+            
+            <div class="get-started">
+                <h3>Get Started</h3>
+                <ol>
+                    <li>Authenticate with GitHub OAuth</li>
+                    <li>Get your bearer token</li>
+                    <li>Start acquiring locks</li>
+                </ol>
+            </div>
+        </section>
+
+        <section>
+            <h2>Architecture</h2>
+            <div class="architecture">
+                <p><strong>Under the hood:</strong> a single Rust binary, Axum web framework, DashMap for concurrent in-memory storage, SQLite for user accounts. Runs on a single VM. No Kubernetes. No microservices. No blockchain.</p>
+            </div>
+        </section>
+
+        <section>
+            <h2>API Overview</h2>
+            <div class="api-overview">
+                <div class="endpoint">
+                    <div class="endpoint-title">Auth Endpoints</div>
+                    <pre># Initiate GitHub OAuth
+GET /auth/github
+
+# Rotate your bearer token
+curl -X POST https://api.octostore.io/auth/token/rotate \
+  -H "Authorization: Bearer YOUR_TOKEN"</pre>
+                </div>
+
+                <div class="endpoint">
+                    <div class="endpoint-title">Lock Operations</div>
+                    <pre># Acquire a lock
+curl -X POST https://api.octostore.io/locks/my-resource/acquire \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"ttl_seconds": 300}'
+
+# Release a lock
+curl -X POST https://api.octostore.io/locks/my-resource/release \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"lease_id": "uuid-here"}'
+
+# Renew a lock
+curl -X POST https://api.octostore.io/locks/my-resource/renew \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"lease_id": "uuid-here", "ttl_seconds": 300}'
+
+# Check lock status
+curl https://api.octostore.io/locks/my-resource \
+  -H "Authorization: Bearer YOUR_TOKEN"
+
+# List your active locks
+curl https://api.octostore.io/locks \
+  -H "Authorization: Bearer YOUR_TOKEN"</pre>
+                </div>
+            </div>
+        </section>
+
+        <div class="constraints">
+            <h4>Constraints</h4>
+            <ul>
+                <li>100 locks maximum per user</li>
+                <li>1 hour maximum TTL</li>
+                <li>Ephemeral storage (we store nothing permanently)</li>
+                <li>Fencing tokens included for safety</li>
+            </ul>
+        </div>
+
+        <div class="cta">
+            <a href="https://api.octostore.io/docs" class="cta-link">View Full API Documentation</a>
+        </div>
+
+        <footer>
+            <p>Made with 🦀 and questionable judgment</p>
+        </footer>
+    </div>
+</body>
+</html>
