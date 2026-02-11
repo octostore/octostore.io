@@ -1,0 +1,24 @@
+[package]
+name = "octostore-lock"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+dashmap = "5.5"
+rusqlite = { version = "0.30", features = ["bundled"] }
+reqwest = { version = "0.11", features = ["json"] }
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1.0"
+base64 = "0.21"
+rand = "0.8"
+urlencoding = "2.1"

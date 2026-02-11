@@ -1,0 +1,471 @@
+openapi: 3.0.3
+info:
+  title: OctoStore API
+  description: |
+    Leader election as a service. That's it.
+    
+    A simple distributed locking service with GitHub authentication.
+    Provides leader election and mutual exclusion primitives via HTTP API.
+  version: 1.0.0
+  contact:
+    name: OctoStore
+    url: https://octostore.io
+  license:
+    name: MIT
+servers:
+  - url: https://api.octostore.io
+    description: Production server
+  - url: http://localhost:3000
+    description: Development server
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/github:
+    get:
+      tags:
+        - Authentication
+      summary: Initiate GitHub OAuth flow
+      description: Redirects to GitHub OAuth authorization page
+      security: []
+      responses:
+        '302':
+          description: Redirect to GitHub OAuth
+          headers:
+            Location:
+              schema:
+                type: string
+                example: https://github.com/login/oauth/authorize?client_id=...
+
+  /auth/github/callback:
+    get:
+      tags:
+        - Authentication
+      summary: GitHub OAuth callback
+      description: Internal callback endpoint for GitHub OAuth flow
+      security: []
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+          description: OAuth authorization code from GitHub
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+          description: OAuth state parameter
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    description: Bearer token for API access
+                  user:
+                    type: object
+                    properties:
+                      login:
+                        type: string
+                        description: GitHub username
+                      avatar_url:
+                        type: string
+                        description: GitHub avatar URL
+                required:
+                  - token
+                  - user
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/token/rotate:
+    post:
+      tags:
+        - Authentication
+      summary: Rotate bearer token
+      description: Generate a new bearer token, invalidating the current one
+      responses:
+        '200':
+          description: Token rotated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    description: New bearer token
+                required:
+                  - token
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /locks/{name}/acquire:
+    post:
+      tags:
+        - Locks
+      summary: Acquire a lock
+      description: |
+        Attempt to acquire a distributed lock with the given name.
+        Returns the lock status and lease information if successful.
+      parameters:
+        - $ref: '#/components/parameters/LockName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ttl_seconds:
+                  type: integer
+                  minimum: 1
+                  maximum: 3600
+                  description: Lock time-to-live in seconds (max 1 hour)
+                  example: 60
+              required:
+                - ttl_seconds
+      responses:
+        '200':
+          description: Lock acquired or already held by caller
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LockResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Lock currently held by another user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LockConflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /locks/{name}/release:
+    post:
+      tags:
+        - Locks
+      summary: Release a lock
+      description: Release a previously acquired lock using its lease ID
+      parameters:
+        - $ref: '#/components/parameters/LockName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                lease_id:
+                  type: string
+                  format: uuid
+                  description: Lease ID returned when lock was acquired
+                  example: "550e8400-e29b-41d4-a716-446655440000"
+              required:
+                - lease_id
+      responses:
+        '200':
+          description: Lock released successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [released]
+                  message:
+                    type: string
+                    example: "Lock released"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/LockNotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /locks/{name}/renew:
+    post:
+      tags:
+        - Locks
+      summary: Renew a lock's TTL
+      description: Extend the time-to-live of an existing lock
+      parameters:
+        - $ref: '#/components/parameters/LockName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                lease_id:
+                  type: string
+                  format: uuid
+                  description: Lease ID of the lock to renew
+                  example: "550e8400-e29b-41d4-a716-446655440000"
+                ttl_seconds:
+                  type: integer
+                  minimum: 1
+                  maximum: 3600
+                  description: New TTL in seconds (max 1 hour)
+                  example: 300
+              required:
+                - lease_id
+                - ttl_seconds
+      responses:
+        '200':
+          description: Lock renewed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LockResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/LockNotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /locks/{name}:
+    get:
+      tags:
+        - Locks
+      summary: Get lock status
+      description: Check the current status of a specific lock
+      parameters:
+        - $ref: '#/components/parameters/LockName'
+      responses:
+        '200':
+          description: Lock status retrieved
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/LockResponse'
+                  - $ref: '#/components/schemas/LockNotHeld'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /locks:
+    get:
+      tags:
+        - Locks
+      summary: List caller's active locks
+      description: Get a list of all locks currently held by the authenticated user
+      responses:
+        '200':
+          description: List of active locks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  locks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LockInfo'
+                  total:
+                    type: integer
+                    description: Total number of active locks
+                    example: 3
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /health:
+    get:
+      tags:
+        - System
+      summary: Health check
+      description: Simple health check endpoint
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "OK"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Bearer token obtained through GitHub OAuth
+
+  parameters:
+    LockName:
+      name: name
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[a-zA-Z0-9_-]+$'
+        minLength: 1
+        maxLength: 128
+      description: Lock name (alphanumeric, underscores, and hyphens only)
+      example: "my-resource-lock"
+
+  schemas:
+    LockResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [acquired, held]
+          description: Lock status
+        name:
+          type: string
+          description: Lock name
+        lease_id:
+          type: string
+          format: uuid
+          description: Unique lease identifier
+        fencing_token:
+          type: integer
+          description: Monotonically increasing fencing token for safety
+        expires_at:
+          type: string
+          format: date-time
+          description: Lock expiration time in RFC3339 format
+        holder:
+          type: string
+          description: GitHub username of the lock holder
+      required:
+        - status
+        - name
+        - lease_id
+        - fencing_token
+        - expires_at
+        - holder
+      example:
+        status: "acquired"
+        name: "my-resource"
+        lease_id: "550e8400-e29b-41d4-a716-446655440000"
+        fencing_token: 42
+        expires_at: "2024-01-01T12:00:00Z"
+        holder: "username"
+
+    LockConflict:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "Lock already held"
+        lock:
+          type: object
+          properties:
+            name:
+              type: string
+            holder:
+              type: string
+              description: Current holder's GitHub username
+            expires_at:
+              type: string
+              format: date-time
+      required:
+        - error
+        - lock
+
+    LockNotHeld:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [available]
+        name:
+          type: string
+        message:
+          type: string
+          example: "Lock not currently held"
+      required:
+        - status
+        - name
+
+    LockInfo:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Lock name
+        lease_id:
+          type: string
+          format: uuid
+          description: Lease identifier
+        fencing_token:
+          type: integer
+          description: Current fencing token
+        expires_at:
+          type: string
+          format: date-time
+          description: Lock expiration time
+      required:
+        - name
+        - lease_id
+        - fencing_token
+        - expires_at
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error message
+        details:
+          type: string
+          description: Additional error details (optional)
+      required:
+        - error
+
+  responses:
+    Unauthorized:
+      description: Invalid or missing authentication token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "Invalid or missing authorization header"
+
+    LockNotFound:
+      description: Lock not found or not owned by caller
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "Lock not found or not owned by caller"
+
+    ValidationError:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            invalid_ttl:
+              summary: Invalid TTL
+              value:
+                error: "TTL must be between 1 and 3600 seconds"
+            invalid_uuid:
+              summary: Invalid lease ID
+              value:
+                error: "Invalid lease_id format"
+
+tags:
+  - name: Authentication
+    description: GitHub OAuth and token management
+  - name: Locks
+    description: Distributed lock operations
+  - name: System
+    description: System health and status
