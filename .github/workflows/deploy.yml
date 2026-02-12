@@ -46,11 +46,14 @@ jobs:
             # Update source for site/config changes
             git pull origin main
             
+            # Stop service before swapping binary (avoids "Text file busy")
+            sudo systemctl stop octostore-lock
+            
             # Swap binary
             cp /tmp/octostore-lock-new target/release/octostore-lock
             rm /tmp/octostore-lock-new
             
-            # Restart
-            sudo systemctl restart octostore-lock
+            # Start service
+            sudo systemctl start octostore-lock
             sleep 2
             curl -sf http://localhost:3030/docs > /dev/null && echo "Deploy successful" || echo "DEPLOY FAILED"
