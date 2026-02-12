@@ -1,15 +1,32 @@
-name: Deploy
+name: Release & Deploy
 
 on:
   release:
     types: [published]
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
 
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Upload binary to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: target/release/octostore-lock
+          asset_name: octostore-lock-linux-amd64
+          tag: ${{ github.ref }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
       - name: Deploy to production
         uses: appleboy/ssh-action@v1
         with:
@@ -17,9 +34,23 @@ jobs:
           username: daaronch
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
+            set -e
             cd /opt/octostore-lock
+            
+            # Download the pre-compiled binary from the release
+            RELEASE_TAG="${{ github.event.release.tag_name }}"
+            curl -sL -o /tmp/octostore-lock-new \
+              "https://github.com/octostore/octostore.io/releases/download/${RELEASE_TAG}/octostore-lock-linux-amd64"
+            chmod +x /tmp/octostore-lock-new
+            
+            # Update source for site/config changes
             git pull origin main
-            cargo build --release
+            
+            # Swap binary
+            cp /tmp/octostore-lock-new target/release/octostore-lock
+            rm /tmp/octostore-lock-new
+            
+            # Restart
             sudo systemctl restart octostore-lock
             sleep 2
             curl -sf http://localhost:3030/docs > /dev/null && echo "Deploy successful" || echo "DEPLOY FAILED"
