@@ -380,3 +380,532 @@ pub async fn rotate_token(
         github_username,
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use rusqlite::Connection;
+    use std::collections::HashMap;
+    use tempfile::NamedTempFile;
+    use uuid::Uuid;
+
+    fn create_test_config() -> Config {
+        Config {
+            bind_addr: "127.0.0.1:3000".to_string(),
+            database_url: ":memory:".to_string(), // Use in-memory SQLite for tests
+            github_client_id: "test_client_id".to_string(),
+            github_client_secret: "test_client_secret".to_string(),
+            github_redirect_uri: "http://localhost:3000/callback".to_string(),
+            admin_key: Some("test_admin_key".to_string()),
+        }
+    }
+
+    fn create_test_auth_service() -> AuthService {
+        let config = create_test_config();
+        AuthService::new(config).unwrap()
+    }
+
+    #[test]
+    fn test_auth_service_new() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let db_path = temp_file.path().to_str().unwrap();
+        
+        let mut config = create_test_config();
+        config.database_url = db_path.to_string();
+        
+        let auth_service = AuthService::new(config).unwrap();
+        
+        // Check that tables were created
+        let conn = auth_service.db.lock().unwrap();
+        
+        // Check users table
+        let table_exists: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='users'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(table_exists, 1);
+        
+        // Check fencing_counter table
+        let table_exists: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='fencing_counter'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(table_exists, 1);
+        
+        // Check fencing counter was initialized
+        let counter: u64 = conn.query_row(
+            "SELECT counter FROM fencing_counter WHERE id = 1",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(counter, 0);
+    }
+
+    #[test]
+    fn test_github_auth_url() {
+        let auth_service = create_test_auth_service();
+        let url = auth_service.github_auth_url();
+        
+        assert!(url.contains("https://github.com/login/oauth/authorize"));
+        assert!(url.contains("client_id=test_client_id"));
+        assert!(url.contains("redirect_uri="));
+        assert!(url.contains("scope=user%3Aemail"));
+    }
+
+    #[test]
+    fn test_generate_token() {
+        let auth_service = create_test_auth_service();
+        
+        let token1 = auth_service.generate_token();
+        let token2 = auth_service.generate_token();
+        
+        // Tokens should be different
+        assert_ne!(token1, token2);
+        
+        // Tokens should be base64 encoded (check for typical base64 chars)
+        assert!(token1.len() > 0);
+        assert!(token1.chars().all(|c| c.is_ascii_alphanumeric() || c == '/' || c == '+' || c == '='));
+    }
+
+    #[test]
+    fn test_create_or_get_user_new() {
+        let auth_service = create_test_auth_service();
+        
+        let github_user = GitHubUser {
+            id: 12345,
+            login: "testuser".to_string(),
+        };
+        
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let user = runtime.block_on(auth_service.create_or_get_user(github_user)).unwrap();
+        
+        assert_eq!(user.github_id, 12345);
+        assert_eq!(user.github_username, "testuser");
+        assert!(!user.token.is_empty());
+        assert_eq!(user.id.to_string().len(), 36); // UUID length
+        
+        // Check that user was saved to database
+        let conn = auth_service.db.lock().unwrap();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM users WHERE github_id = ?",
+            params![12345],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 1);
+        
+        // Check token cache
+        assert!(auth_service.token_cache.contains_key(&user.token));
+        assert_eq!(auth_service.token_cache.get(&user.token).unwrap().value(), &user.id);
+    }
+
+    #[test]
+    fn test_create_or_get_user_existing() {
+        let auth_service = create_test_auth_service();
+        
+        let github_user = GitHubUser {
+            id: 12345,
+            login: "testuser".to_string(),
+        };
+        
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        
+        // Create user first time
+        let user1 = runtime.block_on(auth_service.create_or_get_user(github_user.clone())).unwrap();
+        
+        // Create same user again - should return existing
+        let user2 = runtime.block_on(auth_service.create_or_get_user(github_user)).unwrap();
+        
+        assert_eq!(user1.id, user2.id);
+        assert_eq!(user1.github_id, user2.github_id);
+        assert_eq!(user1.token, user2.token);
+        assert_eq!(user1.created_at, user2.created_at);
+        
+        // Should still be only one user in database
+        let conn = auth_service.db.lock().unwrap();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM users",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_authenticate_valid_token() {
+        let auth_service = create_test_auth_service();
+        
+        // Create a user first
+        let github_user = GitHubUser {
+            id: 12345,
+            login: "testuser".to_string(),
+        };
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let user = runtime.block_on(auth_service.create_or_get_user(github_user)).unwrap();
+        
+        // Test authentication with valid token
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {}", user.token).parse().unwrap());
+        
+        let user_id = auth_service.authenticate(&headers).unwrap();
+        assert_eq!(user_id, user.id);
+    }
+
+    #[test]
+    fn test_authenticate_invalid_token() {
+        let auth_service = create_test_auth_service();
+        
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", "Bearer invalid_token".parse().unwrap());
+        
+        let result = auth_service.authenticate(&headers);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), AppError::Unauthorized));
+    }
+
+    #[test]
+    fn test_authenticate_missing_header() {
+        let auth_service = create_test_auth_service();
+        
+        let headers = HeaderMap::new();
+        let result = auth_service.authenticate(&headers);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), AppError::MissingAuth));
+    }
+
+    #[test]
+    fn test_authenticate_invalid_format() {
+        let auth_service = create_test_auth_service();
+        
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", "InvalidFormat token".parse().unwrap());
+        
+        let result = auth_service.authenticate(&headers);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), AppError::MissingAuth));
+    }
+
+    #[test]
+    fn test_authenticate_cache_population() {
+        let auth_service = create_test_auth_service();
+        
+        // Create user but clear cache to simulate cache miss
+        let github_user = GitHubUser {
+            id: 12345,
+            login: "testuser".to_string(),
+        };
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let user = runtime.block_on(auth_service.create_or_get_user(github_user)).unwrap();
+        
+        // Clear the cache
+        auth_service.token_cache.clear();
+        assert!(!auth_service.token_cache.contains_key(&user.token));
+        
+        // Authenticate should populate cache
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {}", user.token).parse().unwrap());
+        
+        let user_id = auth_service.authenticate(&headers).unwrap();
+        assert_eq!(user_id, user.id);
+        
+        // Cache should now contain the token
+        assert!(auth_service.token_cache.contains_key(&user.token));
+        assert_eq!(auth_service.token_cache.get(&user.token).unwrap().value(), &user.id);
+    }
+
+    #[test]
+    fn test_rotate_token() {
+        let auth_service = create_test_auth_service();
+        
+        // Create a user first
+        let github_user = GitHubUser {
+            id: 12345,
+            login: "testuser".to_string(),
+        };
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let user = runtime.block_on(auth_service.create_or_get_user(github_user)).unwrap();
+        let original_token = user.token.clone();
+        
+        // Rotate token
+        let new_token = runtime.block_on(auth_service.rotate_token(&original_token)).unwrap();
+        assert_ne!(original_token, new_token);
+        
+        // Old token should no longer work
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {}", original_token).parse().unwrap());
+        let result = auth_service.authenticate(&headers);
+        assert!(result.is_err());
+        
+        // New token should work
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {}", new_token).parse().unwrap());
+        let user_id = auth_service.authenticate(&headers).unwrap();
+        assert_eq!(user_id, user.id);
+        
+        // Cache should be updated
+        assert!(!auth_service.token_cache.contains_key(&original_token));
+        assert!(auth_service.token_cache.contains_key(&new_token));
+    }
+
+    #[test]
+    fn test_rotate_token_invalid() {
+        let auth_service = create_test_auth_service();
+        
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let result = runtime.block_on(auth_service.rotate_token("invalid_token"));
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), AppError::Unauthorized));
+    }
+
+    #[test]
+    fn test_fencing_counter() {
+        let auth_service = create_test_auth_service();
+        
+        // Initial counter should be 0
+        let counter = auth_service.load_fencing_counter().unwrap();
+        assert_eq!(counter, 0);
+        
+        // Update counter
+        auth_service.save_fencing_counter(42).unwrap();
+        let counter = auth_service.load_fencing_counter().unwrap();
+        assert_eq!(counter, 42);
+        
+        // Update again
+        auth_service.save_fencing_counter(100).unwrap();
+        let counter = auth_service.load_fencing_counter().unwrap();
+        assert_eq!(counter, 100);
+    }
+
+    #[test]
+    fn test_get_user_by_id() {
+        let auth_service = create_test_auth_service();
+        
+        // Create a user
+        let github_user = GitHubUser {
+            id: 12345,
+            login: "testuser".to_string(),
+        };
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let user = runtime.block_on(auth_service.create_or_get_user(github_user)).unwrap();
+        
+        // Test getting existing user
+        let username = auth_service.get_user_by_id(&user.id.to_string()).unwrap();
+        assert_eq!(username, Some("testuser".to_string()));
+        
+        // Test getting non-existent user
+        let random_id = Uuid::new_v4();
+        let username = auth_service.get_user_by_id(&random_id.to_string()).unwrap();
+        assert_eq!(username, None);
+    }
+
+    #[test]
+    fn test_get_all_users() {
+        let auth_service = create_test_auth_service();
+        
+        // Initially no users
+        let users = auth_service.get_all_users().unwrap();
+        assert_eq!(users.len(), 0);
+        
+        // Create some users
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        
+        let user1 = GitHubUser { id: 1, login: "user1".to_string() };
+        let user2 = GitHubUser { id: 2, login: "user2".to_string() };
+        
+        runtime.block_on(auth_service.create_or_get_user(user1)).unwrap();
+        runtime.block_on(auth_service.create_or_get_user(user2)).unwrap();
+        
+        // Get all users
+        let users = auth_service.get_all_users().unwrap();
+        assert_eq!(users.len(), 2);
+        
+        // Check user data
+        let usernames: Vec<&str> = users.iter()
+            .map(|u| u["github_username"].as_str().unwrap())
+            .collect();
+        assert!(usernames.contains(&"user1"));
+        assert!(usernames.contains(&"user2"));
+        
+        // Check that each user has required fields
+        for user in &users {
+            assert!(user["id"].is_string());
+            assert!(user["github_username"].is_string());
+            assert!(user["created_at"].is_string());
+        }
+    }
+
+    #[test]
+    fn test_token_cache_preload() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let db_path = temp_file.path().to_str().unwrap();
+        
+        let mut config = create_test_config();
+        config.database_url = db_path.to_string();
+        
+        // Create initial auth service and add some users
+        {
+            let auth_service = AuthService::new(config.clone()).unwrap();
+            let runtime = tokio::runtime::Runtime::new().unwrap();
+            
+            let user1 = GitHubUser { id: 1, login: "user1".to_string() };
+            let user2 = GitHubUser { id: 2, login: "user2".to_string() };
+            
+            runtime.block_on(auth_service.create_or_get_user(user1)).unwrap();
+            runtime.block_on(auth_service.create_or_get_user(user2)).unwrap();
+        }
+        
+        // Create new auth service - should preload existing tokens
+        let auth_service = AuthService::new(config).unwrap();
+        assert_eq!(auth_service.token_cache.len(), 2);
+    }
+
+    #[test]
+    fn test_concurrent_token_operations() {
+        use std::sync::Arc;
+        use std::thread;
+        
+        let auth_service = Arc::new(create_test_auth_service());
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        
+        // Create some users first
+        let mut user_tokens = Vec::new();
+        for i in 0..5 {
+            let github_user = GitHubUser {
+                id: i,
+                login: format!("user{}", i),
+            };
+            let user = runtime.block_on(auth_service.create_or_get_user(github_user)).unwrap();
+            user_tokens.push(user.token);
+        }
+        
+        // Test concurrent authentication
+        let mut handles = vec![];
+        for token in user_tokens {
+            let auth_service_clone = auth_service.clone();
+            let handle = thread::spawn(move || {
+                for _ in 0..10 {
+                    let mut headers = HeaderMap::new();
+                    headers.insert("authorization", format!("Bearer {}", token).parse().unwrap());
+                    let result = auth_service_clone.authenticate(&headers);
+                    assert!(result.is_ok());
+                }
+            });
+            handles.push(handle);
+        }
+        
+        for handle in handles {
+            handle.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn test_database_error_handling() {
+        // Create auth service with invalid database path
+        let config = Config {
+            bind_addr: "127.0.0.1:3000".to_string(),
+            database_url: "/invalid/path/database.db".to_string(),
+            github_client_id: "test_client_id".to_string(),
+            github_client_secret: "test_client_secret".to_string(),
+            github_redirect_uri: "http://localhost:3000/callback".to_string(),
+            admin_key: Some("test_admin_key".to_string()),
+        };
+        
+        let result = AuthService::new(config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_token_cache_isolation() {
+        let auth_service = create_test_auth_service();
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        
+        // Create users for different scenarios
+        let user1 = GitHubUser { id: 1, login: "user1".to_string() };
+        let user2 = GitHubUser { id: 2, login: "user2".to_string() };
+        
+        let user1_obj = runtime.block_on(auth_service.create_or_get_user(user1)).unwrap();
+        let user2_obj = runtime.block_on(auth_service.create_or_get_user(user2)).unwrap();
+        
+        // Verify cache contains both tokens
+        assert!(auth_service.token_cache.contains_key(&user1_obj.token));
+        assert!(auth_service.token_cache.contains_key(&user2_obj.token));
+        
+        // Rotate user1's token
+        let new_token = runtime.block_on(auth_service.rotate_token(&user1_obj.token)).unwrap();
+        
+        // Cache should be updated correctly
+        assert!(!auth_service.token_cache.contains_key(&user1_obj.token)); // Old token removed
+        assert!(auth_service.token_cache.contains_key(&new_token));         // New token added
+        assert!(auth_service.token_cache.contains_key(&user2_obj.token));  // Other user unaffected
+        
+        // User IDs should still map correctly
+        assert_eq!(auth_service.token_cache.get(&new_token).unwrap().value(), &user1_obj.id);
+        assert_eq!(auth_service.token_cache.get(&user2_obj.token).unwrap().value(), &user2_obj.id);
+    }
+
+    #[test]
+    fn test_edge_cases() {
+        let auth_service = create_test_auth_service();
+        
+        // Test empty authorization header value
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", "".parse().unwrap());
+        let result = auth_service.authenticate(&headers);
+        assert!(result.is_err());
+        
+        // Test malformed bearer token
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", "Bearer".parse().unwrap()); // No space or token
+        let result = auth_service.authenticate(&headers);
+        assert!(result.is_err());
+        
+        // Test non-UTF8 authorization header (shouldn't happen in practice but test robustness)
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", "Bearer \x80\x81".parse().unwrap_or_default());
+        let result = auth_service.authenticate(&headers);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_github_callback_query_deserialization() {
+        // Test with state
+        let json = r#"{"code":"auth_code_123","state":"random_state"}"#;
+        let query: GitHubCallbackQuery = serde_json::from_str(json).unwrap();
+        assert_eq!(query.code, "auth_code_123");
+        assert_eq!(query.state, Some("random_state".to_string()));
+        
+        // Test without state
+        let json = r#"{"code":"auth_code_456"}"#;
+        let query: GitHubCallbackQuery = serde_json::from_str(json).unwrap();
+        assert_eq!(query.code, "auth_code_456");
+        assert_eq!(query.state, None);
+    }
+
+    #[test]
+    fn test_auth_service_config_validation() {
+        // Test that config values are properly stored
+        let config = Config {
+            bind_addr: "127.0.0.1:8080".to_string(),
+            database_url = ":memory:".to_string(),
+            github_client_id: "custom_client_id".to_string(),
+            github_client_secret: "custom_secret".to_string(),
+            github_redirect_uri: "https://custom.example.com/callback".to_string(),
+            admin_key: Some("custom_admin_key".to_string()),
+        };
+        
+        let auth_service = AuthService::new(config.clone()).unwrap();
+        
+        // Check that config is stored correctly
+        assert_eq!(auth_service.config.github_client_id, "custom_client_id");
+        assert_eq!(auth_service.config.github_client_secret, "custom_secret");
+        assert_eq!(auth_service.config.github_redirect_uri, "https://custom.example.com/callback");
+        assert_eq!(auth_service.config.admin_key, Some("custom_admin_key".to_string()));
+        
+        // Check that GitHub URL uses the correct config
+        let url = auth_service.github_auth_url();
+        assert!(url.contains("client_id=custom_client_id"));
+        assert!(url.contains("redirect_uri=https%3A%2F%2Fcustom.example.com%2Fcallback"));
+    }
+}

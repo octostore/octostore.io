@@ -300,3 +300,394 @@ pub async fn list_rate_limits(
     
     Ok(Json(ListRateLimitsResponse { limits }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{Duration, Utc};
+    use tokio::time::{sleep, Duration as TokioDuration};
+
+    #[test]
+    fn test_rate_limit_store_new() {
+        let store = RateLimitStore::new();
+        assert_eq!(store.limits.len(), 0);
+    }
+
+    #[test]
+    fn test_check_rate_limit_allows_within_limit() {
+        let store = RateLimitStore::new();
+        let user_id = Uuid::new_v4();
+        let limit_name = "test_limit";
+        
+        // First request should be allowed
+        let result = store.check_rate_limit(user_id, limit_name, 5, 60);
+        assert!(result.allowed);
+        assert_eq!(result.remaining, 4);
+        assert!(result.retry_after_seconds.is_none());
+        
+        // Second request should also be allowed
+        let result = store.check_rate_limit(user_id, limit_name, 5, 60);
+        assert!(result.allowed);
+        assert_eq!(result.remaining, 3);
+    }
+
+    #[test]
+    fn test_check_rate_limit_blocks_over_limit() {
+        let store = RateLimitStore::new();
+        let user_id = Uuid::new_v4();
+        let limit_name = "test_limit";
+        
+        // Use up all requests
+        for i in 0..3 {
+            let result = store.check_rate_limit(user_id, limit_name, 3, 60);
+            assert!(result.allowed);
+            assert_eq!(result.remaining, 2 - i);
+        }
+        
+        // Next request should be blocked
+        let result = store.check_rate_limit(user_id, limit_name, 3, 60);
+        assert!(!result.allowed);
+        assert_eq!(result.remaining, 0);
+        assert!(result.retry_after_seconds.is_some());
+        assert!(result.retry_after_seconds.unwrap() <= 60);
+    }
+
+    #[test]
+    fn test_check_rate_limit_per_key_isolation() {
+        let store = RateLimitStore::new();
+        let user1 = Uuid::new_v4();
+        let user2 = Uuid::new_v4();
+        let limit_name = "test_limit";
+        
+        // User 1 uses up their limit
+        for _ in 0..3 {
+            let result = store.check_rate_limit(user1, limit_name, 3, 60);
+            assert!(result.allowed);
+        }
+        
+        // User 1 is blocked
+        let result = store.check_rate_limit(user1, limit_name, 3, 60);
+        assert!(!result.allowed);
+        
+        // User 2 should still be allowed (different key)
+        let result = store.check_rate_limit(user2, limit_name, 3, 60);
+        assert!(result.allowed);
+        assert_eq!(result.remaining, 2);
+        
+        // Same user, different limit name should also be allowed
+        let result = store.check_rate_limit(user1, "different_limit", 3, 60);
+        assert!(result.allowed);
+        assert_eq!(result.remaining, 2);
+    }
+
+    #[test]
+    fn test_rate_limit_window_expiry() {
+        let store = RateLimitStore::new();
+        let user_id = Uuid::new_v4();
+        let limit_name = "test_limit";
+        
+        // Create a rate limit window manually with past window_start
+        let past_time = Utc::now() - Duration::seconds(120); // 2 minutes ago
+        let window = RateLimitWindow {
+            window_start: past_time,
+            count: 5,
+            max_requests: 3,
+            window_seconds: 60, // 1 minute window
+        };
+        let key = (user_id, limit_name.to_string());
+        store.limits.insert(key, window);
+        
+        // Should create a new window since the old one expired
+        let result = store.check_rate_limit(user_id, limit_name, 3, 60);
+        assert!(result.allowed);
+        assert_eq!(result.remaining, 2); // Should reset to new limit
+    }
+
+    #[test]
+    fn test_get_rate_limit_status_existing() {
+        let store = RateLimitStore::new();
+        let user_id = Uuid::new_v4();
+        let limit_name = "test_limit";
+        
+        // Create some usage
+        store.check_rate_limit(user_id, limit_name, 5, 60);
+        store.check_rate_limit(user_id, limit_name, 5, 60);
+        
+        // Check status
+        let status = store.get_rate_limit_status(user_id, limit_name);
+        assert!(status.is_some());
+        let status = status.unwrap();
+        assert!(status.allowed);
+        assert_eq!(status.remaining, 3);
+    }
+
+    #[test]
+    fn test_get_rate_limit_status_nonexistent() {
+        let store = RateLimitStore::new();
+        let user_id = Uuid::new_v4();
+        let limit_name = "nonexistent";
+        
+        let status = store.get_rate_limit_status(user_id, limit_name);
+        assert!(status.is_none());
+    }
+
+    #[test]
+    fn test_get_rate_limit_status_expired() {
+        let store = RateLimitStore::new();
+        let user_id = Uuid::new_v4();
+        let limit_name = "test_limit";
+        
+        // Create expired window manually
+        let past_time = Utc::now() - Duration::seconds(120);
+        let window = RateLimitWindow {
+            window_start: past_time,
+            count: 2,
+            max_requests: 5,
+            window_seconds: 60,
+        };
+        let key = (user_id, limit_name.to_string());
+        store.limits.insert(key, window);
+        
+        // Should return None since window is expired
+        let status = store.get_rate_limit_status(user_id, limit_name);
+        assert!(status.is_none());
+    }
+
+    #[test]
+    fn test_reset_rate_limit() {
+        let store = RateLimitStore::new();
+        let user_id = Uuid::new_v4();
+        let limit_name = "test_limit";
+        
+        // Create some usage
+        store.check_rate_limit(user_id, limit_name, 5, 60);
+        
+        // Reset should return true and remove the entry
+        let reset = store.reset_rate_limit(user_id, limit_name);
+        assert!(reset);
+        
+        // Should return None after reset
+        let status = store.get_rate_limit_status(user_id, limit_name);
+        assert!(status.is_none());
+        
+        // Resetting non-existent limit should return false
+        let reset = store.reset_rate_limit(user_id, "nonexistent");
+        assert!(!reset);
+    }
+
+    #[test]
+    fn test_list_user_rate_limits() {
+        let store = RateLimitStore::new();
+        let user_id = Uuid::new_v4();
+        let other_user_id = Uuid::new_v4();
+        
+        // Create limits for user
+        store.check_rate_limit(user_id, "limit1", 5, 60);
+        store.check_rate_limit(user_id, "limit1", 5, 60); // Use 2/5
+        store.check_rate_limit(user_id, "limit2", 3, 120);
+        
+        // Create limit for different user (should not appear)
+        store.check_rate_limit(other_user_id, "limit3", 10, 300);
+        
+        let limits = store.list_user_rate_limits(user_id);
+        assert_eq!(limits.len(), 2);
+        
+        // Find limit1
+        let limit1 = limits.iter().find(|l| l.name == "limit1").unwrap();
+        assert_eq!(limit1.max_requests, 5);
+        assert_eq!(limit1.window_seconds, 60);
+        assert_eq!(limit1.current_count, 2);
+        assert_eq!(limit1.remaining, 3);
+        assert!(limit1.allowed);
+        
+        // Find limit2
+        let limit2 = limits.iter().find(|l| l.name == "limit2").unwrap();
+        assert_eq!(limit2.max_requests, 3);
+        assert_eq!(limit2.window_seconds, 120);
+        assert_eq!(limit2.current_count, 1);
+        assert_eq!(limit2.remaining, 2);
+        assert!(limit2.allowed);
+    }
+
+    #[test]
+    fn test_list_user_rate_limits_excludes_expired() {
+        let store = RateLimitStore::new();
+        let user_id = Uuid::new_v4();
+        
+        // Create current limit
+        store.check_rate_limit(user_id, "current", 5, 60);
+        
+        // Create expired limit manually
+        let past_time = Utc::now() - Duration::seconds(120);
+        let expired_window = RateLimitWindow {
+            window_start: past_time,
+            count: 3,
+            max_requests: 5,
+            window_seconds: 60,
+        };
+        let expired_key = (user_id, "expired".to_string());
+        store.limits.insert(expired_key, expired_window);
+        
+        let limits = store.list_user_rate_limits(user_id);
+        assert_eq!(limits.len(), 1);
+        assert_eq!(limits[0].name, "current");
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_expired() {
+        let store = RateLimitStore::new();
+        let user_id = Uuid::new_v4();
+        
+        // Create current limit
+        store.check_rate_limit(user_id, "current", 5, 60);
+        
+        // Create expired limit manually
+        let past_time = Utc::now() - Duration::seconds(120);
+        let expired_window = RateLimitWindow {
+            window_start: past_time,
+            count: 3,
+            max_requests: 5,
+            window_seconds: 60,
+        };
+        let expired_key = (user_id, "expired".to_string());
+        store.limits.insert(expired_key, expired_window);
+        
+        assert_eq!(store.limits.len(), 2);
+        
+        // Run cleanup
+        store.cleanup_expired().await;
+        
+        // Should only have the current limit left
+        assert_eq!(store.limits.len(), 1);
+        let remaining = store.limits.iter().next().unwrap();
+        assert_eq!(remaining.key().1, "current");
+    }
+
+    #[test]
+    fn test_rate_limit_result_serialization() {
+        let result = RateLimitResult {
+            allowed: true,
+            remaining: 5,
+            reset_at: Utc::now(),
+            retry_after_seconds: None,
+        };
+        
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains("\"allowed\":true"));
+        assert!(json.contains("\"remaining\":5"));
+        assert!(!json.contains("retry_after_seconds")); // Should be omitted when None
+        
+        let blocked_result = RateLimitResult {
+            allowed: false,
+            remaining: 0,
+            reset_at: Utc::now(),
+            retry_after_seconds: Some(30),
+        };
+        
+        let json = serde_json::to_string(&blocked_result).unwrap();
+        assert!(json.contains("\"allowed\":false"));
+        assert!(json.contains("\"retry_after_seconds\":30"));
+    }
+
+    #[test]
+    fn test_check_rate_limit_request_deserialization() {
+        let json = r#"{"max_requests":100,"window_seconds":3600}"#;
+        let req: CheckRateLimitRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.max_requests, 100);
+        assert_eq!(req.window_seconds, 3600);
+    }
+
+    #[test]
+    fn test_user_rate_limit_serialization() {
+        let limit = UserRateLimit {
+            name: "test_limit".to_string(),
+            max_requests: 100,
+            window_seconds: 3600,
+            current_count: 25,
+            remaining: 75,
+            allowed: true,
+            reset_at: Utc::now(),
+        };
+        
+        let json = serde_json::to_string(&limit).unwrap();
+        assert!(json.contains("\"name\":\"test_limit\""));
+        assert!(json.contains("\"max_requests\":100"));
+        assert!(json.contains("\"window_seconds\":3600"));
+        assert!(json.contains("\"current_count\":25"));
+        assert!(json.contains("\"remaining\":75"));
+        assert!(json.contains("\"allowed\":true"));
+    }
+
+    #[test]
+    fn test_rate_limit_edge_cases() {
+        let store = RateLimitStore::new();
+        let user_id = Uuid::new_v4();
+        
+        // Test with limit of 1
+        let result = store.check_rate_limit(user_id, "edge_case_1", 1, 60);
+        assert!(result.allowed);
+        assert_eq!(result.remaining, 0);
+        
+        let result = store.check_rate_limit(user_id, "edge_case_1", 1, 60);
+        assert!(!result.allowed);
+        assert_eq!(result.remaining, 0);
+        
+        // Test with very large window
+        let result = store.check_rate_limit(user_id, "edge_case_2", 1000, 86400);
+        assert!(result.allowed);
+        assert_eq!(result.remaining, 999);
+    }
+
+    #[test]
+    fn test_rate_limit_window_boundary() {
+        let store = RateLimitStore::new();
+        let user_id = Uuid::new_v4();
+        let limit_name = "boundary_test";
+        
+        // Create a window that's about to expire (1 second window)
+        store.check_rate_limit(user_id, limit_name, 1, 1);
+        
+        // Should be blocked immediately
+        let result = store.check_rate_limit(user_id, limit_name, 1, 1);
+        assert!(!result.allowed);
+        
+        // Manually expire the window by setting past time
+        let past_time = Utc::now() - Duration::seconds(2);
+        let expired_window = RateLimitWindow {
+            window_start: past_time,
+            count: 1,
+            max_requests: 1,
+            window_seconds: 1,
+        };
+        let key = (user_id, limit_name.to_string());
+        store.limits.insert(key, expired_window);
+        
+        // Should be allowed again after window expires
+        let result = store.check_rate_limit(user_id, limit_name, 1, 1);
+        assert!(result.allowed);
+    }
+
+    #[test]
+    fn test_saturating_sub_in_remaining_calculation() {
+        let store = RateLimitStore::new();
+        let user_id = Uuid::new_v4();
+        let limit_name = "saturation_test";
+        
+        // Manually create a window where count exceeds max_requests
+        // (This shouldn't happen in normal operation but tests edge case)
+        let window = RateLimitWindow {
+            window_start: Utc::now(),
+            count: 10,
+            max_requests: 5,
+            window_seconds: 60,
+        };
+        let key = (user_id, limit_name.to_string());
+        store.limits.insert(key, window);
+        
+        let status = store.get_rate_limit_status(user_id, limit_name);
+        assert!(status.is_some());
+        let status = status.unwrap();
+        assert_eq!(status.remaining, 0); // Should saturate to 0, not underflow
+        assert!(!status.allowed);
+    }
+}
