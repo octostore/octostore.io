@@ -10,7 +10,7 @@ Sign up with GitHub → get a bearer token → start locking in 30 seconds.
 
 Every existing solution for distributed locking requires you to run your own consensus cluster (etcd, ZooKeeper, Consul) or use a cloud vendor's proprietary service. OctoStore is:
 
-- **One binary** — `./octostore-lock` and you're running
+- **One binary** — `./octostore` and you're running
 - **Simple HTTP API** — no client libraries needed, `curl` works fine
 - **Fencing tokens** — actually safe distributed locking (not Redlock)
 - **Self-hostable** — MIT licensed, zero external dependencies at runtime

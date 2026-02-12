@@ -19,8 +19,8 @@ jobs:
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: target/release/octostore-lock
-          asset_name: octostore-lock-linux-amd64
+          file: target/release/octostore
+          asset_name: octostore-linux-amd64
           tag: ${{ github.ref }}
 
   deploy:
@@ -37,10 +37,10 @@ jobs:
             cd /opt/octostore-lock
             git pull origin main
             RELEASE_TAG="${{ github.event.release.tag_name }}"
-            curl -sL -o /tmp/octostore-lock-new "https://github.com/octostore/octostore.io/releases/download/${RELEASE_TAG}/octostore-lock-linux-amd64"
-            chmod +x /tmp/octostore-lock-new
-            sudo /usr/bin/systemctl stop octostore-lock
-            mv -f /tmp/octostore-lock-new target/release/octostore-lock
-            sudo /usr/bin/systemctl start octostore-lock
+            curl -sL -o /tmp/octostore-new "https://github.com/octostore/octostore.io/releases/download/${RELEASE_TAG}/octostore-linux-amd64"
+            chmod +x /tmp/octostore-new
+            sudo /usr/bin/systemctl stop octostore
+            mv -f /tmp/octostore-new target/release/octostore
+            sudo /usr/bin/systemctl start octostore
             sleep 2
             curl -sf http://localhost:3030/docs > /dev/null && echo "Deploy successful" || echo "DEPLOY FAILED"
