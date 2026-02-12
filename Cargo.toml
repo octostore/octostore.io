@@ -11,6 +11,14 @@ path = "src/bin/integration_test.rs"
 name = "octostore-bench"
 path = "src/bin/benchmark.rs"
 
+[[bin]]
+name = "octostore-fuzz"
+path = "src/bin/fuzz.rs"
+
+[profile.profiling]
+inherits = "release"
+debug = true  # Keep debug symbols for flame graphs
+
 [dependencies]
 axum = "0.7"
 tokio = { version = "1.0", features = ["full"] }
