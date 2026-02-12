@@ -7,6 +7,7 @@ mod store;
 
 use auth::{github_auth, github_callback, rotate_token, AuthService};
 use axum::{
+    extract::State,
     http::HeaderValue,
     response::{Html, IntoResponse, Response},
     routing::{get, post},
@@ -19,8 +20,11 @@ use locks::{acquire_lock, get_lock_status, list_user_locks, release_lock, renew_
 pub struct AppState {
     pub lock_handlers: LockHandlers,
     pub auth_service: AuthService,
+    pub total_acquires: Arc<AtomicU64>,
+    pub total_releases: Arc<AtomicU64>,
+    pub start_time: std::time::Instant,
 }
-use std::sync::Arc;
+use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
 use store::LockStore;
 use tokio::signal;
 use tower_http::cors::CorsLayer;
@@ -97,6 +101,9 @@ async fn main() -> anyhow::Result<()> {
     let app_state = AppState {
         lock_handlers: lock_handlers.clone(),
         auth_service: auth_service.clone(),
+        total_acquires: Arc::new(AtomicU64::new(0)),
+        total_releases: Arc::new(AtomicU64::new(0)),
+        start_time: std::time::Instant::now(),
     };
 
     // Build router
@@ -116,6 +123,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/docs", get(api_docs))
         // Health check
         .route("/health", get(health_check))
+        // Admin routes  
+        .route("/admin/status", get(admin_status))
         // Add CORS layer
         .layer(
             CorsLayer::new()
@@ -149,6 +158,85 @@ async fn main() -> anyhow::Result<()> {
 
 async fn health_check() -> &'static str {
     "OK"
+}
+
+async fn admin_status(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+) -> Result<axum::Json<serde_json::Value>, axum::response::Response> {
+    // Check if user is authenticated and is admin (aronchick)
+    let user_id = match state.auth_service.authenticate(&headers) {
+        Ok(id) => id,
+        Err(_) => {
+            return Err(axum::response::Response::builder()
+                .status(401)
+                .body("Unauthorized".into())
+                .unwrap());
+        }
+    };
+
+    // Check if user is admin
+    match state.auth_service.get_user_by_id(&user_id.to_string()) {
+        Ok(Some(username)) if username == "aronchick" => {
+            // User is admin, continue
+        }
+        _ => {
+            return Err(axum::response::Response::builder()
+                .status(403)
+                .body("Forbidden: Admin access required".into())
+                .unwrap());
+        }
+    }
+
+    // Get all active locks
+    let active_locks = state.lock_handlers.store.get_all_active_locks();
+    let locks: Vec<serde_json::Value> = active_locks
+        .into_iter()
+        .filter_map(|lock| {
+            // Get holder username
+            let holder_username = state.auth_service
+                .get_user_by_id(&lock.holder_id.to_string())
+                .unwrap_or(None)
+                .unwrap_or_else(|| "unknown".to_string());
+
+            let now = chrono::Utc::now();
+            let ttl_remaining = if lock.expires_at > now {
+                (lock.expires_at - now).num_seconds()
+            } else {
+                0
+            };
+
+            Some(serde_json::json!({
+                "name": lock.name,
+                "holder_username": holder_username,
+                "metadata": lock.metadata,
+                "fencing_token": lock.fencing_token,
+                "expires_at": lock.expires_at.to_rfc3339(),
+                "ttl_remaining_seconds": ttl_remaining
+            }))
+        }).collect();
+
+    // Get all registered users
+    let users = state.auth_service.get_all_users().unwrap_or_default();
+
+    let uptime_seconds = state.start_time.elapsed().as_secs();
+    let total_acquires = state.total_acquires.load(Ordering::Relaxed);
+    let total_releases = state.total_releases.load(Ordering::Relaxed);
+    let active_locks = locks.len();
+    let total_users = users.len();
+
+    let response = serde_json::json!({
+        "healthy": true,
+        "uptime_seconds": uptime_seconds,
+        "active_locks": active_locks,
+        "total_users": total_users,
+        "total_acquires": total_acquires,
+        "total_releases": total_releases,
+        "locks": locks,
+        "users": users
+    });
+
+    Ok(axum::Json(response))
 }
 
 async fn shutdown_signal(lock_store: LockStore, auth_service: Arc<AuthService>) {
