@@ -2,10 +2,10 @@ openapi: 3.0.3
 info:
   title: OctoStore API
   description: |
-    Leader election as a service. That's it.
+    Distributed infrastructure services. That's it.
     
-    A simple distributed locking service with GitHub authentication.
-    Provides leader election and mutual exclusion primitives via HTTP API.
+    Simple HTTP services for distributed systems with GitHub authentication.
+    Provides distributed locking, rate limiting, feature flags, and config storage.
   version: 1.0.0
   contact:
     name: OctoStore
@@ -296,6 +296,519 @@ paths:
                 type: string
                 example: "OK"
 
+  /limits/{name}/check:
+    post:
+      tags:
+        - Rate Limits
+      summary: Check rate limit
+      description: Check if an action is allowed and consume a request if so
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+          description: Rate limit name
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                max_requests:
+                  type: integer
+                  minimum: 1
+                  maximum: 10000
+                  description: Maximum requests allowed in the window
+                window_seconds:
+                  type: integer
+                  minimum: 1
+                  maximum: 86400
+                  description: Window size in seconds (max 24 hours)
+              required:
+                - max_requests
+                - window_seconds
+      responses:
+        '200':
+          description: Rate limit check result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  allowed:
+                    type: boolean
+                    description: Whether the request is allowed
+                  remaining:
+                    type: integer
+                    description: Remaining requests in current window
+                  reset_at:
+                    type: string
+                    format: date-time
+                    description: When the rate limit window resets
+                  retry_after_seconds:
+                    type: integer
+                    description: Seconds to wait before retrying (only present if allowed=false)
+                required:
+                  - allowed
+                  - remaining
+                  - reset_at
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /limits/{name}:
+    get:
+      tags:
+        - Rate Limits
+      summary: Get rate limit status
+      description: Get current rate limit status without consuming a request
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Rate limit name
+      responses:
+        '200':
+          description: Rate limit status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  allowed:
+                    type: boolean
+                  remaining:
+                    type: integer
+                  reset_at:
+                    type: string
+                    format: date-time
+                  retry_after_seconds:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Rate limit not found
+    delete:
+      tags:
+        - Rate Limits
+      summary: Reset rate limit
+      description: Reset a rate limit counter
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Rate limit name
+      responses:
+        '200':
+          description: Rate limit reset
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reset:
+                    type: boolean
+                    example: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Rate limit not found
+
+  /limits:
+    get:
+      tags:
+        - Rate Limits
+      summary: List rate limits
+      description: List all active rate limits for the user
+      responses:
+        '200':
+          description: List of user rate limits
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  limits:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        max_requests:
+                          type: integer
+                        window_seconds:
+                          type: integer
+                        current_count:
+                          type: integer
+                        remaining:
+                          type: integer
+                        allowed:
+                          type: boolean
+                        reset_at:
+                          type: string
+                          format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /flags/{name}:
+    put:
+      tags:
+        - Feature Flags
+      summary: Set feature flag
+      description: Create or update a feature flag
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+            minLength: 1
+            maxLength: 100
+          description: Flag name (alphanumeric, underscores, and hyphens only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+                  description: Whether the flag is enabled
+                percentage:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+                  description: Percentage rollout (optional)
+              required:
+                - enabled
+      responses:
+        '200':
+          description: Feature flag set
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  enabled:
+                    type: boolean
+                  percentage:
+                    type: integer
+                  created_at:
+                    type: string
+                    format: date-time
+                  updated_at:
+                    type: string
+                    format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    get:
+      tags:
+        - Feature Flags
+      summary: Get feature flag
+      description: Get feature flag evaluation result
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Flag name
+      responses:
+        '200':
+          description: Feature flag evaluation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  enabled:
+                    type: boolean
+                    description: Evaluated flag result (considers percentage rollout)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    delete:
+      tags:
+        - Feature Flags
+      summary: Delete feature flag
+      description: Delete a feature flag
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Flag name
+      responses:
+        '200':
+          description: Feature flag deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                    example: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Feature flag not found
+
+  /flags:
+    get:
+      tags:
+        - Feature Flags
+      summary: List feature flags
+      description: List all feature flags for the user
+      responses:
+        '200':
+          description: List of user feature flags
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  flags:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        enabled:
+                          type: boolean
+                        percentage:
+                          type: integer
+                        created_at:
+                          type: string
+                          format: date-time
+                        updated_at:
+                          type: string
+                          format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /config/{key}:
+    put:
+      tags:
+        - Config Store
+      summary: Set config value
+      description: Store a configuration value with optional description
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9._-]+$'
+            minLength: 1
+            maxLength: 100
+          description: Config key (alphanumeric, dots, underscores, and hyphens)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                value:
+                  description: Arbitrary JSON value to store
+                description:
+                  type: string
+                  maxLength: 500
+                  description: Optional description
+              required:
+                - value
+      responses:
+        '200':
+          description: Config value set
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key:
+                    type: string
+                  value:
+                    description: The stored JSON value
+                  description:
+                    type: string
+                  version:
+                    type: integer
+                  created_at:
+                    type: string
+                    format: date-time
+                  updated_at:
+                    type: string
+                    format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    get:
+      tags:
+        - Config Store
+      summary: Get config value
+      description: Get current config value or specific version
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Config key
+        - name: version
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Specific version to retrieve
+      responses:
+        '200':
+          description: Config value
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key:
+                    type: string
+                  value:
+                    description: The stored JSON value
+                  description:
+                    type: string
+                  version:
+                    type: integer
+                  created_at:
+                    type: string
+                    format: date-time
+                  updated_at:
+                    type: string
+                    format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Config not found
+    delete:
+      tags:
+        - Config Store
+      summary: Delete config value
+      description: Delete a configuration key and all its history
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Config key
+      responses:
+        '200':
+          description: Config value deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                    example: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Config not found
+
+  /config/{key}/history:
+    get:
+      tags:
+        - Config Store
+      summary: Get config history
+      description: Get version history for a config key
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Config key
+      responses:
+        '200':
+          description: Config version history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  versions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        version:
+                          type: integer
+                        value:
+                          description: The JSON value
+                        description:
+                          type: string
+                        created_at:
+                          type: string
+                          format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Config not found
+
+  /config:
+    get:
+      tags:
+        - Config Store
+      summary: List config keys
+      description: List all config keys for the user
+      responses:
+        '200':
+          description: List of user config keys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  configs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        key:
+                          type: string
+                        description:
+                          type: string
+                        version:
+                          type: integer
+                        created_at:
+                          type: string
+                          format: date-time
+                        updated_at:
+                          type: string
+                          format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -467,5 +980,11 @@ tags:
     description: GitHub OAuth and token management
   - name: Locks
     description: Distributed lock operations
+  - name: Rate Limits
+    description: Rate limiting with sliding windows
+  - name: Feature Flags
+    description: Feature flag management with percentage rollouts
+  - name: Config Store
+    description: Configuration storage with versioning
   - name: System
     description: System health and status

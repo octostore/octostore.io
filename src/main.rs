@@ -1,9 +1,12 @@
 mod auth;
 mod config;
+mod configstore;
 mod error;
+mod flags;
 mod locks;
 mod metrics;
 mod models;
+mod ratelimit;
 mod store;
 
 use auth::{github_auth, github_callback, rotate_token, AuthService};
@@ -12,16 +15,26 @@ use axum::{
     http::HeaderValue,
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, post, put},
     Router,
 };
 use config::Config;
+use configstore::{
+    delete_config, get_config, get_config_history, list_configs, set_config, ConfigStoreHandlers,
+};
+use flags::{delete_flag, get_flag, list_flags, set_flag, FeatureFlagHandlers};
 use locks::{acquire_lock, get_lock_status, list_user_locks, release_lock, renew_lock, LockHandlers};
 use metrics::{endpoint_from_path, Metrics};
+use ratelimit::{
+    check_rate_limit, get_rate_limit_status, list_rate_limits, reset_rate_limit, RateLimitHandlers,
+};
 
 #[derive(Clone)]
 pub struct AppState {
     pub lock_handlers: LockHandlers,
+    pub ratelimit_handlers: RateLimitHandlers,
+    pub flags_handlers: FeatureFlagHandlers,
+    pub configstore_handlers: ConfigStoreHandlers,
     pub auth_service: AuthService,
     pub config: config::Config,
     pub metrics: Arc<Metrics>,
@@ -164,9 +177,15 @@ async fn main() -> anyhow::Result<()> {
 
     // Create app state
     let lock_handlers = LockHandlers::new(lock_store.clone(), auth_service.clone());
+    let ratelimit_handlers = RateLimitHandlers::new(auth_service.clone());
+    let flags_handlers = FeatureFlagHandlers::new(auth_service.clone());
+    let configstore_handlers = ConfigStoreHandlers::new(auth_service.clone());
     let metrics = Metrics::new();
     let app_state = AppState {
         lock_handlers: lock_handlers.clone(),
+        ratelimit_handlers: ratelimit_handlers.clone(),
+        flags_handlers: flags_handlers.clone(),
+        configstore_handlers: configstore_handlers.clone(),
         auth_service: auth_service.clone(),
         config: config.clone(),
         metrics: metrics.clone(),
@@ -184,6 +203,17 @@ async fn main() -> anyhow::Result<()> {
         .route("/locks/:name/renew", post(renew_lock))
         .route("/locks/:name", get(get_lock_status))
         .route("/locks", get(list_user_locks))
+        // Rate limit routes
+        .route("/limits/:name/check", post(check_rate_limit))
+        .route("/limits/:name", get(get_rate_limit_status).delete(reset_rate_limit))
+        .route("/limits", get(list_rate_limits))
+        // Feature flag routes
+        .route("/flags/:name", put(set_flag).get(get_flag).delete(delete_flag))
+        .route("/flags", get(list_flags))
+        // Config store routes
+        .route("/config/:key", put(set_config).get(get_config).delete(delete_config))
+        .route("/config/:key/history", get(get_config_history))
+        .route("/config", get(list_configs))
         // Documentation routes
         .route("/openapi.yaml", get(openapi_spec))
         .route("/docs", get(api_docs))
@@ -203,7 +233,7 @@ async fn main() -> anyhow::Result<()> {
                     "http://localhost:3000".parse().unwrap(),
                     "http://127.0.0.1:3000".parse().unwrap(),
                 ])
-                .allow_methods([axum::http::Method::GET, axum::http::Method::POST])
+                .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::PUT, axum::http::Method::DELETE])
                 .allow_headers([axum::http::header::AUTHORIZATION, axum::http::header::CONTENT_TYPE])
         )
         // Add state
