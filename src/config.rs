@@ -7,6 +7,7 @@ pub struct Config {
     pub github_client_id: String,
     pub github_client_secret: String,
     pub github_redirect_uri: String,
+    pub admin_key: Option<String>,
 }
 
 impl Config {
@@ -20,6 +21,7 @@ impl Config {
                 .map_err(|_| anyhow::anyhow!("GITHUB_CLIENT_SECRET must be set"))?,
             github_redirect_uri: env::var("GITHUB_REDIRECT_URI")
                 .unwrap_or_else(|_| "http://localhost:3000/auth/github/callback".to_string()),
+            admin_key: env::var("ADMIN_KEY").ok(),
         })
     }
 }
