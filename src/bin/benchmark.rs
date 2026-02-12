@@ -133,7 +133,7 @@ async fn benchmark_worker(
     base_url: String,
     token: String,
     stats: Arc<Stats>,
-    cleanup_locks: Arc<Mutex<Vec<String>>>,
+    lock_list_for_cleanup: Arc<Mutex<Vec<String>>>,
 ) {
     let mut iteration = 0u64;
 
@@ -142,7 +142,7 @@ async fn benchmark_worker(
         let lock_name = format!("bench-{}-{}", worker_id, iteration);
         
         // Store lock name for cleanup
-        cleanup_locks.lock().unwrap().push(lock_name.clone());
+        lock_list_for_cleanup.lock().unwrap().push(lock_name.clone());
 
         // Acquire lock
         let start = Instant::now();
@@ -388,7 +388,7 @@ async fn main() {
         let base_url_clone = base_url.to_string();
         let token_clone = args.token.clone();
         let stats_clone = Arc::clone(&stats);
-        let cleanup_locks_clone = Arc::clone(&cleanup_locks);
+        let lock_list_for_cleanup_clone = Arc::clone(&lock_list_for_cleanup);
 
         let handle = tokio::spawn(benchmark_worker(
             worker_id,
@@ -396,7 +396,7 @@ async fn main() {
             base_url_clone,
             token_clone,
             stats_clone,
-            cleanup_locks_clone,
+            lock_list_for_cleanup_clone,
         ));
         handles.push(handle);
     }
@@ -443,7 +443,7 @@ async fn main() {
     };
 
     // Clean up benchmark locks
-    let cleanup_list = cleanup_locks.lock().unwrap().clone();
+    let cleanup_list = lock_list_for_cleanup.lock().unwrap().clone();
     cleanup_locks(&client, base_url, &args.token, &cleanup_list).await;
 
     // Print final summary
