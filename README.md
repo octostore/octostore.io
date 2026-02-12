@@ -1,208 +1,167 @@
-# Octostore Lock
+# 🐙 OctoStore
 
-A distributed locking service with leader election capabilities. Simple, fast, and reliable.
+**Leader election and distributed locking as a service. That's it.**
 
-## Features
+No Kubernetes. No etcd cluster. No Consul agents. Just a single binary you can self-host, or use the free hosted version at [octostore.io](https://octostore.io).
 
-- **GitHub OAuth Authentication** - Secure user management via GitHub
-- **Distributed Locks** - Acquire, release, and renew locks with TTL
-- **Fencing Tokens** - Monotonically increasing tokens for safe distributed operations
-- **Lock Limits** - Maximum 100 locks per user account
-- **Background Expiry** - Automatic cleanup of expired locks
-- **RESTful API** - Simple HTTP interface
-- **Minimal Dependencies** - Single binary, no external services required
+Sign up with GitHub → get a bearer token → start locking in 30 seconds.
+
+## Why?
+
+Every existing solution for distributed locking requires you to run your own consensus cluster (etcd, ZooKeeper, Consul) or use a cloud vendor's proprietary service. OctoStore is:
+
+- **One binary** — `./octostore-lock` and you're running
+- **Simple HTTP API** — no client libraries needed, `curl` works fine
+- **Fencing tokens** — actually safe distributed locking (not Redlock)
+- **Self-hostable** — MIT licensed, zero external dependencies at runtime
+- **Free hosted** — [api.octostore.io](https://api.octostore.io/docs) if you don't want to run your own
 
 ## Quick Start
 
-### 1. Set up GitHub OAuth App
+### Use the hosted version
 
-1. Go to GitHub → Settings → Developer settings → OAuth Apps
-2. Create a new OAuth app with:
-   - Application name: `Octostore Lock`
-   - Homepage URL: `http://localhost:3000`
-   - Authorization callback URL: `http://localhost:3000/auth/github/callback`
-3. Note down the Client ID and Client Secret
-
-### 2. Configure Environment
-
-Copy the example environment file:
 ```bash
+# Sign in with GitHub
+open https://api.octostore.io/auth/github
+
+# Acquire a lock
+curl -X POST https://api.octostore.io/locks/my-service/acquire \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"ttl_seconds": 60}'
+
+# Response:
+# {"status":"acquired","lease_id":"...","fencing_token":1,"expires_at":"..."}
+```
+
+### Self-host
+
+```bash
+# Download
+curl -fsSL https://octostore.io/install.sh | bash
+
+# Or build from source
+cargo build --release
+
+# Configure
 cp .env.example .env
+# Edit .env with your GitHub OAuth credentials
+
+# Run
+./target/release/octostore-lock
 ```
 
-Edit `.env` with your GitHub OAuth credentials:
+## API
+
+All lock endpoints require `Authorization: Bearer <token>`.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/auth/github` | Start GitHub OAuth flow |
+| `POST` | `/auth/token/rotate` | Rotate your bearer token |
+| `POST` | `/locks/{name}/acquire` | Acquire a lock |
+| `POST` | `/locks/{name}/release` | Release a lock |
+| `POST` | `/locks/{name}/renew` | Extend a lock's TTL |
+| `GET` | `/locks/{name}` | Check lock status |
+| `GET` | `/locks` | List your active locks |
+| `GET` | `/docs` | Interactive API docs (Scalar) |
+| `GET` | `/openapi.yaml` | OpenAPI spec |
+
+### Acquire a lock
+
 ```bash
-GITHUB_CLIENT_ID=your_github_client_id
-GITHUB_CLIENT_SECRET=your_github_client_secret
-GITHUB_REDIRECT_URI=http://localhost:3000/auth/github/callback
-DATABASE_URL=octostore.db
-BIND_ADDR=0.0.0.0:3000
-```
-
-### 3. Run the Service
-
-```bash
-cargo run
-```
-
-The service will start on `http://localhost:3000`
-
-## API Usage
-
-### Authentication
-
-All lock endpoints require a Bearer token in the `Authorization` header.
-
-#### Get GitHub OAuth URL
-```bash
-curl http://localhost:3000/auth/github
-# Follow the redirect to authorize with GitHub
-```
-
-#### Handle OAuth Callback
-The callback endpoint returns your bearer token:
-```json
-{
-  "token": "base64-encoded-token",
-  "user_id": "uuid",
-  "github_username": "your-username"
-}
-```
-
-#### Rotate Token
-```bash
-curl -X POST http://localhost:3000/auth/token/rotate \
-  -H "Authorization: Bearer YOUR_TOKEN"
-```
-
-### Lock Operations
-
-#### Acquire Lock
-```bash
-curl -X POST http://localhost:3000/locks/my-service/acquire \
-  -H "Authorization: Bearer YOUR_TOKEN" \
+curl -X POST https://api.octostore.io/locks/leader/acquire \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"ttl_seconds": 300}'
+  -d '{"ttl_seconds": 60}'
 ```
 
-Response (acquired):
+**Won the lock:**
 ```json
-{
-  "status": "acquired",
-  "lease_id": "uuid",
-  "fencing_token": 42,
-  "expires_at": "2024-01-01T12:00:00Z"
-}
+{"status": "acquired", "lease_id": "uuid", "fencing_token": 42, "expires_at": "2026-02-12T01:00:00Z"}
 ```
 
-Response (held by another user):
+**Someone else has it:**
 ```json
-{
-  "status": "held",
-  "holder_id": "other-user-uuid",
-  "expires_at": "2024-01-01T12:05:00Z"
-}
+{"status": "held", "holder_id": "other-user-uuid", "expires_at": "2026-02-12T00:55:00Z"}
 ```
 
-#### Release Lock
+### Release / Renew
+
 ```bash
-curl -X POST http://localhost:3000/locks/my-service/release \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
+# Release
+curl -X POST https://api.octostore.io/locks/leader/release \
+  -H "Authorization: Bearer $TOKEN" \
   -d '{"lease_id": "your-lease-uuid"}'
+
+# Renew (extend TTL)
+curl -X POST https://api.octostore.io/locks/leader/renew \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"lease_id": "your-lease-uuid", "ttl_seconds": 60}'
 ```
 
-#### Renew Lock
-```bash
-curl -X POST http://localhost:3000/locks/my-service/renew \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"lease_id": "your-lease-uuid", "ttl_seconds": 300}'
-```
+## Constraints
 
-#### Get Lock Status
-```bash
-curl http://localhost:3000/locks/my-service \
-  -H "Authorization: Bearer YOUR_TOKEN"
-```
+- **100 locks** per account
+- **1 hour** max TTL (auto-expires — no zombie locks)
+- Lock names: alphanumeric + hyphens + dots, max 128 chars
+- **Fencing tokens**: monotonically increasing, safe for distributed coordination
 
-Response:
-```json
-{
-  "name": "my-service",
-  "status": "held",
-  "holder_id": "user-uuid",
-  "fencing_token": 42,
-  "expires_at": "2024-01-01T12:00:00Z"
-}
-```
+## Fencing Tokens
 
-#### List Your Locks
-```bash
-curl http://localhost:3000/locks \
-  -H "Authorization: Bearer YOUR_TOKEN"
-```
-
-Response:
-```json
-{
-  "locks": [
-    {
-      "name": "my-service",
-      "lease_id": "uuid",
-      "fencing_token": 42,
-      "expires_at": "2024-01-01T12:00:00Z"
-    }
-  ]
-}
-```
-
-## Lock Constraints
-
-- **Lock Names**: Alphanumeric characters, hyphens, and dots only. Max 128 characters.
-- **TTL Range**: 1 to 3600 seconds (1 hour maximum)
-- **User Limit**: Maximum 100 active locks per user account
-- **Fencing Tokens**: Globally unique, monotonically increasing integers
-
-## Using Fencing Tokens
-
-Fencing tokens help prevent split-brain scenarios in distributed systems:
+Every acquire returns a fencing token — a monotonically increasing integer. Use it to prevent stale lock holders from making writes:
 
 ```python
-# Example: Safe database operation with fencing token
-def write_to_database(data, fencing_token):
-    # Include fencing token in your database operation
-    query = "UPDATE table SET data = ?, fencing_token = ? WHERE fencing_token < ?"
-    result = db.execute(query, (data, fencing_token, fencing_token))
-    
-    if result.rowcount == 0:
-        raise Exception("Operation rejected - newer fencing token exists")
+# Safe write pattern
+def write_with_fence(data, fencing_token):
+    db.execute(
+        "UPDATE state SET data=?, fence=? WHERE fence < ?",
+        (data, fencing_token, fencing_token)
+    )
 ```
+
+This is the thing that makes OctoStore's locking actually *safe*, unlike Redis/Redlock.
+
+## SDKs
+
+Client libraries for all major languages:
+
+| Language | Package |
+|----------|---------|
+| Python | [`sdks/python`](sdks/python) |
+| Go | [`sdks/go`](sdks/go) |
+| Rust | [`sdks/rust`](sdks/rust) |
+| TypeScript | [`sdks/typescript`](sdks/typescript) |
+| Java | [`sdks/java`](sdks/java) |
+| C# | [`sdks/csharp`](sdks/csharp) |
+| Ruby | [`sdks/ruby`](sdks/ruby) |
+| PHP | [`sdks/php`](sdks/php) |
 
 ## Architecture
 
-- **Axum** - Web framework
-- **Tokio** - Async runtime
-- **DashMap** - Concurrent in-memory lock storage
-- **SQLite** - Persistent user accounts and fencing token counter
-- **reqwest** - GitHub OAuth client
+Under the hood:
 
-## Development
+- **Rust** (Axum + Tokio) — because lock services shouldn't have GC pauses
+- **DashMap** — concurrent in-memory lock storage
+- **SQLite** — user accounts + fencing token persistence
+- **GitHub OAuth** — zero-friction signup
 
-### Build
+That's it. No Redis. No Raft. No consensus protocol. One process, one binary, one database file. If the server dies, all locks expire and clients re-acquire. Simple.
+
+## Benchmark
+
 ```bash
 cargo build --release
+./target/release/octostore-bench \
+  --token $TOKEN \
+  --admin-key $KEY \
+  --concurrency 100 \
+  --duration 30
 ```
 
-### Test
-```bash
-cargo test
-```
+## Contributing
 
-### Check (fast compile check)
-```bash
-cargo check
-```
+PRs welcome. This is a community project with no business model.
 
 ## License
 
