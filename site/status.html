@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OctoStore - Admin Status</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0b;
+            --bg-secondary: #111111;
+            --bg-tertiary: #1a1a1b;
+            --text-primary: #ffffff;
+            --text-secondary: #e5e5e5;
+            --text-muted: #a1a1aa;
+            --accent: #6366f1;
+            --accent-hover: #5b5ce8;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --error: #ef4444;
+            --border: rgba(255, 255, 255, 0.08);
+            --border-hover: rgba(255, 255, 255, 0.12);
+            --gradient: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(168, 85, 247, 0.1) 100%);
+            --shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+            --shadow-lg: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-secondary);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* Background decoration */
+        body::before {
+            content: '';
+            position: fixed;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle at 25% 25%, rgba(99, 102, 241, 0.05) 0%, transparent 50%),
+                        radial-gradient(circle at 75% 75%, rgba(168, 85, 247, 0.05) 0%, transparent 50%);
+            z-index: -1;
+            animation: float 20s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: rotate(0deg) scale(1); }
+            50% { transform: rotate(180deg) scale(1.1); }
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 24px;
+            overflow-x: hidden;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 40px;
+            padding: 24px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            font-size: 2rem;
+        }
+
+        .logo-text {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .admin-badge {
+            background: var(--gradient);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.875rem;
+        }
+
+        /* Navigation */
+        .nav {
+            display: flex;
+            gap: 24px;
+            align-items: center;
+        }
+
+        .nav-link {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-weight: 500;
+            padding: 8px 16px;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+
+        .nav-link:hover {
+            color: var(--text-primary);
+            background: var(--bg-tertiary);
+        }
+
+        .nav-link.active {
+            color: var(--text-primary);
+            background: var(--bg-tertiary);
+        }
+
+        /* Status Indicator */
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 32px;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--success);
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.error {
+            background: var(--error);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .status-text {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .last-updated {
+            color: var(--text-muted);
+            font-size: 0.875rem;
+            margin-left: auto;
+        }
+
+        /* Metrics Grid */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 24px;
+            margin-bottom: 40px;
+        }
+
+        .metric-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: var(--shadow);
+            transition: all 0.3s;
+        }
+
+        .metric-card:hover {
+            border-color: var(--border-hover);
+            transform: translateY(-2px);
+        }
+
+        .metric-label {
+            color: var(--text-muted);
+            font-size: 0.875rem;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+
+        .metric-value {
+            color: var(--text-primary);
+            font-size: 2rem;
+            font-weight: 700;
+            line-height: 1;
+        }
+
+        .metric-subtitle {
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            margin-top: 4px;
+        }
+
+        /* Tables */
+        .section {
+            margin-bottom: 40px;
+        }
+
+        .section-title {
+            color: var(--text-primary);
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 16px;
+        }
+
+        .table-container {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: var(--shadow);
+        }
+
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .table th,
+        .table td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .table th {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            font-weight: 600;
+            font-size: 0.875rem;
+        }
+
+        .table td {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+        }
+
+        .table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .table tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        /* Status badges */
+        .ttl-badge {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .ttl-badge.warning {
+            background: rgba(245, 158, 11, 0.1);
+            border-color: rgba(245, 158, 11, 0.3);
+            color: var(--warning);
+        }
+
+        .ttl-badge.error {
+            background: rgba(239, 68, 68, 0.1);
+            border-color: rgba(239, 68, 68, 0.3);
+            color: var(--error);
+        }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-muted);
+        }
+
+        .empty-state-icon {
+            font-size: 3rem;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                gap: 16px;
+                align-items: flex-start;
+            }
+
+            .nav {
+                width: 100%;
+                justify-content: flex-start;
+            }
+
+            .metrics-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .table-container {
+                overflow-x: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="logo-section">
+                <span class="logo-icon">🐙</span>
+                <span class="logo-text">OctoStore</span>
+            </div>
+            <nav class="nav">
+                <a href="/" class="nav-link">Home</a>
+                <a href="/dashboard.html" class="nav-link">Dashboard</a>
+                <a href="/sdks.html" class="nav-link">SDKs</a>
+                <a href="/status.html" class="nav-link active">Status</a>
+            </nav>
+            <div class="admin-badge">🔧 Admin Panel</div>
+        </header>
+
+        <div class="status-indicator">
+            <div class="status-dot" id="statusDot"></div>
+            <span class="status-text" id="statusText">Checking status...</span>
+            <span class="last-updated" id="lastUpdated"></span>
+        </div>
+
+        <div class="metrics-grid" id="metricsGrid">
+            <!-- Metrics will be populated by JavaScript -->
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">Active Locks</h2>
+            <div class="table-container">
+                <table class="table" id="locksTable">
+                    <thead>
+                        <tr>
+                            <th>Lock Name</th>
+                            <th>Holder</th>
+                            <th>Fencing Token</th>
+                            <th>TTL Remaining</th>
+                            <th>Expires At</th>
+                            <th>Metadata</th>
+                        </tr>
+                    </thead>
+                    <tbody id="locksTableBody">
+                        <!-- Locks will be populated by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">Registered Users</h2>
+            <div class="table-container">
+                <table class="table" id="usersTable">
+                    <thead>
+                        <tr>
+                            <th>GitHub Username</th>
+                            <th>User ID</th>
+                            <th>Created At</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usersTableBody">
+                        <!-- Users will be populated by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let refreshInterval;
+        let currentToken = null;
+
+        // Get token from URL parameters or prompt user
+        function getToken() {
+            const urlParams = new URLSearchParams(window.location.search);
+            let token = urlParams.get('token');
+            
+            if (!token) {
+                token = localStorage.getItem('octostore_admin_token');
+            }
+            
+            if (!token) {
+                token = prompt('Please enter your admin token:');
+                if (token) {
+                    localStorage.setItem('octostore_admin_token', token);
+                }
+            }
+            
+            return token;
+        }
+
+        // Format duration from seconds
+        function formatDuration(seconds) {
+            if (seconds < 60) return `${seconds}s`;
+            if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+            if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+            return `${Math.floor(seconds / 86400)}d ${Math.floor((seconds % 86400) / 3600)}h`;
+        }
+
+        // Format TTL with color coding
+        function formatTTL(seconds) {
+            const duration = formatDuration(seconds);
+            let className = '';
+            if (seconds < 60) className = 'error';
+            else if (seconds < 300) className = 'warning';
+            
+            return `<span class="ttl-badge ${className}">${duration}</span>`;
+        }
+
+        // Format timestamp
+        function formatTimestamp(isoString) {
+            return new Date(isoString).toLocaleString();
+        }
+
+        // Fetch admin status
+        async function fetchStatus() {
+            try {
+                currentToken = getToken();
+                if (!currentToken) {
+                    throw new Error('No token provided');
+                }
+
+                const response = await fetch('/admin/status', {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                if (response.status === 401) {
+                    localStorage.removeItem('octostore_admin_token');
+                    location.reload();
+                    return;
+                }
+
+                if (response.status === 403) {
+                    throw new Error('Access denied: Admin privileges required');
+                }
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                updateUI(data);
+                updateStatus(true, 'Service Healthy');
+
+            } catch (error) {
+                console.error('Failed to fetch status:', error);
+                updateStatus(false, `Error: ${error.message}`);
+            }
+        }
+
+        // Update status indicator
+        function updateStatus(healthy, message) {
+            const statusDot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
+            const lastUpdated = document.getElementById('lastUpdated');
+
+            statusDot.className = `status-dot ${healthy ? '' : 'error'}`;
+            statusText.textContent = message;
+            lastUpdated.textContent = `Updated: ${new Date().toLocaleTimeString()}`;
+        }
+
+        // Update the UI with status data
+        function updateUI(data) {
+            updateMetrics(data);
+            updateLocksTable(data.locks);
+            updateUsersTable(data.users);
+        }
+
+        // Update metrics cards
+        function updateMetrics(data) {
+            const metricsGrid = document.getElementById('metricsGrid');
+            metricsGrid.innerHTML = `
+                <div class="metric-card">
+                    <div class="metric-label">Service Uptime</div>
+                    <div class="metric-value">${formatDuration(data.uptime_seconds)}</div>
+                    <div class="metric-subtitle">Since last restart</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Active Locks</div>
+                    <div class="metric-value">${data.active_locks}</div>
+                    <div class="metric-subtitle">Currently held</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Registered Users</div>
+                    <div class="metric-value">${data.total_users}</div>
+                    <div class="metric-subtitle">Total accounts</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Total Acquires</div>
+                    <div class="metric-value">${data.total_acquires}</div>
+                    <div class="metric-subtitle">All time</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Total Releases</div>
+                    <div class="metric-value">${data.total_releases}</div>
+                    <div class="metric-subtitle">All time</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Success Rate</div>
+                    <div class="metric-value">${data.total_acquires > 0 ? Math.round((data.total_releases / data.total_acquires) * 100) : 0}%</div>
+                    <div class="metric-subtitle">Releases/Acquires</div>
+                </div>
+            `;
+        }
+
+        // Update locks table
+        function updateLocksTable(locks) {
+            const tbody = document.getElementById('locksTableBody');
+            
+            if (!locks || locks.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="6" class="empty-state">
+                            <div class="empty-state-icon">🔓</div>
+                            <div>No active locks</div>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            tbody.innerHTML = locks.map(lock => `
+                <tr>
+                    <td><strong>${lock.name}</strong></td>
+                    <td>@${lock.holder_username}</td>
+                    <td><code>${lock.fencing_token}</code></td>
+                    <td>${formatTTL(lock.ttl_remaining_seconds)}</td>
+                    <td>${formatTimestamp(lock.expires_at)}</td>
+                    <td>${lock.metadata || '<em>none</em>'}</td>
+                </tr>
+            `).join('');
+        }
+
+        // Update users table
+        function updateUsersTable(users) {
+            const tbody = document.getElementById('usersTableBody');
+            
+            if (!users || users.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="3" class="empty-state">
+                            <div class="empty-state-icon">👥</div>
+                            <div>No registered users</div>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            tbody.innerHTML = users.map(user => `
+                <tr>
+                    <td><strong>@${user.github_username}</strong></td>
+                    <td><code>${user.id}</code></td>
+                    <td>${formatTimestamp(user.created_at)}</td>
+                </tr>
+            `).join('');
+        }
+
+        // Initialize the page
+        function init() {
+            // Initial fetch
+            fetchStatus();
+            
+            // Set up auto-refresh every 10 seconds
+            refreshInterval = setInterval(fetchStatus, 10000);
+        }
+
+        // Start when page loads
+        document.addEventListener('DOMContentLoaded', init);
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+            }
+        });
+    </script>
+</body>
+</html>

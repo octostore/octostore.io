@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <PackageId>OctoStore.Client</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>OctoStore</Authors>
+    <Company>OctoStore</Company>
+    <Description>C# client SDK for OctoStore distributed lock service</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/octostore/octostore-lock</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/octostore/octostore-lock</RepositoryUrl>
+    <PackageTags>distributed-locks;concurrency;synchronization;async</PackageTags>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Text.Json" Version="7.0.3" />
+  </ItemGroup>
+
+</Project>
