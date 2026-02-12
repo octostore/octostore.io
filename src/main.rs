@@ -145,6 +145,59 @@ async fn metrics_endpoint(
     Ok(axum::Json(metrics_json))
 }
 
+// Timeseries metrics endpoint - requires admin key
+async fn timeseries_endpoint(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<axum::Json<serde_json::Value>, axum::response::Response> {
+    // Check admin key from header
+    let provided_key = headers
+        .get("x-admin-key")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let admin_key_valid = match (&provided_key, &state.config.admin_key) {
+        (Some(provided), Some(expected)) => provided == expected,
+        _ => false,
+    };
+
+    if !admin_key_valid {
+        // Fall back to OAuth-based admin check
+        let user_id = match state.auth_service.authenticate(&headers) {
+            Ok(id) => id,
+            Err(_) => {
+                return Err(axum::response::Response::builder()
+                    .status(401)
+                    .body("Unauthorized: Provide X-Admin-Key header or valid Bearer token".into())
+                    .unwrap());
+            }
+        };
+
+        match state.auth_service.get_user_by_id(&user_id.to_string()) {
+            Ok(Some(username)) if username == "aronchick" => {}
+            _ => {
+                return Err(axum::response::Response::builder()
+                    .status(403)
+                    .body("Forbidden: Admin access required".into())
+                    .unwrap());
+            }
+        }
+    }
+
+    // Get window parameter (default to "1h")
+    let window = params.get("window").map(|s| s.as_str()).unwrap_or("1h");
+    
+    // Update active locks count in time series before returning data
+    let active_locks = state.lock_handlers.store.get_all_active_locks();
+    state.metrics.update_active_locks_count(active_locks.len() as u64);
+    
+    // Get time series data
+    let timeseries_data = state.metrics.get_timeseries_data(window);
+
+    Ok(axum::Json(timeseries_data))
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Initialize tracing
@@ -221,6 +274,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/health", get(health_check))
         // Admin routes  
         .route("/admin/status", get(admin_status))
+        .route("/admin/metrics/timeseries", get(timeseries_endpoint))
         // Metrics endpoint
         .route("/metrics", get(metrics_endpoint))
         // Add metrics middleware layer
@@ -382,5 +436,593 @@ async fn shutdown_signal(lock_store: LockStore, auth_service: Arc<AuthService>) 
         warn!("Failed to save fencing counter: {}", e);
     } else {
         info!("Saved fencing counter: {}", fencing_counter);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use serde_json::{json, Value};
+    use tempfile::NamedTempFile;
+    use tower::util::ServiceExt; // for oneshot
+    use uuid::Uuid;
+
+    async fn create_test_app() -> Router {
+        let temp_file = NamedTempFile::new().unwrap();
+        let db_path = temp_file.path().to_str().unwrap().to_string();
+        
+        let config = Config {
+            bind_addr: "127.0.0.1:3000".to_string(),
+            database_url: db_path,
+            github_client_id: "test_client_id".to_string(),
+            github_client_secret: "test_client_secret".to_string(),
+            github_redirect_uri: "http://localhost:3000/callback".to_string(),
+            admin_key: Some("test_admin_key".to_string()),
+        };
+
+        let auth_service = AuthService::new(config.clone()).unwrap();
+        let lock_store = LockStore::new(&config.database_url, 0).unwrap();
+        
+        let lock_handlers = LockHandlers::new(lock_store.clone(), auth_service.clone());
+        let ratelimit_handlers = RateLimitHandlers::new(auth_service.clone());
+        let flags_handlers = FeatureFlagHandlers::new(auth_service.clone());
+        let configstore_handlers = ConfigStoreHandlers::new(auth_service.clone());
+        let metrics = Metrics::new();
+        
+        let app_state = AppState {
+            lock_handlers,
+            ratelimit_handlers,
+            flags_handlers,
+            configstore_handlers,
+            auth_service,
+            config,
+            metrics,
+        };
+
+        Router::new()
+            .route("/auth/github", get(github_auth))
+            .route("/auth/github/callback", get(github_callback))
+            .route("/auth/token/rotate", post(rotate_token))
+            .route("/locks/:name/acquire", post(acquire_lock))
+            .route("/locks/:name/release", post(release_lock))
+            .route("/locks/:name/renew", post(renew_lock))
+            .route("/locks/:name", get(get_lock_status))
+            .route("/locks", get(list_user_locks))
+            .route("/limits/:name/check", post(check_rate_limit))
+            .route("/limits/:name", get(get_rate_limit_status).delete(reset_rate_limit))
+            .route("/limits", get(list_rate_limits))
+            .route("/flags/:name", put(set_flag).get(get_flag).delete(delete_flag))
+            .route("/flags", get(list_flags))
+            .route("/config/:key", put(set_config).get(get_config).delete(delete_config))
+            .route("/config/:key/history", get(get_config_history))
+            .route("/config", get(list_configs))
+            .route("/openapi.yaml", get(openapi_spec))
+            .route("/docs", get(api_docs))
+            .route("/health", get(health_check))
+            .route("/admin/status", get(admin_status))
+            .route("/metrics", get(metrics_endpoint))
+            .layer(middleware::from_fn_with_state(app_state.clone(), metrics_middleware))
+            .with_state(app_state)
+    }
+
+    async fn create_test_user(app: &Router) -> (String, Uuid) {
+        let github_user = crate::models::GitHubUser {
+            id: 12345,
+            login: "testuser".to_string(),
+        };
+        
+        // Extract state from app to create user directly (simulating OAuth flow)
+        // In a real test, we'd mock the GitHub OAuth flow
+        let state = app.clone().into_make_service().try_into_inner().unwrap();
+        
+        // This is a bit hacky but works for testing
+        // In production tests, you might want to create a test-specific user creation method
+        let user_token = "test_token_12345";
+        (user_token.to_string(), Uuid::new_v4())
+    }
+
+    #[tokio::test]
+    async fn test_health_check() {
+        let app = create_test_app().await;
+        
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body_str = std::str::from_utf8(&body).unwrap();
+        assert_eq!(body_str, "OK");
+    }
+
+    #[tokio::test]
+    async fn test_openapi_spec() {
+        let app = create_test_app().await;
+        
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/openapi.yaml")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get("content-type").unwrap(),
+            "application/yaml"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_api_docs() {
+        let app = create_test_app().await;
+        
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/docs")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body_str = std::str::from_utf8(&body).unwrap();
+        assert!(body_str.contains("OctoStore API Documentation"));
+        assert!(body_str.contains("@scalar/api-reference"));
+    }
+
+    #[tokio::test]
+    async fn test_github_auth_redirect() {
+        let app = create_test_app().await;
+        
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/auth/github")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
+        
+        let location = response.headers().get("location").unwrap();
+        let location_str = location.to_str().unwrap();
+        assert!(location_str.contains("https://github.com/login/oauth/authorize"));
+        assert!(location_str.contains("client_id=test_client_id"));
+    }
+
+    #[tokio::test]
+    async fn test_authentication_required() {
+        let app = create_test_app().await;
+        
+        // Try to access a protected endpoint without auth
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/locks")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body_json: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body_json["error"], "Authorization header required");
+    }
+
+    #[tokio::test]
+    async fn test_invalid_token() {
+        let app = create_test_app().await;
+        
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/locks")
+                    .header("authorization", "Bearer invalid_token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body_json: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body_json["error"], "Authentication failed");
+    }
+
+    #[tokio::test]
+    async fn test_admin_status_unauthorized() {
+        let app = create_test_app().await;
+        
+        // Try without any auth
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/admin/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        
+        // Try with wrong admin key
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/admin/status")
+                    .header("x-admin-key", "wrong_key")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_admin_status_authorized() {
+        let app = create_test_app().await;
+        
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/admin/status")
+                    .header("x-admin-key", "test_admin_key")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body_json: Value = serde_json::from_slice(&body).unwrap();
+        
+        assert_eq!(body_json["healthy"], true);
+        assert!(body_json["uptime_seconds"].is_number());
+        assert!(body_json["active_locks"].is_number());
+        assert!(body_json["total_users"].is_number());
+        assert!(body_json["locks"].is_array());
+        assert!(body_json["users"].is_array());
+    }
+
+    #[tokio::test]
+    async fn test_metrics_endpoint() {
+        let app = create_test_app().await;
+        
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .header("x-admin-key", "test_admin_key")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body_json: Value = serde_json::from_slice(&body).unwrap();
+        
+        assert!(body_json["uptime_seconds"].is_number());
+        assert!(body_json["total_requests"].is_number());
+        assert!(body_json["requests_per_second"].is_number());
+        assert!(body_json["endpoints"].is_object());
+        assert!(body_json["lock_store"].is_object());
+        assert!(body_json["memory_bytes"].is_number());
+    }
+
+    #[tokio::test]
+    async fn test_invalid_json_body() {
+        let app = create_test_app().await;
+        
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/test-lock/acquire")
+                    .method("POST")
+                    .header("authorization", "Bearer invalid_token")
+                    .header("content-type", "application/json")
+                    .body(Body::from("invalid json"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Should get an error status (400 for bad request or 401 for auth)
+        assert!(response.status().is_client_error());
+    }
+
+    #[tokio::test] 
+    async fn test_lock_name_validation() {
+        let app = create_test_app().await;
+        
+        // Test with invalid lock name (spaces)
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/invalid%20name/acquire")
+                    .method("POST")
+                    .header("authorization", "Bearer invalid_token") // Will fail auth first
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"ttl_seconds":60}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Should get 401 for auth failure (auth is checked before validation)
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_cors_headers() {
+        let app = create_test_app().await;
+        
+        // Make an OPTIONS request to check CORS
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .method("OPTIONS")
+                    .header("origin", "https://octostore.io")
+                    .header("access-control-request-method", "GET")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // CORS layer should handle OPTIONS requests
+        assert!(response.status().is_success() || response.status() == StatusCode::METHOD_NOT_ALLOWED);
+    }
+
+    #[tokio::test]
+    async fn test_rate_limit_endpoints_require_auth() {
+        let app = create_test_app().await;
+        
+        let endpoints = vec![
+            ("/limits/test/check", "POST"),
+            ("/limits/test", "GET"),
+            ("/limits/test", "DELETE"),
+            ("/limits", "GET"),
+        ];
+
+        for (path, method) in endpoints {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(path)
+                        .method(method)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED, 
+                       "Expected 401 for {} {}", method, path);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_flags_endpoints_require_auth() {
+        let app = create_test_app().await;
+        
+        let endpoints = vec![
+            ("/flags/test", "PUT"),
+            ("/flags/test", "GET"),
+            ("/flags/test", "DELETE"),
+            ("/flags", "GET"),
+        ];
+
+        for (path, method) in endpoints {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(path)
+                        .method(method)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED,
+                       "Expected 401 for {} {}", method, path);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_config_endpoints_require_auth() {
+        let app = create_test_app().await;
+        
+        let endpoints = vec![
+            ("/config/test", "PUT"),
+            ("/config/test", "GET"),
+            ("/config/test", "DELETE"),
+            ("/config/test/history", "GET"),
+            ("/config", "GET"),
+        ];
+
+        for (path, method) in endpoints {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(path)
+                        .method(method)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED,
+                       "Expected 401 for {} {}", method, path);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_content_type_handling() {
+        let app = create_test_app().await;
+        
+        // Test without content-type header (should still work for JSON endpoints)
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/test-lock/acquire")
+                    .method("POST")
+                    .header("authorization", "Bearer invalid_token")
+                    // No content-type header
+                    .body(Body::from(r#"{"ttl_seconds":60}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Should fail on auth, not content-type
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_large_request_body() {
+        let app = create_test_app().await;
+        
+        // Create a very large JSON payload
+        let large_metadata = "x".repeat(200_000); // 200KB string
+        let large_request = json!({
+            "ttl_seconds": 60,
+            "metadata": large_metadata
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/test-lock/acquire")
+                    .method("POST")
+                    .header("authorization", "Bearer invalid_token")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&large_request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Should fail on auth first (or potentially request size limits)
+        assert!(response.status().is_client_error());
+    }
+
+    #[tokio::test]
+    async fn test_path_traversal_protection() {
+        let app = create_test_app().await;
+        
+        // Test with path traversal attempt in lock name
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/../../../etc/passwd/acquire")
+                    .method("POST")
+                    .header("authorization", "Bearer invalid_token")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"ttl_seconds":60}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Axum should handle path normalization, but auth will fail first
+        assert!(response.status().is_client_error());
+    }
+
+    #[tokio::test]
+    async fn test_method_not_allowed() {
+        let app = create_test_app().await;
+        
+        // Try PATCH on an endpoint that doesn't support it
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .method("PATCH")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+    }
+
+    #[tokio::test]
+    async fn test_empty_path_segments() {
+        let app = create_test_app().await;
+        
+        // Test with empty path segments
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/locks//acquire")
+                    .method("POST")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Should either be not found or handle gracefully
+        assert!(response.status().is_client_error());
+    }
+
+    #[tokio::test]
+    async fn test_metrics_middleware_basic() {
+        let app = create_test_app().await;
+        
+        // Make a request to trigger metrics recording
+        let _response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Metrics should have been recorded
+        // We can't easily verify this without access to the app state,
+        // but the middleware should run without errors
     }
 }
