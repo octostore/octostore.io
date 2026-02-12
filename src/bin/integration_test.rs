@@ -211,7 +211,7 @@ async fn main() {
     // Test 3: Acquire Lock
     let start = Instant::now();
     match runner.make_request_json("POST", &format!("/locks/{}/acquire", lock_name1), 
-            Some(json!({"ttl_seconds": 60}))).await {
+            Some(json!({"ttl_seconds": 60, "metadata": "service-8i192"}))).await {
         Ok((status, response)) => {
             if status == 200 {
                 if let Some(status_field) = response.get("status").and_then(|s| s.as_str()) {
@@ -272,7 +272,7 @@ async fn main() {
     // Test 5: Double Acquire (idempotent)
     let start = Instant::now();
     match runner.make_request_json("POST", &format!("/locks/{}/acquire", lock_name1), 
-            Some(json!({"ttl_seconds": 60}))).await {
+            Some(json!({"ttl_seconds": 60, "metadata": "service-8i192"}))).await {
         Ok((status, response)) => {
             if status == 200 {
                 if let Some(returned_lease_id) = response.get("lease_id").and_then(|s| s.as_str()) {
@@ -563,6 +563,90 @@ async fn main() {
     }
 
     runner.add_test_result("Fencing Token Monotonicity".to_string(), success, start.elapsed().as_millis(), error_msg);
+
+    // Test 15: Lock with metadata returns metadata when held
+    let start = Instant::now();
+    let metadata_lock = runner.generate_lock_name();
+    let test_metadata = "service-xyz-123";
+    
+    let mut success = false;
+    let mut error_msg = None;
+
+    // First, acquire a lock with metadata
+    match runner.make_request_json("POST", &format!("/locks/{}/acquire", metadata_lock), 
+            Some(json!({"ttl_seconds": 60, "metadata": test_metadata}))).await {
+        Ok((status1, response1)) => {
+            if status1 == 200 {
+                if let Some(returned_metadata) = response1.get("metadata").and_then(|m| m.as_str()) {
+                    if returned_metadata == test_metadata {
+                        // Now try to acquire from a different session (simulate by creating another TestRunner)
+                        let contender_runner = TestRunner::new(runner.base_url.clone(), runner.token.clone(), runner.verbose);
+                        match contender_runner.make_request_json("POST", &format!("/locks/{}/acquire", metadata_lock), 
+                                Some(json!({"ttl_seconds": 60, "metadata": "different-service"}))).await {
+                            Ok((status2, response2)) => {
+                                if status2 == 200 {
+                                    if let Some(status_field) = response2.get("status").and_then(|s| s.as_str()) {
+                                        if status_field == "held" {
+                                            if let Some(held_metadata) = response2.get("metadata").and_then(|m| m.as_str()) {
+                                                if held_metadata == test_metadata {
+                                                    success = true;
+                                                } else {
+                                                    error_msg = Some(format!("Expected held metadata '{}', got '{}'", test_metadata, held_metadata));
+                                                }
+                                            } else {
+                                                error_msg = Some("Missing metadata in held response".to_string());
+                                            }
+                                        } else {
+                                            error_msg = Some(format!("Expected status 'held', got '{}'", status_field));
+                                        }
+                                    } else {
+                                        error_msg = Some("Missing status field".to_string());
+                                    }
+                                } else {
+                                    error_msg = Some(format!("Expected status 200 for second acquire, got {}", status2));
+                                }
+                            }
+                            Err(e) => {
+                                error_msg = Some(format!("Second acquire failed: {}", e));
+                            }
+                        }
+                    } else {
+                        error_msg = Some(format!("Expected acquired metadata '{}', got '{}'", test_metadata, returned_metadata));
+                    }
+                } else {
+                    error_msg = Some("Missing metadata in acquired response".to_string());
+                }
+            } else {
+                error_msg = Some(format!("First acquire failed with status {}", status1));
+            }
+        }
+        Err(e) => {
+            error_msg = Some(format!("First acquire failed: {}", e));
+        }
+    }
+
+    runner.add_test_result("Metadata in Held Response".to_string(), success, start.elapsed().as_millis(), error_msg);
+    runner.add_cleanup_lock(metadata_lock.clone());
+
+    // Test 16: Metadata size validation (>1KB should fail)
+    let start = Instant::now();
+    let big_metadata_lock = runner.generate_lock_name();
+    let big_metadata = "x".repeat(1025); // 1025 bytes, should fail
+    
+    match runner.make_request_json("POST", &format!("/locks/{}/acquire", big_metadata_lock), 
+            Some(json!({"ttl_seconds": 60, "metadata": big_metadata}))).await {
+        Ok((status, _)) => {
+            if status == 400 || status == 500 {
+                runner.add_test_result("Metadata Size Validation".to_string(), true, start.elapsed().as_millis(), None);
+            } else {
+                runner.add_test_result("Metadata Size Validation".to_string(), false, start.elapsed().as_millis(), 
+                    Some(format!("Expected status 400 or 500 for oversized metadata, got {}", status)));
+            }
+        }
+        Err(e) => {
+            runner.add_test_result("Metadata Size Validation".to_string(), false, start.elapsed().as_millis(), Some(e));
+        }
+    }
 
     // Cleanup
     runner.cleanup().await;

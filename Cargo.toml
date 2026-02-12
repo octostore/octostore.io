@@ -27,3 +27,4 @@ base64 = "0.21"
 rand = "0.8"
 urlencoding = "2.1"
 clap = { version = "4.0", features = ["derive"] }
+sha2 = "0.10"
