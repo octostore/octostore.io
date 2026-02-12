@@ -14,11 +14,10 @@ use tokio::{
     select,
     signal,
 };
-// uuid::Uuid removed - not needed
 
 #[derive(Parser, Debug)]
 #[command(name = "octostore-bench")]
-#[command(about = "OctoStore Benchmark Tool")]
+#[command(about = "OctoStore Stress Test & Benchmark")]
 struct Args {
     /// Base URL
     #[arg(long, default_value = "https://api.octostore.io")]
@@ -29,12 +28,16 @@ struct Args {
     token: String,
 
     /// Number of concurrent workers
-    #[arg(long, default_value_t = 10)]
+    #[arg(long, default_value_t = 100)]
     concurrency: u64,
 
     /// Duration in seconds
     #[arg(long, default_value_t = 30)]
     duration: u64,
+
+    /// Number of shared locks workers compete over (contention)
+    #[arg(long, default_value_t = 10)]
+    locks: u64,
 
     /// Admin key (required to prevent abuse)
     #[arg(long)]
@@ -42,15 +45,18 @@ struct Args {
 }
 
 struct Stats {
+    acquire_success: AtomicU64,
+    acquire_contention: AtomicU64,  // Lock already held by someone else
     acquire_latencies: Mutex<Vec<u128>>,
-    status_latencies: Mutex<Vec<u128>>,
-    renew_latencies: Mutex<Vec<u128>>,
-    release_latencies: Mutex<Vec<u128>>,
-    acquire_count: AtomicU64,
     status_count: AtomicU64,
-    renew_count: AtomicU64,
-    release_count: AtomicU64,
-    error_count: AtomicU64,
+    status_latencies: Mutex<Vec<u128>>,
+    renew_success: AtomicU64,
+    renew_fail: AtomicU64,
+    renew_latencies: Mutex<Vec<u128>>,
+    release_success: AtomicU64,
+    release_fail: AtomicU64,
+    release_latencies: Mutex<Vec<u128>>,
+    error_count: AtomicU64,  // network/unexpected errors
     total_ops: AtomicU64,
     start_time: Instant,
     running: AtomicBool,
@@ -59,14 +65,17 @@ struct Stats {
 impl Stats {
     fn new() -> Arc<Self> {
         Arc::new(Self {
+            acquire_success: AtomicU64::new(0),
+            acquire_contention: AtomicU64::new(0),
             acquire_latencies: Mutex::new(Vec::new()),
-            status_latencies: Mutex::new(Vec::new()),
-            renew_latencies: Mutex::new(Vec::new()),
-            release_latencies: Mutex::new(Vec::new()),
-            acquire_count: AtomicU64::new(0),
             status_count: AtomicU64::new(0),
-            renew_count: AtomicU64::new(0),
-            release_count: AtomicU64::new(0),
+            status_latencies: Mutex::new(Vec::new()),
+            renew_success: AtomicU64::new(0),
+            renew_fail: AtomicU64::new(0),
+            renew_latencies: Mutex::new(Vec::new()),
+            release_success: AtomicU64::new(0),
+            release_fail: AtomicU64::new(0),
+            release_latencies: Mutex::new(Vec::new()),
             error_count: AtomicU64::new(0),
             total_ops: AtomicU64::new(0),
             start_time: Instant::now(),
@@ -74,269 +83,188 @@ impl Stats {
         })
     }
 
-    fn record_latency(&self, operation: &str, latency_ms: u128) {
-        match operation {
-            "acquire" => {
-                self.acquire_latencies.lock().unwrap().push(latency_ms);
-                self.acquire_count.fetch_add(1, Ordering::Relaxed);
-            }
-            "status" => {
-                self.status_latencies.lock().unwrap().push(latency_ms);
-                self.status_count.fetch_add(1, Ordering::Relaxed);
-            }
-            "renew" => {
-                self.renew_latencies.lock().unwrap().push(latency_ms);
-                self.renew_count.fetch_add(1, Ordering::Relaxed);
-            }
-            "release" => {
-                self.release_latencies.lock().unwrap().push(latency_ms);
-                self.release_count.fetch_add(1, Ordering::Relaxed);
-            }
-            _ => {}
-        }
-        self.total_ops.fetch_add(1, Ordering::Relaxed);
-    }
-
-    fn record_error(&self) {
-        self.error_count.fetch_add(1, Ordering::Relaxed);
-    }
-
-    fn stop(&self) {
-        self.running.store(false, Ordering::Relaxed);
-    }
-
-    fn is_running(&self) -> bool {
-        self.running.load(Ordering::Relaxed)
-    }
+    fn stop(&self) { self.running.store(false, Ordering::Relaxed); }
+    fn is_running(&self) -> bool { self.running.load(Ordering::Relaxed) }
 }
 
-fn calculate_percentiles(mut values: Vec<u128>) -> (f64, f64, f64, f64, f64) {
-    if values.is_empty() {
-        return (0.0, 0.0, 0.0, 0.0, 0.0);
-    }
-
-    values.sort_unstable();
-    let len = values.len();
-
-    let avg = values.iter().sum::<u128>() as f64 / len as f64;
-    let p50 = values[len * 50 / 100] as f64;
-    let p95 = values[len * 95 / 100] as f64;
-    let p99 = values[len * 99 / 100] as f64;
-    let max = values[len - 1] as f64;
-
-    (avg, p50, p95, p99, max)
+fn percentiles(mut v: Vec<u128>) -> (f64, f64, f64, f64, f64) {
+    if v.is_empty() { return (0.0, 0.0, 0.0, 0.0, 0.0); }
+    v.sort_unstable();
+    let n = v.len();
+    let avg = v.iter().sum::<u128>() as f64 / n as f64;
+    (avg, v[n*50/100] as f64, v[n*95/100] as f64, v[n.saturating_mul(99)/100] as f64, v[n-1] as f64)
 }
 
-async fn benchmark_worker(
+/// Worker that aggressively competes for a shared set of locks.
+/// Each worker picks a random lock from the pool, tries to acquire it,
+/// and if it wins, does status/renew/release. If it loses (contention),
+/// that's tracked as a successful contention event, not an error.
+async fn stress_worker(
     worker_id: u64,
     client: Client,
     base_url: String,
     token: String,
+    num_locks: u64,
     stats: Arc<Stats>,
-    lock_list_for_cleanup: Arc<Mutex<Vec<String>>>,
 ) {
-    // Each worker reuses a single lock name to stay within the 100-lock limit
-    let lock_name = format!("bench-worker-{}", worker_id);
-    lock_list_for_cleanup.lock().unwrap().push(lock_name.clone());
-
+    // Simple fast pseudo-random (xorshift)
+    let mut rng = worker_id.wrapping_mul(2654435761) ^ 0xdeadbeef;
+    
     while stats.is_running() {
+        // Pick a random lock to compete for
+        rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17;
+        let lock_idx = rng % num_locks;
+        let lock_name = format!("stress-lock-{}", lock_idx);
 
-        // Acquire lock
+        // Try to acquire
         let start = Instant::now();
-        let acquire_result = client
+        let result = client
             .post(&format!("{}/locks/{}/acquire", base_url, lock_name))
             .header("Authorization", format!("Bearer {}", token))
-            .json(&json!({"ttl_seconds": 60}))
+            .json(&json!({"ttl_seconds": 10}))
             .send()
             .await;
+        let latency = start.elapsed().as_millis();
+        stats.total_ops.fetch_add(1, Ordering::Relaxed);
 
-        let acquire_latency = start.elapsed().as_millis();
-
-        let lease_id = match acquire_result {
-            Ok(response) if response.status().is_success() => {
-                match response.json::<serde_json::Value>().await {
+        match result {
+            Ok(resp) => {
+                let status = resp.status();
+                match resp.json::<serde_json::Value>().await {
                     Ok(json) => {
-                        stats.record_latency("acquire", acquire_latency);
-                        json.get("lease_id").and_then(|s| s.as_str()).map(|s| s.to_string())
+                        stats.acquire_latencies.lock().unwrap().push(latency);
+                        if status.is_success() {
+                            let acquired = json.get("status")
+                                .and_then(|s| s.as_str())
+                                .map(|s| s == "acquired")
+                                .unwrap_or(false);
+                            
+                            if acquired {
+                                stats.acquire_success.fetch_add(1, Ordering::Relaxed);
+                                let lease_id = json.get("lease_id")
+                                    .and_then(|s| s.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+
+                                if !stats.is_running() || lease_id.is_empty() { continue; }
+
+                                // Won the lock! Do status check
+                                let start = Instant::now();
+                                if let Ok(resp) = client
+                                    .get(&format!("{}/locks/{}", base_url, lock_name))
+                                    .header("Authorization", format!("Bearer {}", token))
+                                    .send().await
+                                {
+                                    let lat = start.elapsed().as_millis();
+                                    if resp.status().is_success() {
+                                        stats.status_count.fetch_add(1, Ordering::Relaxed);
+                                        stats.status_latencies.lock().unwrap().push(lat);
+                                    }
+                                    stats.total_ops.fetch_add(1, Ordering::Relaxed);
+                                }
+
+                                if !stats.is_running() { continue; }
+
+                                // Renew
+                                let start = Instant::now();
+                                if let Ok(resp) = client
+                                    .post(&format!("{}/locks/{}/renew", base_url, lock_name))
+                                    .header("Authorization", format!("Bearer {}", token))
+                                    .json(&json!({"lease_id": lease_id, "ttl_seconds": 10}))
+                                    .send().await
+                                {
+                                    let lat = start.elapsed().as_millis();
+                                    stats.total_ops.fetch_add(1, Ordering::Relaxed);
+                                    if resp.status().is_success() {
+                                        stats.renew_success.fetch_add(1, Ordering::Relaxed);
+                                        stats.renew_latencies.lock().unwrap().push(lat);
+                                    } else {
+                                        stats.renew_fail.fetch_add(1, Ordering::Relaxed);
+                                    }
+                                }
+
+                                if !stats.is_running() { continue; }
+
+                                // Release
+                                let start = Instant::now();
+                                if let Ok(resp) = client
+                                    .post(&format!("{}/locks/{}/release", base_url, lock_name))
+                                    .header("Authorization", format!("Bearer {}", token))
+                                    .json(&json!({"lease_id": lease_id}))
+                                    .send().await
+                                {
+                                    let lat = start.elapsed().as_millis();
+                                    stats.total_ops.fetch_add(1, Ordering::Relaxed);
+                                    if resp.status().is_success() {
+                                        stats.release_success.fetch_add(1, Ordering::Relaxed);
+                                        stats.release_latencies.lock().unwrap().push(lat);
+                                    } else {
+                                        stats.release_fail.fetch_add(1, Ordering::Relaxed);
+                                    }
+                                }
+                            } else {
+                                // Lock held by someone else — contention! This is expected.
+                                stats.acquire_contention.fetch_add(1, Ordering::Relaxed);
+                            }
+                        } else {
+                            // HTTP error but got JSON (e.g. 409 conflict, 429 rate limit)
+                            stats.acquire_contention.fetch_add(1, Ordering::Relaxed);
+                        }
                     }
-                    Err(_) => {
-                        stats.record_error();
-                        None
-                    }
+                    Err(_) => { stats.error_count.fetch_add(1, Ordering::Relaxed); }
                 }
             }
-            _ => {
-                stats.record_error();
-                None
-            }
-        };
-
-        if let Some(lease_id) = lease_id {
-            if !stats.is_running() { break; }
-
-            // Check lock status
-            let start = Instant::now();
-            let status_result = client
-                .get(&format!("{}/locks/{}", base_url, lock_name))
-                .header("Authorization", format!("Bearer {}", token))
-                .send()
-                .await;
-
-            let status_latency = start.elapsed().as_millis();
-
-            match status_result {
-                Ok(response) if response.status().is_success() => {
-                    stats.record_latency("status", status_latency);
-                }
-                _ => {
-                    stats.record_error();
-                }
-            }
-
-            if !stats.is_running() { break; }
-
-            // Renew lock
-            let start = Instant::now();
-            let renew_result = client
-                .post(&format!("{}/locks/{}/renew", base_url, lock_name))
-                .header("Authorization", format!("Bearer {}", token))
-                .json(&json!({"lease_id": lease_id, "ttl_seconds": 60}))
-                .send()
-                .await;
-
-            let renew_latency = start.elapsed().as_millis();
-
-            match renew_result {
-                Ok(response) if response.status().is_success() => {
-                    stats.record_latency("renew", renew_latency);
-                }
-                _ => {
-                    stats.record_error();
-                }
-            }
-
-            if !stats.is_running() { break; }
-
-            // Release lock
-            let start = Instant::now();
-            let release_result = client
-                .post(&format!("{}/locks/{}/release", base_url, lock_name))
-                .header("Authorization", format!("Bearer {}", token))
-                .json(&json!({"lease_id": lease_id}))
-                .send()
-                .await;
-
-            let release_latency = start.elapsed().as_millis();
-
-            match release_result {
-                Ok(response) if response.status().is_success() => {
-                    stats.record_latency("release", release_latency);
-                }
-                _ => {
-                    stats.record_error();
-                }
-            }
+            Err(_) => { stats.error_count.fetch_add(1, Ordering::Relaxed); }
         }
-
-        // Small delay to prevent overwhelming the server
-        sleep(Duration::from_millis(1)).await;
     }
 }
 
-fn draw_progress_bar(elapsed: u64, total: u64) -> String {
-    let percentage = (elapsed as f64 / total as f64).min(1.0);
-    let filled = (40.0 * percentage) as usize;
-    let empty = 40 - filled;
-    format!("{}{}", "━".repeat(filled), "━".repeat(empty))
-}
-
-async fn print_live_stats(stats: Arc<Stats>, total_duration: u64, concurrency: u64) {
-    let mut interval = interval(Duration::from_secs(1));
+async fn live_display(stats: Arc<Stats>, duration: u64, concurrency: u64, num_locks: u64) {
+    let mut tick = interval(Duration::from_secs(1));
     
+    // Print initial header
+    println!();
+    for _ in 0..12 { println!(); }
+
     while stats.is_running() {
         select! {
-            _ = interval.tick() => {
+            _ = tick.tick() => {
                 let elapsed = stats.start_time.elapsed().as_secs();
-                if elapsed > total_duration {
-                    break;
-                }
+                if elapsed > duration { break; }
 
-                let total_ops = stats.total_ops.load(Ordering::Relaxed);
-                let acquires = stats.acquire_count.load(Ordering::Relaxed);
+                let total = stats.total_ops.load(Ordering::Relaxed);
+                let won = stats.acquire_success.load(Ordering::Relaxed);
+                let lost = stats.acquire_contention.load(Ordering::Relaxed);
                 let statuses = stats.status_count.load(Ordering::Relaxed);
-                let renews = stats.renew_count.load(Ordering::Relaxed);
-                let releases = stats.release_count.load(Ordering::Relaxed);
+                let renew_ok = stats.renew_success.load(Ordering::Relaxed);
+                let renew_fail = stats.renew_fail.load(Ordering::Relaxed);
+                let release_ok = stats.release_success.load(Ordering::Relaxed);
+                let release_fail = stats.release_fail.load(Ordering::Relaxed);
                 let errors = stats.error_count.load(Ordering::Relaxed);
+                let ops = if elapsed > 0 { total as f64 / elapsed as f64 } else { 0.0 };
 
-                let ops_per_sec = if elapsed > 0 {
-                    total_ops as f64 / elapsed as f64
-                } else {
-                    0.0
-                };
+                let pct = (elapsed as f64 / duration as f64).min(1.0);
+                let filled = (40.0 * pct) as usize;
+                let bar = format!("{}{}", "━".repeat(filled), "─".repeat(40 - filled));
 
-                // Calculate current stats for live display
-                let (acquire_avg, acquire_p50, acquire_p95, acquire_p99, _) = {
-                    let latencies = stats.acquire_latencies.lock().unwrap();
-                    calculate_percentiles(latencies.clone())
-                };
-
-                let (status_avg, status_p50, status_p95, status_p99, _) = {
-                    let latencies = stats.status_latencies.lock().unwrap();
-                    calculate_percentiles(latencies.clone())
-                };
-
-                let (renew_avg, renew_p50, renew_p95, renew_p99, _) = {
-                    let latencies = stats.renew_latencies.lock().unwrap();
-                    calculate_percentiles(latencies.clone())
-                };
-
-                let (release_avg, release_p50, release_p95, release_p99, _) = {
-                    let latencies = stats.release_latencies.lock().unwrap();
-                    calculate_percentiles(latencies.clone())
-                };
-
-                // Clear line and move cursor up to overwrite previous output
-                print!("\r\x1b[K\x1b[8A\x1b[K");
-
-                println!("\x1b[1m🐙 OctoStore Benchmark — {} workers, {}s\x1b[0m", concurrency, total_duration);
-                println!("{}", draw_progress_bar(elapsed, total_duration));
-                println!(" \x1b[32m⏱\x1b[0m  Elapsed: {}s / {}s", elapsed, total_duration);
-                println!(" \x1b[36m📊\x1b[0m Operations: {} total ({:.1} ops/sec)", total_ops, ops_per_sec);
-                println!(" \x1b[33m🔒\x1b[0m Acquires:   {} (avg {:.1}ms, p50 {:.1}ms, p95 {:.1}ms, p99 {:.1}ms)", 
-                    acquires, acquire_avg, acquire_p50, acquire_p95, acquire_p99);
-                println!(" \x1b[34m👀\x1b[0m Statuses:   {} (avg {:.1}ms, p50 {:.1}ms, p95 {:.1}ms, p99 {:.1}ms)", 
-                    statuses, status_avg, status_p50, status_p95, status_p99);
-                println!(" \x1b[35m🔄\x1b[0m Renews:     {} (avg {:.1}ms, p50 {:.1}ms, p95 {:.1}ms, p99 {:.1}ms)", 
-                    renews, renew_avg, renew_p50, renew_p95, renew_p99);
-                println!(" \x1b[36m🔓\x1b[0m Releases:   {} (avg {:.1}ms, p50 {:.1}ms, p95 {:.1}ms, p99 {:.1}ms)", 
-                    releases, release_avg, release_p50, release_p95, release_p99);
-                let error_color = if errors > 0 { "\x1b[31m" } else { "\x1b[32m" };
-                println!(" {}❌\x1b[0m Errors:     {}", error_color, errors);
+                // Move up and overwrite
+                print!("\x1b[12A");
+                println!("\x1b[K\x1b[1m🐙 OctoStore Stress Test — {} workers fighting over {} locks for {}s\x1b[0m", concurrency, num_locks, duration);
+                println!("\x1b[K{}", bar);
+                println!("\x1b[K ⏱  Elapsed: {}s / {}s    ({:.0} ops/sec)", elapsed, duration, ops);
+                println!("\x1b[K");
+                println!("\x1b[K \x1b[32m🔒 Acquires won:     {:>6}\x1b[0m   (got the lock)", won);
+                println!("\x1b[K \x1b[33m⚔️  Acquires lost:    {:>6}\x1b[0m   (contention — someone else has it)", lost);
+                println!("\x1b[K \x1b[34m👀 Status checks:    {:>6}\x1b[0m", statuses);
+                println!("\x1b[K \x1b[35m🔄 Renews:           {:>6} ok / {} fail\x1b[0m", renew_ok, renew_fail);
+                println!("\x1b[K \x1b[36m🔓 Releases:         {:>6} ok / {} fail\x1b[0m", release_ok, release_fail);
+                let ecolor = if errors > 0 { "\x1b[31m" } else { "\x1b[32m" };
+                println!("\x1b[K {}❌ Network errors:   {:>6}\x1b[0m", ecolor, errors);
+                println!("\x1b[K \x1b[1m📊 Total operations: {:>6}\x1b[0m", total);
+                println!("\x1b[K");
             }
-            _ = signal::ctrl_c() => {
-                stats.stop();
-                break;
-            }
+            _ = signal::ctrl_c() => { stats.stop(); break; }
         }
-    }
-}
-
-async fn cleanup_locks(client: &Client, base_url: &str, token: &str, locks: &[String]) {
-    if locks.is_empty() {
-        return;
-    }
-
-    println!("\n🧹 Cleaning up {} benchmark locks...", locks.len());
-    
-    for lock_name in locks {
-        // We don't have the lease_id, but we can try to release with a dummy one
-        // This might fail but that's okay - locks will expire anyway
-        let _ = client
-            .post(&format!("{}/locks/{}/release", base_url, lock_name))
-            .header("Authorization", format!("Bearer {}", token))
-            .json(&json!({"lease_id": "00000000-0000-0000-0000-000000000000"}))
-            .send()
-            .await;
     }
 }
 
@@ -349,125 +277,89 @@ async fn main() {
     let mut hasher = Sha256::new();
     hasher.update(args.admin_key.as_bytes());
     let provided_hash = format!("{:x}", hasher.finalize());
-
     if provided_hash != expected_hash {
         println!("❌ Invalid admin key");
         std::process::exit(1);
     }
 
-    let base_url = args.url.trim_end_matches('/');
+    let base_url = args.url.trim_end_matches('/').to_string();
     let client = Client::builder()
         .timeout(Duration::from_secs(10))
+        .pool_max_idle_per_host(args.concurrency as usize)
         .build()
         .expect("Failed to create HTTP client");
 
     let stats = Stats::new();
-    let lock_list_for_cleanup = Arc::new(Mutex::new(Vec::new()));
 
-    println!("\n\x1b[1m🐙 OctoStore Benchmark — {} workers, {}s\x1b[0m", args.concurrency, args.duration);
-    println!("{}", "━".repeat(40));
-    println!(" \x1b[32m⏱\x1b[0m  Elapsed: 0s / {}s", args.duration);
-    println!(" \x1b[36m📊\x1b[0m Operations: 0 total (0.0 ops/sec)");
-    println!(" \x1b[33m🔒\x1b[0m Acquires:   0 (avg 0.0ms, p50 0.0ms, p95 0.0ms, p99 0.0ms)");
-    println!(" \x1b[34m👀\x1b[0m Statuses:   0 (avg 0.0ms, p50 0.0ms, p95 0.0ms, p99 0.0ms)");
-    println!(" \x1b[35m🔄\x1b[0m Renews:     0 (avg 0.0ms, p50 0.0ms, p95 0.0ms, p99 0.0ms)");
-    println!(" \x1b[36m🔓\x1b[0m Releases:   0 (avg 0.0ms, p50 0.0ms, p95 0.0ms, p99 0.0ms)");
-    println!(" \x1b[32m❌\x1b[0m Errors:     0");
+    // Start live display
+    let stats_c = Arc::clone(&stats);
+    let display = tokio::spawn(live_display(stats_c, args.duration, args.concurrency, args.locks));
 
-    // Start live stats display task
-    let stats_clone = Arc::clone(&stats);
-    let live_stats_task = tokio::spawn(print_live_stats(stats_clone, args.duration, args.concurrency));
-
-    // Start worker tasks
+    // Launch workers
     let mut handles = Vec::new();
-    for worker_id in 0..args.concurrency {
-        let client_clone = client.clone();
-        let base_url_clone = base_url.to_string();
-        let token_clone = args.token.clone();
-        let stats_clone = Arc::clone(&stats);
-        let lock_list_for_cleanup_clone = Arc::clone(&lock_list_for_cleanup);
-
-        let handle = tokio::spawn(benchmark_worker(
-            worker_id,
-            client_clone,
-            base_url_clone,
-            token_clone,
-            stats_clone,
-            lock_list_for_cleanup_clone,
+    for wid in 0..args.concurrency {
+        let handle = tokio::spawn(stress_worker(
+            wid,
+            client.clone(),
+            base_url.clone(),
+            args.token.clone(),
+            args.locks,
+            Arc::clone(&stats),
         ));
         handles.push(handle);
     }
 
-    // Run for the specified duration
+    // Run for duration
     sleep(Duration::from_secs(args.duration)).await;
     stats.stop();
 
-    // Wait for all workers to finish
-    for handle in handles {
-        let _ = handle.await;
-    }
+    for h in handles { let _ = h.await; }
+    display.abort();
 
-    // Cancel live stats task
-    live_stats_task.abort();
-
-    // Get final stats
-    let final_duration = stats.start_time.elapsed().as_secs_f64();
-    let total_ops = stats.total_ops.load(Ordering::Relaxed);
-    let acquires = stats.acquire_count.load(Ordering::Relaxed);
+    // Final report
+    let dur = stats.start_time.elapsed().as_secs_f64();
+    let total = stats.total_ops.load(Ordering::Relaxed);
+    let won = stats.acquire_success.load(Ordering::Relaxed);
+    let lost = stats.acquire_contention.load(Ordering::Relaxed);
     let statuses = stats.status_count.load(Ordering::Relaxed);
-    let renews = stats.renew_count.load(Ordering::Relaxed);
-    let releases = stats.release_count.load(Ordering::Relaxed);
+    let renew_ok = stats.renew_success.load(Ordering::Relaxed);
+    let renew_fail = stats.renew_fail.load(Ordering::Relaxed);
+    let release_ok = stats.release_success.load(Ordering::Relaxed);
+    let release_fail = stats.release_fail.load(Ordering::Relaxed);
     let errors = stats.error_count.load(Ordering::Relaxed);
 
-    let (acquire_avg, acquire_p50, acquire_p95, acquire_p99, acquire_max) = {
-        let latencies = stats.acquire_latencies.lock().unwrap();
-        calculate_percentiles(latencies.clone())
-    };
+    let (acq_avg, acq_p50, acq_p95, acq_p99, acq_max) = percentiles(stats.acquire_latencies.lock().unwrap().clone());
+    let (st_avg, st_p50, st_p95, st_p99, st_max) = percentiles(stats.status_latencies.lock().unwrap().clone());
+    let (rn_avg, rn_p50, rn_p95, rn_p99, rn_max) = percentiles(stats.renew_latencies.lock().unwrap().clone());
+    let (rl_avg, rl_p50, rl_p95, rl_p99, rl_max) = percentiles(stats.release_latencies.lock().unwrap().clone());
 
-    let (status_avg, status_p50, status_p95, status_p99, status_max) = {
-        let latencies = stats.status_latencies.lock().unwrap();
-        calculate_percentiles(latencies.clone())
-    };
-
-    let (renew_avg, renew_p50, renew_p95, renew_p99, renew_max) = {
-        let latencies = stats.renew_latencies.lock().unwrap();
-        calculate_percentiles(latencies.clone())
-    };
-
-    let (release_avg, release_p50, release_p95, release_p99, release_max) = {
-        let latencies = stats.release_latencies.lock().unwrap();
-        calculate_percentiles(latencies.clone())
-    };
-
-    // Clean up benchmark locks
-    let cleanup_list = lock_list_for_cleanup.lock().unwrap().clone();
-    cleanup_locks(&client, base_url, &args.token, &cleanup_list).await;
-
-    // Print final summary
-    println!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!("\x1b[1m🏁 Benchmark Complete\x1b[0m\n");
-
-    println!(" Duration:     {:.1}s", final_duration);
-    println!(" Workers:      {}", args.concurrency);
-    println!(" Total Ops:    {} ({:.1} ops/sec)\n", total_ops, total_ops as f64 / final_duration);
-
-    println!(" Operation     Count    Avg     p50     p95     p99     Max");
-    println!(" ─────────────────────────────────────────────────────────");
-    println!(" Acquire       {:>5}    {:>5.1}ms {:>5.1}ms {:>5.1}ms {:>5.1}ms {:>6.1}ms", 
-        acquires, acquire_avg, acquire_p50, acquire_p95, acquire_p99, acquire_max);
-    println!(" Status        {:>5}    {:>5.1}ms {:>5.1}ms {:>5.1}ms {:>5.1}ms {:>6.1}ms", 
-        statuses, status_avg, status_p50, status_p95, status_p99, status_max);
-    println!(" Renew         {:>5}    {:>5.1}ms {:>5.1}ms {:>5.1}ms {:>5.1}ms {:>6.1}ms", 
-        renews, renew_avg, renew_p50, renew_p95, renew_p99, renew_max);
-    println!(" Release       {:>5}    {:>5.1}ms {:>5.1}ms {:>5.1}ms {:>5.1}ms {:>6.1}ms", 
-        releases, release_avg, release_p50, release_p95, release_p99, release_max);
-
+    println!("\n\x1b[1m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m");
+    println!("\x1b[1m🏁 Stress Test Complete\x1b[0m\n");
+    println!("  Duration:       {:.1}s", dur);
+    println!("  Workers:        {}", args.concurrency);
+    println!("  Shared locks:   {}", args.locks);
+    println!("  Total ops:      {} ({:.0} ops/sec)", total, total as f64 / dur);
     println!();
-    let error_percentage = if total_ops > 0 { errors as f64 / total_ops as f64 * 100.0 } else { 0.0 };
-    let error_color = if errors > 0 { "\x1b[31m" } else { "\x1b[32m" };
-    println!(" {}Errors:       {} ({:.2}%)\x1b[0m", error_color, errors, error_percentage);
-    println!(" \x1b[32mThroughput:   {:.1} ops/sec\x1b[0m", total_ops as f64 / final_duration);
-
-    // Always exit 0 (it's a benchmark, not a test)
-    std::process::exit(0);
+    println!("  \x1b[1mContention\x1b[0m");
+    println!("  ├─ Acquires won:   {} ({:.1}%)", won, if won+lost > 0 { won as f64 / (won+lost) as f64 * 100.0 } else { 0.0 });
+    println!("  └─ Acquires lost:  {} ({:.1}%)", lost, if won+lost > 0 { lost as f64 / (won+lost) as f64 * 100.0 } else { 0.0 });
+    println!();
+    println!("  \x1b[1mLatencies\x1b[0m");
+    println!("  Operation     Count    Avg      p50      p95      p99      Max");
+    println!("  ──────────────────────────────────────────────────────────────────");
+    println!("  Acquire       {:>5}  {:>6.1}ms {:>6.1}ms {:>6.1}ms {:>6.1}ms {:>7.1}ms", won+lost, acq_avg, acq_p50, acq_p95, acq_p99, acq_max);
+    println!("  Status        {:>5}  {:>6.1}ms {:>6.1}ms {:>6.1}ms {:>6.1}ms {:>7.1}ms", statuses, st_avg, st_p50, st_p95, st_p99, st_max);
+    println!("  Renew         {:>5}  {:>6.1}ms {:>6.1}ms {:>6.1}ms {:>6.1}ms {:>7.1}ms", renew_ok, rn_avg, rn_p50, rn_p95, rn_p99, rn_max);
+    println!("  Release       {:>5}  {:>6.1}ms {:>6.1}ms {:>6.1}ms {:>6.1}ms {:>7.1}ms", release_ok, rl_avg, rl_p50, rl_p95, rl_p99, rl_max);
+    println!();
+    if errors > 0 {
+        println!("  \x1b[31m❌ Network errors: {}\x1b[0m", errors);
+    } else {
+        println!("  \x1b[32m✅ Zero network errors\x1b[0m");
+    }
+    if renew_fail > 0 || release_fail > 0 {
+        println!("  ⚠️  Renew failures: {}, Release failures: {} (race conditions — expected under contention)", renew_fail, release_fail);
+    }
+    println!("  \x1b[1m🔥 Throughput: {:.0} ops/sec\x1b[0m", total as f64 / dur);
+    println!();
 }
