@@ -20,6 +20,7 @@ use locks::{acquire_lock, get_lock_status, list_user_locks, release_lock, renew_
 pub struct AppState {
     pub lock_handlers: LockHandlers,
     pub auth_service: AuthService,
+    pub config: config::Config,
     pub total_acquires: Arc<AtomicU64>,
     pub total_releases: Arc<AtomicU64>,
     pub start_time: std::time::Instant,
@@ -101,6 +102,7 @@ async fn main() -> anyhow::Result<()> {
     let app_state = AppState {
         lock_handlers: lock_handlers.clone(),
         auth_service: auth_service.clone(),
+        config: config.clone(),
         total_acquires: Arc::new(AtomicU64::new(0)),
         total_releases: Arc::new(AtomicU64::new(0)),
         start_time: std::time::Instant::now(),
@@ -164,27 +166,37 @@ async fn admin_status(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
 ) -> Result<axum::Json<serde_json::Value>, axum::response::Response> {
-    // Check if user is authenticated and is admin (aronchick)
-    let user_id = match state.auth_service.authenticate(&headers) {
-        Ok(id) => id,
-        Err(_) => {
-            return Err(axum::response::Response::builder()
-                .status(401)
-                .body("Unauthorized".into())
-                .unwrap());
-        }
+    // Check admin key from header
+    let provided_key = headers
+        .get("x-admin-key")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let admin_key_valid = match (&provided_key, &state.config.admin_key) {
+        (Some(provided), Some(expected)) => provided == expected,
+        _ => false,
     };
 
-    // Check if user is admin
-    match state.auth_service.get_user_by_id(&user_id.to_string()) {
-        Ok(Some(username)) if username == "aronchick" => {
-            // User is admin, continue
-        }
-        _ => {
-            return Err(axum::response::Response::builder()
-                .status(403)
-                .body("Forbidden: Admin access required".into())
-                .unwrap());
+    if !admin_key_valid {
+        // Fall back to OAuth-based admin check
+        let user_id = match state.auth_service.authenticate(&headers) {
+            Ok(id) => id,
+            Err(_) => {
+                return Err(axum::response::Response::builder()
+                    .status(401)
+                    .body("Unauthorized: Provide X-Admin-Key header or valid Bearer token".into())
+                    .unwrap());
+            }
+        };
+
+        match state.auth_service.get_user_by_id(&user_id.to_string()) {
+            Ok(Some(username)) if username == "aronchick" => {}
+            _ => {
+                return Err(axum::response::Response::builder()
+                    .status(403)
+                    .body("Forbidden: Admin access required".into())
+                    .unwrap());
+            }
         }
     }
 
