@@ -114,8 +114,16 @@ async fn metrics_endpoint(
     // Check admin key from header
     let provided_key = headers
         .get("x-admin-key")
+        .or_else(|| headers.get("x-octostore-admin-key"))
         .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string());
+        .map(|s| s.to_string())
+        .or_else(|| {
+            // Also accept "Bearer admin:<key>" in Authorization header
+            headers.get("authorization")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.strip_prefix("Bearer admin:"))
+                .map(|s| s.to_string())
+        });
 
     let admin_key_valid = match (&provided_key, &state.config.admin_key) {
         (Some(provided), Some(expected)) => provided == expected,
@@ -154,8 +162,16 @@ async fn timeseries_endpoint(
     // Check admin key from header
     let provided_key = headers
         .get("x-admin-key")
+        .or_else(|| headers.get("x-octostore-admin-key"))
         .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string());
+        .map(|s| s.to_string())
+        .or_else(|| {
+            // Also accept "Bearer admin:<key>" in Authorization header
+            headers.get("authorization")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.strip_prefix("Bearer admin:"))
+                .map(|s| s.to_string())
+        });
 
     let admin_key_valid = match (&provided_key, &state.config.admin_key) {
         (Some(provided), Some(expected)) => provided == expected,
@@ -321,8 +337,16 @@ async fn admin_status(
     // Check admin key from header
     let provided_key = headers
         .get("x-admin-key")
+        .or_else(|| headers.get("x-octostore-admin-key"))
         .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string());
+        .map(|s| s.to_string())
+        .or_else(|| {
+            // Also accept "Bearer admin:<key>" in Authorization header
+            headers.get("authorization")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.strip_prefix("Bearer admin:"))
+                .map(|s| s.to_string())
+        });
 
     let admin_key_valid = match (&provided_key, &state.config.admin_key) {
         (Some(provided), Some(expected)) => provided == expected,
