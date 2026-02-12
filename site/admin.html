@@ -502,7 +502,7 @@
                     statusEl.textContent = 'Authenticating...';
                     statusEl.className = 'auth-status';
                     
-                    const response = await fetch('/admin/status', {
+                    const response = await fetch('https://api.octostore.io/admin/status', {
                         headers: {
                             'Authorization': token.startsWith('Bearer ') ? token : `Bearer ${token}`,
                             'X-Admin-Key': token
@@ -663,7 +663,7 @@
                     this.updateUsersList(statusData.users, statusData.locks);
                     
                     // Load time series data
-                    const timeseriesResponse = await fetch(`/admin/metrics/timeseries?window=${this.currentWindow}`, {
+                    const timeseriesResponse = await fetch(`https://api.octostore.io/admin/metrics/timeseries?window=${this.currentWindow}`, {
                         headers: {
                             'Authorization': this.token.startsWith('Bearer ') ? this.token : `Bearer ${this.token}`,
                             'X-Admin-Key': this.token
