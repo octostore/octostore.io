@@ -65,6 +65,7 @@
             max-width: 1200px;
             margin: 0 auto;
             padding: 24px;
+            overflow-x: hidden;
         }
 
         /* Header */
@@ -275,7 +276,7 @@
 
         .examples-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr));
             gap: 24px;
             margin-top: 20px;
         }
@@ -301,7 +302,7 @@
 
         .example-code {
             padding: 20px;
-            overflow-x: auto;
+            overflow-x: hidden;
         }
 
         .example-code pre {
@@ -310,6 +311,8 @@
             line-height: 1.4;
             color: var(--text-secondary);
             margin: 0;
+            white-space: pre-wrap;
+            word-break: break-all;
         }
 
         /* Status indicators */

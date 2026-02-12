@@ -3,6 +3,10 @@ name = "octostore-lock"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "octostore-test"
+path = "src/bin/integration_test.rs"
+
 [dependencies]
 axum = "0.7"
 tokio = { version = "1.0", features = ["full"] }
@@ -22,3 +26,4 @@ anyhow = "1.0"
 base64 = "0.21"
 rand = "0.8"
 urlencoding = "2.1"
+clap = { version = "4.0", features = ["derive"] }
