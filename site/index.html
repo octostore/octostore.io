@@ -95,8 +95,25 @@
         }
 
         .hero-icon {
-            font-size: 4rem;
-            filter: drop-shadow(0 0 20px rgba(99, 102, 241, 0.3));
+            width: 120px;
+            height: 120px;
+            filter: drop-shadow(0 0 30px rgba(99, 102, 241, 0.4));
+        }
+
+        .hero-headline {
+            font-size: 5rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            letter-spacing: -0.03em;
+            line-height: 1.05;
+            margin: 0 0 24px;
+        }
+
+        .hero-headline .highlight {
+            background: linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #6366f1 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
 
         h1 {
@@ -108,13 +125,17 @@
             -webkit-text-fill-color: transparent;
             background-clip: text;
             margin: 0;
+            display: none;
         }
 
         .tagline {
-            font-size: 1.5rem;
+            font-size: 1.25rem;
             color: var(--text-muted);
-            margin: 32px 0 48px;
-            font-weight: 500;
+            margin: 0 0 48px;
+            font-weight: 400;
+            max-width: 480px;
+            margin-left: auto;
+            margin-right: auto;
         }
 
         .cta-buttons {
@@ -407,8 +428,17 @@
                 font-size: 3rem;
             }
 
+            .hero-headline {
+                font-size: 3.2rem;
+            }
+
+            .hero-icon {
+                width: 90px;
+                height: 90px;
+            }
+
             .tagline {
-                font-size: 1.2rem;
+                font-size: 1.1rem;
             }
 
             .cta-buttons {
@@ -443,8 +473,13 @@
                 font-size: 2.5rem;
             }
 
+            .hero-headline {
+                font-size: 2.5rem;
+            }
+
             .hero-icon {
-                font-size: 3rem;
+                width: 70px;
+                height: 70px;
             }
         }
     </style>
@@ -453,11 +488,55 @@
     <div class="container">
         <header>
             <div class="hero-content">
-                <div class="hero-logo">
-                    <span class="hero-icon">🐙</span>
-                    <h1>OctoStore</h1>
-                </div>
-                <p class="tagline">Leader election as a service. That's it.</p>
+                <svg class="hero-icon" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+                  <!-- Octopus body -->
+                  <ellipse cx="100" cy="72" rx="58" ry="52" fill="url(#octoGrad)"/>
+                  <!-- Eyes -->
+                  <ellipse cx="78" cy="64" rx="14" ry="16" fill="#fff"/>
+                  <ellipse cx="122" cy="64" rx="14" ry="16" fill="#fff"/>
+                  <circle cx="82" cy="66" r="7" fill="#1a1a2e"/>
+                  <circle cx="118" cy="66" r="7" fill="#1a1a2e"/>
+                  <circle cx="84" cy="63" r="2.5" fill="#fff"/>
+                  <circle cx="120" cy="63" r="2.5" fill="#fff"/>
+                  <!-- Smile -->
+                  <path d="M88 82 Q100 92 112 82" stroke="#1a1a2e" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+                  <!-- Tentacles -->
+                  <path d="M52 105 Q30 130 38 160 Q42 168 48 158 Q52 140 60 120" fill="url(#octoGrad)" opacity="0.9">
+                    <animateTransform attributeName="transform" type="rotate" values="-2 52 105;2 52 105;-2 52 105" dur="3s" repeatCount="indefinite"/>
+                  </path>
+                  <path d="M65 112 Q50 145 55 172 Q58 180 64 170 Q68 148 72 125" fill="url(#octoGrad)" opacity="0.85">
+                    <animateTransform attributeName="transform" type="rotate" values="1 65 112;-2 65 112;1 65 112" dur="3.5s" repeatCount="indefinite"/>
+                  </path>
+                  <path d="M82 118 Q75 155 80 178 Q84 186 88 176 Q88 152 86 128" fill="url(#octoGrad)" opacity="0.9">
+                    <animateTransform attributeName="transform" type="rotate" values="-1 82 118;1 82 118;-1 82 118" dur="4s" repeatCount="indefinite"/>
+                  </path>
+                  <path d="M100 120 Q100 158 102 180 Q104 188 108 178 Q106 155 104 128" fill="url(#octoGrad)" opacity="0.85">
+                    <animateTransform attributeName="transform" type="rotate" values="0.5 100 120;-0.5 100 120;0.5 100 120" dur="3.2s" repeatCount="indefinite"/>
+                  </path>
+                  <path d="M118 118 Q125 155 120 178 Q116 186 112 176 Q112 152 114 128" fill="url(#octoGrad)" opacity="0.9">
+                    <animateTransform attributeName="transform" type="rotate" values="1 118 118;-1 118 118;1 118 118" dur="3.8s" repeatCount="indefinite"/>
+                  </path>
+                  <path d="M135 112 Q150 145 145 172 Q142 180 136 170 Q132 148 128 125" fill="url(#octoGrad)" opacity="0.85">
+                    <animateTransform attributeName="transform" type="rotate" values="-1 135 112;2 135 112;-1 135 112" dur="3.3s" repeatCount="indefinite"/>
+                  </path>
+                  <path d="M148 105 Q170 130 162 160 Q158 168 152 158 Q148 140 140 120" fill="url(#octoGrad)" opacity="0.9">
+                    <animateTransform attributeName="transform" type="rotate" values="2 148 105;-2 148 105;2 148 105" dur="3.6s" repeatCount="indefinite"/>
+                  </path>
+                  <!-- Lock held in front tentacle -->
+                  <g transform="translate(148, 148) scale(0.7)">
+                    <rect x="0" y="12" width="24" height="20" rx="3" fill="#fbbf24" stroke="#d97706" stroke-width="1.5"/>
+                    <path d="M6 12 V8 Q6 0 12 0 Q18 0 18 8 V12" fill="none" stroke="#d97706" stroke-width="2.5" stroke-linecap="round"/>
+                    <circle cx="12" cy="22" r="3" fill="#92400e"/>
+                  </g>
+                  <defs>
+                    <linearGradient id="octoGrad" x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0%" stop-color="#6366f1"/>
+                      <stop offset="100%" stop-color="#a855f7"/>
+                    </linearGradient>
+                  </defs>
+                </svg>
+                <div class="hero-headline">Lock. Elect. <span class="highlight">Ship.</span></div>
+                <p class="tagline">Distributed locking and leader election over HTTP. Free, fast, zero config.</p>
                 <div class="cta-buttons">
                     <a href="https://api.octostore.io/auth/github" class="github-auth-btn">
                         <svg class="github-icon" viewBox="0 0 16 16">
@@ -474,7 +553,7 @@
         </header>
 
         <div class="disclaimer">
-            <p>This is a free thing. No business model. No VC funding. No enterprise tier. Just a lock service.</p>
+            <p>No business model. No enterprise tier. Just an octopus holding your locks. 🐙</p>
         </div>
 
         <section>
