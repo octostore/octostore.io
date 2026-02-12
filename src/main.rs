@@ -169,7 +169,7 @@ async fn main() -> anyhow::Result<()> {
     info!("Loaded fencing counter: {}", initial_fencing_token);
 
     // Initialize lock store
-    let lock_store = LockStore::new(initial_fencing_token);
+    let lock_store = LockStore::new(&config.database_url, initial_fencing_token)?;
     
     // Start background expiry task
     let expiry_store = lock_store.clone();
