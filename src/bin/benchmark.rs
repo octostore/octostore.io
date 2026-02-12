@@ -130,6 +130,15 @@ async fn stress_worker(
         match result {
             Ok(resp) => {
                 let status = resp.status();
+                
+                // Auth failure = fatal, stop immediately
+                if status.as_u16() == 401 {
+                    eprintln!("\n\x1b[31m❌ Authentication failed! Your token is invalid.\x1b[0m");
+                    eprintln!("   Sign in first: GET {}/auth/github\n", base_url);
+                    stats.stop();
+                    return;
+                }
+                
                 match resp.json::<serde_json::Value>().await {
                     Ok(json) => {
                         stats.acquire_latencies.lock().unwrap().push(latency);
@@ -294,6 +303,16 @@ async fn main() {
     // Start live display
     let stats_c = Arc::clone(&stats);
     let display = tokio::spawn(live_display(stats_c, args.duration, args.concurrency, args.locks));
+
+    // Set up Ctrl+C to stop immediately
+    let stats_sigint = Arc::clone(&stats);
+    tokio::spawn(async move {
+        let _ = signal::ctrl_c().await;
+        stats_sigint.stop();
+        // Give workers 1 second to finish, then force exit
+        sleep(Duration::from_secs(1)).await;
+        std::process::exit(0);
+    });
 
     // Launch workers
     let mut handles = Vec::new();
