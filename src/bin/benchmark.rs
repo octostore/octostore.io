@@ -135,14 +135,11 @@ async fn benchmark_worker(
     stats: Arc<Stats>,
     lock_list_for_cleanup: Arc<Mutex<Vec<String>>>,
 ) {
-    let mut iteration = 0u64;
+    // Each worker reuses a single lock name to stay within the 100-lock limit
+    let lock_name = format!("bench-worker-{}", worker_id);
+    lock_list_for_cleanup.lock().unwrap().push(lock_name.clone());
 
     while stats.is_running() {
-        iteration += 1;
-        let lock_name = format!("bench-{}-{}", worker_id, iteration);
-        
-        // Store lock name for cleanup
-        lock_list_for_cleanup.lock().unwrap().push(lock_name.clone());
 
         // Acquire lock
         let start = Instant::now();
