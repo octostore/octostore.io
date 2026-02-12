@@ -34,26 +34,13 @@ jobs:
           username: daaronch
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
-            set -e
             cd /opt/octostore-lock
-            
-            # Download the pre-compiled binary from the release
-            RELEASE_TAG="${{ github.event.release.tag_name }}"
-            curl -sL -o /tmp/octostore-lock-new \
-              "https://github.com/octostore/octostore.io/releases/download/${RELEASE_TAG}/octostore-lock-linux-amd64"
-            chmod +x /tmp/octostore-lock-new
-            
-            # Update source for site/config changes
             git pull origin main
-            
-            # Stop service before swapping binary (avoids "Text file busy")
-            sudo systemctl stop octostore-lock
-            
-            # Swap binary
-            cp /tmp/octostore-lock-new target/release/octostore-lock
-            rm /tmp/octostore-lock-new
-            
-            # Start service
-            sudo systemctl start octostore-lock
+            RELEASE_TAG="${{ github.event.release.tag_name }}"
+            curl -sL -o /tmp/octostore-lock-new "https://github.com/octostore/octostore.io/releases/download/${RELEASE_TAG}/octostore-lock-linux-amd64"
+            chmod +x /tmp/octostore-lock-new
+            sudo /usr/bin/systemctl stop octostore-lock
+            mv -f /tmp/octostore-lock-new target/release/octostore-lock
+            sudo /usr/bin/systemctl start octostore-lock
             sleep 2
             curl -sf http://localhost:3030/docs > /dev/null && echo "Deploy successful" || echo "DEPLOY FAILED"
