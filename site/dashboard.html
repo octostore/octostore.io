@@ -276,7 +276,7 @@
 
         .examples-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr));
+            grid-template-columns: 1fr;
             gap: 24px;
             margin-top: 20px;
         }
@@ -301,19 +301,26 @@
         }
 
         .example-code {
-            padding: 20px;
+            padding: 24px;
             overflow-x: hidden;
+            background: #0d1117;
         }
 
         .example-code pre {
             font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-            font-size: 13px;
-            line-height: 1.4;
-            color: var(--text-secondary);
+            font-size: 14px;
+            line-height: 1.7;
+            color: #e6edf3;
             margin: 0;
             white-space: pre-wrap;
             word-break: break-all;
         }
+
+        .example-code .cmd { color: #79c0ff; }
+        .example-code .flag { color: #d2a8ff; }
+        .example-code .url { color: #a5d6ff; }
+        .example-code .header { color: #7ee787; }
+        .example-code .string { color: #ffa657; }
 
         /* Status indicators */
         .status {
@@ -514,10 +521,10 @@
                                 <h3 class="example-title">Acquire a Lock</h3>
                             </div>
                             <div class="example-code">
-                                <pre><code id="example-acquire">curl -X POST https://api.octostore.io/locks/my-resource/acquire \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"ttl_seconds": 300}'</code></pre>
+                                <pre><code id="example-acquire"><span class="cmd">curl</span> <span class="flag">-X POST</span> <span class="url">https://api.octostore.io/locks/my-resource/acquire</span> \
+  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span> \
+  <span class="flag">-H</span> <span class="header">"Content-Type: application/json"</span> \
+  <span class="flag">-d</span> <span class="string">'{"ttl_seconds": 300}'</span></code></pre>
                             </div>
                         </div>
 
@@ -526,8 +533,8 @@
                                 <h3 class="example-title">Check Lock Status</h3>
                             </div>
                             <div class="example-code">
-                                <pre><code id="example-status">curl https://api.octostore.io/locks/my-resource \
-  -H "Authorization: Bearer YOUR_TOKEN"</code></pre>
+                                <pre><code id="example-status"><span class="cmd">curl</span> <span class="url">https://api.octostore.io/locks/my-resource</span> \
+  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span></code></pre>
                             </div>
                         </div>
 
@@ -536,8 +543,8 @@
                                 <h3 class="example-title">List Your Locks</h3>
                             </div>
                             <div class="example-code">
-                                <pre><code id="example-list">curl https://api.octostore.io/locks \
-  -H "Authorization: Bearer YOUR_TOKEN"</code></pre>
+                                <pre><code id="example-list"><span class="cmd">curl</span> <span class="url">https://api.octostore.io/locks</span> \
+  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span></code></pre>
                             </div>
                         </div>
 
@@ -546,10 +553,10 @@
                                 <h3 class="example-title">Release a Lock</h3>
                             </div>
                             <div class="example-code">
-                                <pre><code id="example-release">curl -X POST https://api.octostore.io/locks/my-resource/release \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"lease_id": "LEASE_ID_FROM_ACQUIRE"}'</code></pre>
+                                <pre><code id="example-release"><span class="cmd">curl</span> <span class="flag">-X POST</span> <span class="url">https://api.octostore.io/locks/my-resource/release</span> \
+  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span> \
+  <span class="flag">-H</span> <span class="header">"Content-Type: application/json"</span> \
+  <span class="flag">-d</span> <span class="string">'{"lease_id": "LEASE_ID_FROM_ACQUIRE"}'</span></code></pre>
                             </div>
                         </div>
                     </div>
@@ -708,25 +715,25 @@
         }
 
         function updateExamples(token) {
-            document.getElementById('example-acquire').textContent = 
-                `curl -X POST https://api.octostore.io/locks/my-resource/acquire \\
-  -H "Authorization: Bearer ${token}" \\
-  -H "Content-Type: application/json" \\
-  -d '{"ttl_seconds": 300}'`;
+            document.getElementById('example-acquire').innerHTML = 
+                `<span class="cmd">curl</span> <span class="flag">-X POST</span> <span class="url">https://api.octostore.io/locks/my-resource/acquire</span> \\
+  <span class="flag">-H</span> <span class="header">"Authorization: Bearer ${token}"</span> \\
+  <span class="flag">-H</span> <span class="header">"Content-Type: application/json"</span> \\
+  <span class="flag">-d</span> <span class="string">'{"ttl_seconds": 300}'</span>`;
 
-            document.getElementById('example-status').textContent = 
-                `curl https://api.octostore.io/locks/my-resource \\
-  -H "Authorization: Bearer ${token}"`;
+            document.getElementById('example-status').innerHTML = 
+                `<span class="cmd">curl</span> <span class="url">https://api.octostore.io/locks/my-resource</span> \\
+  <span class="flag">-H</span> <span class="header">"Authorization: Bearer ${token}"</span>`;
 
-            document.getElementById('example-list').textContent = 
-                `curl https://api.octostore.io/locks \\
-  -H "Authorization: Bearer ${token}"`;
+            document.getElementById('example-list').innerHTML = 
+                `<span class="cmd">curl</span> <span class="url">https://api.octostore.io/locks</span> \\
+  <span class="flag">-H</span> <span class="header">"Authorization: Bearer ${token}"</span>`;
 
-            document.getElementById('example-release').textContent = 
-                `curl -X POST https://api.octostore.io/locks/my-resource/release \\
-  -H "Authorization: Bearer ${token}" \\
-  -H "Content-Type: application/json" \\
-  -d '{"lease_id": "LEASE_ID_FROM_ACQUIRE"}'`;
+            document.getElementById('example-release').innerHTML = 
+                `<span class="cmd">curl</span> <span class="flag">-X POST</span> <span class="url">https://api.octostore.io/locks/my-resource/release</span> \\
+  <span class="flag">-H</span> <span class="header">"Authorization: Bearer ${token}"</span> \\
+  <span class="flag">-H</span> <span class="header">"Content-Type: application/json"</span> \\
+  <span class="flag">-d</span> <span class="string">'{"lease_id": "LEASE_ID_FROM_ACQUIRE"}'</span>`;
         }
 
         function setupEventListeners() {
