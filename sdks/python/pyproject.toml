@@ -31,8 +31,8 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/octostore/octostore-lock"
-Repository = "https://github.com/octostore/octostore-lock"
+Homepage = "https://github.com/octostore/octostore.io"
+Repository = "https://github.com/octostore/octostore.io"
 Documentation = "https://docs.octostore.io"
 
 [project.optional-dependencies]
