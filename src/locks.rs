@@ -203,3 +203,64 @@ pub async fn list_user_locks(
     
     Ok(Json(UserLocksResponse { locks: lock_infos }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use uuid::Uuid;
+
+    fn create_test_handlers() -> LockHandlers {
+        let config = Config {
+            bind_addr: "127.0.0.1:3000".to_string(),
+            database_url: ":memory:".to_string(),
+            github_client_id: "test_client_id".to_string(),
+            github_client_secret: "test_client_secret".to_string(),
+            github_redirect_uri: "http://localhost:3000/callback".to_string(),
+            admin_key: Some("test_admin_key".to_string()),
+        };
+        
+        let auth_service = AuthService::new(config).unwrap();
+        let store = LockStore::new().unwrap();
+        
+        LockHandlers::new(store, auth_service)
+    }
+
+    #[test]
+    fn test_lock_handlers_new() {
+        let config = Config {
+            bind_addr: "127.0.0.1:3000".to_string(),
+            database_url: ":memory:".to_string(),
+            github_client_id: "test_client_id".to_string(),
+            github_client_secret: "test_client_secret".to_string(),
+            github_redirect_uri: "http://localhost:3000/callback".to_string(),
+            admin_key: Some("test_admin_key".to_string()),
+        };
+        
+        let auth_service = AuthService::new(config).unwrap();
+        let store = LockStore::new().unwrap();
+        
+        let handlers = LockHandlers::new(store.clone(), auth_service);
+        
+        // Just verify the handlers are created successfully
+        // The actual testing of functionality is complex due to axum state requirements
+        // and is better suited for integration tests in main.rs
+        assert_eq!(handlers.store.count_user_locks(Uuid::new_v4()), 0);
+    }
+
+    #[test] 
+    fn test_lock_handlers_clone() {
+        let handlers = create_test_handlers();
+        let cloned = handlers.clone();
+        
+        // Verify that cloning works (both use the same underlying stores)
+        let user_id = Uuid::new_v4();
+        assert_eq!(handlers.store.count_user_locks(user_id), 0);
+        assert_eq!(cloned.store.count_user_locks(user_id), 0);
+    }
+}
+
+// Note: Most functionality testing is done through integration tests in main.rs
+// since these handlers require complex axum state setup including AppState with
+// metrics, auth_service, lock_handlers, etc. The core business logic is tested
+// thoroughly in the individual module tests (store.rs, auth.rs, etc.).

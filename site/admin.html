@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OctoStore Admin Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0a0a0b;
+            --bg-secondary: #111111;
+            --bg-tertiary: #1a1a1b;
+            --text-primary: #ffffff;
+            --text-secondary: #e5e5e5;
+            --text-muted: #a1a1aa;
+            --accent: #6366f1;
+            --accent-hover: #5b5ce8;
+            --border: rgba(255, 255, 255, 0.08);
+            --border-hover: rgba(255, 255, 255, 0.12);
+            --gradient: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(168, 85, 247, 0.1) 100%);
+            --shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+            --shadow-lg: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-secondary);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* Background decoration */
+        body::before {
+            content: '';
+            position: fixed;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle at 25% 25%, rgba(99, 102, 241, 0.05) 0%, transparent 50%),
+                        radial-gradient(circle at 75% 75%, rgba(168, 85, 247, 0.05) 0%, transparent 50%);
+            z-index: -1;
+            animation: float 20s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: rotate(0deg) scale(1); }
+            50% { transform: rotate(180deg) scale(1.1); }
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        /* Header */
+        header {
+            padding: 40px 0 60px;
+            text-align: center;
+            position: relative;
+        }
+
+        .auth-section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 40px;
+        }
+
+        .auth-input-group {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .auth-input {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 16px;
+            color: var(--text-primary);
+            font-size: 14px;
+            width: 300px;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+        }
+
+        .auth-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .auth-btn {
+            background: var(--accent);
+            border: none;
+            border-radius: 8px;
+            padding: 12px 24px;
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+
+        .auth-btn:hover {
+            background: var(--accent-hover);
+        }
+
+        .auth-status {
+            margin-top: 16px;
+            font-size: 14px;
+        }
+
+        .auth-status.success {
+            color: #10b981;
+        }
+
+        .auth-status.error {
+            color: #ef4444;
+        }
+
+        .dashboard-content {
+            display: none;
+        }
+
+        .dashboard-content.visible {
+            display: block;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 16px;
+        }
+
+        /* Time window selector */
+        .time-window-selector {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            margin-bottom: 32px;
+            flex-wrap: wrap;
+        }
+
+        .time-btn {
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px 16px;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .time-btn.active {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: white;
+        }
+
+        .time-btn:hover:not(.active) {
+            border-color: var(--border-hover);
+            color: var(--text-secondary);
+        }
+
+        /* Stats cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 24px;
+            margin-bottom: 40px;
+        }
+
+        .stat-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            transition: all 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--border-hover);
+            box-shadow: var(--shadow);
+        }
+
+        .stat-title {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+
+        .stat-subtitle {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        /* Charts */
+        .charts-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 32px;
+            margin-bottom: 40px;
+        }
+
+        .chart-container {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            height: 400px;
+        }
+
+        .chart-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 20px;
+        }
+
+        .chart-wrapper {
+            position: relative;
+            height: calc(100% - 40px);
+        }
+
+        /* Users section */
+        .users-section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 40px;
+        }
+
+        .users-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 20px;
+        }
+
+        .users-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .user-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .user-item:last-child {
+            border-bottom: none;
+        }
+
+        .user-name {
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .user-locks {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .container {
+                padding: 0 16px;
+            }
+
+            .auth-input-group {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .auth-input {
+                width: 100%;
+            }
+        }
+
+        /* Last updated indicator */
+        .last-updated {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 12px;
+            margin-bottom: 20px;
+        }
+
+        /* Auto-refresh indicator */
+        .auto-refresh {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-bottom: 20px;
+        }
+
+        .refresh-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #10b981;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .loading {
+            text-align: center;
+            color: var(--text-muted);
+            padding: 40px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <nav style="display: flex; justify-content: space-between; align-items: center; padding: 16px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08); margin-bottom: 40px;">
+            <a href="/" style="display: flex; align-items: center; gap: 8px; text-decoration: none;">
+                <span style="font-size: 1.5rem;">🐙</span>
+                <span style="font-size: 1.25rem; font-weight: 600; color: #ffffff;">OctoStore</span>
+            </a>
+            <div style="display: flex; gap: 24px; align-items: center;">
+                <a href="/" style="color: #a1a1aa; text-decoration: none; font-weight: 500; padding: 8px 16px; border-radius: 6px; transition: all 0.2s;">Home</a>
+                <a href="/dashboard.html" style="color: #a1a1aa; text-decoration: none; font-weight: 500; padding: 8px 16px; border-radius: 6px; transition: all 0.2s;">Dashboard</a>
+                <a href="/sdks.html" style="color: #a1a1aa; text-decoration: none; font-weight: 500; padding: 8px 16px; border-radius: 6px; transition: all 0.2s;">SDKs</a>
+                <a href="/admin.html" style="color: #e5e5e5; text-decoration: none; font-weight: 500; padding: 8px 16px; border-radius: 6px; transition: all 0.2s;">Admin</a>
+                <a href="https://api.octostore.io/docs" style="color: #a1a1aa; text-decoration: none; font-weight: 500; padding: 8px 16px; border-radius: 6px; transition: all 0.2s;">API Docs</a>
+            </div>
+        </nav>
+        
+        <header>
+            <h1>🔧 Admin Dashboard</h1>
+            
+            <div class="auth-section">
+                <div class="auth-input-group">
+                    <input type="password" id="tokenInput" class="auth-input" placeholder="Enter Bearer token or Admin key" />
+                    <button id="authBtn" class="auth-btn">Authenticate</button>
+                </div>
+                <div id="authStatus" class="auth-status"></div>
+            </div>
+        </header>
+
+        <div id="dashboardContent" class="dashboard-content">
+            <div class="auto-refresh">
+                <div class="refresh-dot"></div>
+                Auto-refreshing every 30 seconds
+            </div>
+            
+            <div class="last-updated" id="lastUpdated">Last updated: Never</div>
+            
+            <div class="time-window-selector">
+                <button class="time-btn active" data-window="1h">1 Hour</button>
+                <button class="time-btn" data-window="12h">12 Hours</button>
+                <button class="time-btn" data-window="24h">24 Hours</button>
+                <button class="time-btn" data-window="7d">1 Week</button>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-title">Total Users</div>
+                    <div class="stat-value" id="totalUsers">-</div>
+                    <div class="stat-subtitle">Registered users</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-title">Active Locks</div>
+                    <div class="stat-value" id="activeLocks">-</div>
+                    <div class="stat-subtitle">Currently held</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-title">Uptime</div>
+                    <div class="stat-value" id="uptime">-</div>
+                    <div class="stat-subtitle">Hours online</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-title">Total Operations</div>
+                    <div class="stat-value" id="totalOps">-</div>
+                    <div class="stat-subtitle">Acquire + Release</div>
+                </div>
+            </div>
+
+            <div class="charts-grid">
+                <div class="chart-container">
+                    <div class="chart-title">Request Volume</div>
+                    <div class="chart-wrapper">
+                        <canvas id="requestVolumeChart"></canvas>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <div class="chart-title">Active Locks Over Time</div>
+                    <div class="chart-wrapper">
+                        <canvas id="activeLocksChart"></canvas>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <div class="chart-title">Acquire Rate</div>
+                    <div class="chart-wrapper">
+                        <canvas id="acquireRateChart"></canvas>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <div class="chart-title">Release Rate</div>
+                    <div class="chart-wrapper">
+                        <canvas id="releaseRateChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="users-section">
+                <div class="users-title">Users & Lock Counts</div>
+                <div id="usersList" class="users-list loading">
+                    Loading users...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class AdminDashboard {
+            constructor() {
+                this.token = localStorage.getItem('adminToken') || '';
+                this.currentWindow = '1h';
+                this.charts = {};
+                this.refreshInterval = null;
+                
+                this.initializeAuth();
+                this.initializeEventListeners();
+                
+                if (this.token) {
+                    document.getElementById('tokenInput').value = this.token;
+                    this.authenticate();
+                }
+            }
+            
+            initializeAuth() {
+                const authBtn = document.getElementById('authBtn');
+                const tokenInput = document.getElementById('tokenInput');
+                
+                authBtn.addEventListener('click', () => this.authenticate());
+                tokenInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') this.authenticate();
+                });
+            }
+            
+            initializeEventListeners() {
+                // Time window selector
+                document.querySelectorAll('.time-btn').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+                        btn.classList.add('active');
+                        this.currentWindow = btn.dataset.window;
+                        this.loadData();
+                    });
+                });
+            }
+            
+            async authenticate() {
+                const token = document.getElementById('tokenInput').value.trim();
+                const statusEl = document.getElementById('authStatus');
+                
+                if (!token) {
+                    statusEl.textContent = 'Please enter a token';
+                    statusEl.className = 'auth-status error';
+                    return;
+                }
+                
+                try {
+                    statusEl.textContent = 'Authenticating...';
+                    statusEl.className = 'auth-status';
+                    
+                    const response = await fetch('/admin/status', {
+                        headers: {
+                            'Authorization': token.startsWith('Bearer ') ? token : `Bearer ${token}`,
+                            'X-Admin-Key': token
+                        }
+                    });
+                    
+                    if (response.ok) {
+                        this.token = token;
+                        localStorage.setItem('adminToken', token);
+                        statusEl.textContent = 'Authentication successful';
+                        statusEl.className = 'auth-status success';
+                        
+                        document.getElementById('dashboardContent').classList.add('visible');
+                        this.initializeDashboard();
+                    } else {
+                        throw new Error(`Authentication failed: ${response.status}`);
+                    }
+                } catch (error) {
+                    statusEl.textContent = `Error: ${error.message}`;
+                    statusEl.className = 'auth-status error';
+                    localStorage.removeItem('adminToken');
+                }
+            }
+            
+            initializeDashboard() {
+                this.initializeCharts();
+                this.loadData();
+                
+                // Set up auto-refresh every 30 seconds
+                if (this.refreshInterval) clearInterval(this.refreshInterval);
+                this.refreshInterval = setInterval(() => this.loadData(), 30000);
+            }
+            
+            initializeCharts() {
+                const chartOptions = {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.08)'
+                            },
+                            ticks: {
+                                color: '#a1a1aa'
+                            }
+                        },
+                        y: {
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.08)'
+                            },
+                            ticks: {
+                                color: '#a1a1aa'
+                            }
+                        }
+                    }
+                };
+                
+                // Request Volume Chart
+                this.charts.requestVolume = new Chart(
+                    document.getElementById('requestVolumeChart').getContext('2d'),
+                    {
+                        type: 'line',
+                        data: {
+                            labels: [],
+                            datasets: [{
+                                label: 'Requests',
+                                data: [],
+                                borderColor: '#6366f1',
+                                backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                                fill: true,
+                                tension: 0.4
+                            }]
+                        },
+                        options: chartOptions
+                    }
+                );
+                
+                // Active Locks Chart
+                this.charts.activeLocks = new Chart(
+                    document.getElementById('activeLocksChart').getContext('2d'),
+                    {
+                        type: 'line',
+                        data: {
+                            labels: [],
+                            datasets: [{
+                                label: 'Active Locks',
+                                data: [],
+                                borderColor: '#10b981',
+                                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                fill: true,
+                                tension: 0.4
+                            }]
+                        },
+                        options: chartOptions
+                    }
+                );
+                
+                // Acquire Rate Chart
+                this.charts.acquireRate = new Chart(
+                    document.getElementById('acquireRateChart').getContext('2d'),
+                    {
+                        type: 'bar',
+                        data: {
+                            labels: [],
+                            datasets: [{
+                                label: 'Acquires',
+                                data: [],
+                                backgroundColor: '#f59e0b',
+                                borderColor: '#d97706',
+                                borderWidth: 1
+                            }]
+                        },
+                        options: chartOptions
+                    }
+                );
+                
+                // Release Rate Chart
+                this.charts.releaseRate = new Chart(
+                    document.getElementById('releaseRateChart').getContext('2d'),
+                    {
+                        type: 'bar',
+                        data: {
+                            labels: [],
+                            datasets: [{
+                                label: 'Releases',
+                                data: [],
+                                backgroundColor: '#ef4444',
+                                borderColor: '#dc2626',
+                                borderWidth: 1
+                            }]
+                        },
+                        options: chartOptions
+                    }
+                );
+            }
+            
+            async loadData() {
+                try {
+                    // Load admin status (current stats)
+                    const statusResponse = await fetch('/admin/status', {
+                        headers: {
+                            'Authorization': this.token.startsWith('Bearer ') ? this.token : `Bearer ${this.token}`,
+                            'X-Admin-Key': this.token
+                        }
+                    });
+                    
+                    if (!statusResponse.ok) {
+                        throw new Error('Failed to load admin status');
+                    }
+                    
+                    const statusData = await statusResponse.json();
+                    this.updateCurrentStats(statusData);
+                    this.updateUsersList(statusData.users, statusData.locks);
+                    
+                    // Load time series data
+                    const timeseriesResponse = await fetch(`/admin/metrics/timeseries?window=${this.currentWindow}`, {
+                        headers: {
+                            'Authorization': this.token.startsWith('Bearer ') ? this.token : `Bearer ${this.token}`,
+                            'X-Admin-Key': this.token
+                        }
+                    });
+                    
+                    if (!timeseriesResponse.ok) {
+                        throw new Error('Failed to load timeseries data');
+                    }
+                    
+                    const timeseriesData = await timeseriesResponse.json();
+                    this.updateCharts(timeseriesData);
+                    
+                    document.getElementById('lastUpdated').textContent = 
+                        `Last updated: ${new Date().toLocaleTimeString()}`;
+                        
+                } catch (error) {
+                    console.error('Error loading data:', error);
+                    document.getElementById('authStatus').textContent = `Error: ${error.message}`;
+                    document.getElementById('authStatus').className = 'auth-status error';
+                }
+            }
+            
+            updateCurrentStats(data) {
+                document.getElementById('totalUsers').textContent = data.total_users;
+                document.getElementById('activeLocks').textContent = data.active_locks;
+                document.getElementById('uptime').textContent = 
+                    Math.round(data.uptime_seconds / 3600 * 10) / 10; // Hours with 1 decimal
+                document.getElementById('totalOps').textContent = 
+                    data.total_acquires + data.total_releases;
+            }
+            
+            updateUsersList(users, locks) {
+                const usersList = document.getElementById('usersList');
+                
+                // Count locks per user
+                const lockCounts = {};
+                locks.forEach(lock => {
+                    lockCounts[lock.holder_username] = (lockCounts[lock.holder_username] || 0) + 1;
+                });
+                
+                usersList.innerHTML = users.map(user => `
+                    <div class="user-item">
+                        <div class="user-name">${user}</div>
+                        <div class="user-locks">${lockCounts[user] || 0} locks</div>
+                    </div>
+                `).join('');
+            }
+            
+            updateCharts(data) {
+                const labels = data.timestamps.map(ts => new Date(ts * 1000).toLocaleTimeString());
+                
+                // Update Request Volume Chart
+                this.charts.requestVolume.data.labels = labels;
+                this.charts.requestVolume.data.datasets[0].data = data.request_volume;
+                this.charts.requestVolume.update('none');
+                
+                // Update Active Locks Chart
+                this.charts.activeLocks.data.labels = labels;
+                this.charts.activeLocks.data.datasets[0].data = data.active_locks;
+                this.charts.activeLocks.update('none');
+                
+                // Update Acquire Rate Chart
+                this.charts.acquireRate.data.labels = labels;
+                this.charts.acquireRate.data.datasets[0].data = data.acquire_rates;
+                this.charts.acquireRate.update('none');
+                
+                // Update Release Rate Chart
+                this.charts.releaseRate.data.labels = labels;
+                this.charts.releaseRate.data.datasets[0].data = data.release_rates;
+                this.charts.releaseRate.update('none');
+            }
+        }
+        
+        // Initialize dashboard when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            new AdminDashboard();
+        });
+    </script>
+</body>
+</html>
