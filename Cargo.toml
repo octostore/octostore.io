@@ -7,6 +7,10 @@ edition = "2021"
 name = "octostore-test"
 path = "src/bin/integration_test.rs"
 
+[[bin]]
+name = "octostore-bench"
+path = "src/bin/benchmark.rs"
+
 [dependencies]
 axum = "0.7"
 tokio = { version = "1.0", features = ["full"] }
