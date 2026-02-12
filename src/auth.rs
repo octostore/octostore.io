@@ -861,9 +861,9 @@ mod tests {
         let result = auth_service.authenticate(&headers);
         assert!(result.is_err());
         
-        // Test non-UTF8 authorization header (shouldn't happen in practice but test robustness)
+        // Test garbage authorization header
         let mut headers = HeaderMap::new();
-        headers.insert("authorization", "Bearer \x80\x81".parse().unwrap_or_default());
+        headers.insert("authorization", "Bearer !!!invalid!!!".parse().unwrap());
         let result = auth_service.authenticate(&headers);
         assert!(result.is_err());
     }
@@ -888,7 +888,7 @@ mod tests {
         // Test that config values are properly stored
         let config = Config {
             bind_addr: "127.0.0.1:8080".to_string(),
-            database_url = ":memory:".to_string(),
+            database_url: ":memory:".to_string(),
             github_client_id: "custom_client_id".to_string(),
             github_client_secret: "custom_secret".to_string(),
             github_redirect_uri: "https://custom.example.com/callback".to_string(),
