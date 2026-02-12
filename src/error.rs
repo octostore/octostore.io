@@ -32,6 +32,15 @@ pub enum AppError {
     #[error("Invalid lock name: {reason}")]
     InvalidLockName { reason: String },
     
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
+    
+    #[error("Resource not found: {0}")]
+    NotFound(String),
+    
+    #[error("Conflict: {0}")]
+    Conflict(String),
+    
     #[error("Database error: {0}")]
     Database(#[from] rusqlite::Error),
     
@@ -59,6 +68,9 @@ impl IntoResponse for AppError {
             AppError::LockLimitExceeded => (StatusCode::FORBIDDEN, "Lock limit exceeded"),
             AppError::InvalidTtl { .. } => (StatusCode::BAD_REQUEST, "Invalid TTL"),
             AppError::InvalidLockName { .. } => (StatusCode::BAD_REQUEST, "Invalid lock name"),
+            AppError::InvalidInput(_) => (StatusCode::BAD_REQUEST, "Invalid input"),
+            AppError::NotFound(_) => (StatusCode::NOT_FOUND, "Resource not found"),
+            AppError::Conflict(_) => (StatusCode::CONFLICT, "Conflict"),
             AppError::Database(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Database error"),
             AppError::HttpClient(_) => (StatusCode::BAD_GATEWAY, "External service error"),
             AppError::Json(_) => (StatusCode::BAD_REQUEST, "JSON parsing error"),
