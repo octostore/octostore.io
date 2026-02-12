@@ -89,10 +89,10 @@ impl TestRunner {
     }
 
     fn add_test_result(&mut self, name: String, success: bool, duration_ms: u128, error: Option<String>) {
-        let status = if success { "✅" } else { "❌" };
-        println!(" {} {} ({}ms)", status, name, duration_ms);
+        let status = if success { "\x1b[32m✅" } else { "\x1b[31m❌" };
+        println!(" {} {:.<45} \x1b[90m({:>3}ms)\x1b[0m", status, format!("{} ", name), duration_ms);
         if let Some(ref err) = error {
-            println!("    {}", err);
+            println!("    \x1b[31m{}\x1b[0m", err);
         }
 
         self.results.push(TestResult {
@@ -128,7 +128,7 @@ impl TestRunner {
         let failed = total - passed;
 
         println!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        println!("Results: {}/{} passed, {} failed", passed, total, failed);
+        if failed == 0 { println!("\x1b[32mResults: {}/{} passed\x1b[0m", passed, total); } else { println!("\x1b[31mResults: {}/{} passed, {} failed\x1b[0m", passed, total, failed); }
 
         if failed > 0 {
             process::exit(1);
@@ -160,8 +160,8 @@ async fn main() {
     let token = matches.get_one::<String>("token").unwrap();
     let verbose = matches.get_flag("verbose");
 
-    println!("🐙 OctoStore Integration Tests");
-    println!("   Target: {}\n", base_url);
+    println!("\x1b[1m🐙 OctoStore Integration Tests\x1b[0m");
+    println!("\x1b[90m   Target: {}\x1b[0m\n", base_url);
 
     let mut runner = TestRunner::new(base_url.to_string(), token.to_string(), verbose);
 
