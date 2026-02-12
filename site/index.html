@@ -371,15 +371,26 @@
         }
 
         .code-block {
-            background: var(--bg-primary);
-            border: 1px solid var(--border);
+            background: #0d1117;
+            border: 1px solid rgba(99, 102, 241, 0.15);
             border-radius: 8px;
-            padding: 20px;
+            padding: 24px;
             overflow-x: auto;
             font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
             font-size: 14px;
-            line-height: 1.4;
+            line-height: 1.7;
         }
+
+        .code-block code {
+            color: #e6edf3;
+        }
+
+        .code-block .cmd { color: #79c0ff; }
+        .code-block .flag { color: #d2a8ff; }
+        .code-block .url { color: #a5d6ff; }
+        .code-block .header { color: #7ee787; }
+        .code-block .string { color: #ffa657; }
+        .code-block .comment { color: #8b949e; font-style: italic; }
 
         /* Constraints */
         .constraints {
@@ -601,37 +612,48 @@
                     <div class="endpoint-group">
                         <h3 class="endpoint-title">🔐 Authentication</h3>
                         <div class="code-block">
-<pre><code class="language-bash"># Sign in with GitHub OAuth
-curl https://api.octostore.io/auth/github
+<pre><code><span class="comment"># Sign in with GitHub OAuth</span>
+<span class="cmd">curl</span> <span class="url">https://api.octostore.io/auth/github</span>
 
-# Rotate your bearer token
-curl -X POST https://api.octostore.io/auth/token/rotate \
-  -H "Authorization: Bearer YOUR_TOKEN"</code></pre>
+<span class="comment"># Rotate your bearer token</span>
+<span class="cmd">curl</span> <span class="flag">-X POST</span> <span class="url">https://api.octostore.io/auth/token/rotate</span> \
+  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span></code></pre>
                         </div>
                     </div>
 
                     <div class="endpoint-group">
-                        <h3 class="endpoint-title">🔒 Lock Operations</h3>
+                        <h3 class="endpoint-title">🔒 Acquire a Lock</h3>
                         <div class="code-block">
-<pre><code class="language-bash"># Acquire a lock
-curl -X POST https://api.octostore.io/locks/my-resource/acquire \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"ttl_seconds": 300}'
+<pre><code><span class="cmd">curl</span> <span class="flag">-X POST</span> <span class="url">https://api.octostore.io/locks/my-resource/acquire</span> \
+  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span> \
+  <span class="flag">-H</span> <span class="header">"Content-Type: application/json"</span> \
+  <span class="flag">-d</span> <span class="string">'{"ttl_seconds": 300}'</span></code></pre>
+                        </div>
+                    </div>
 
-# Release a lock
-curl -X POST https://api.octostore.io/locks/my-resource/release \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"lease_id": "uuid-here"}'
+                    <div class="endpoint-group">
+                        <h3 class="endpoint-title">🔓 Release a Lock</h3>
+                        <div class="code-block">
+<pre><code><span class="cmd">curl</span> <span class="flag">-X POST</span> <span class="url">https://api.octostore.io/locks/my-resource/release</span> \
+  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span> \
+  <span class="flag">-H</span> <span class="header">"Content-Type: application/json"</span> \
+  <span class="flag">-d</span> <span class="string">'{"lease_id": "uuid-from-acquire"}'</span></code></pre>
+                        </div>
+                    </div>
 
-# Check lock status
-curl https://api.octostore.io/locks/my-resource \
-  -H "Authorization: Bearer YOUR_TOKEN"
+                    <div class="endpoint-group">
+                        <h3 class="endpoint-title">👀 Check Lock Status</h3>
+                        <div class="code-block">
+<pre><code><span class="cmd">curl</span> <span class="url">https://api.octostore.io/locks/my-resource</span> \
+  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span></code></pre>
+                        </div>
+                    </div>
 
-# List your active locks
-curl https://api.octostore.io/locks \
-  -H "Authorization: Bearer YOUR_TOKEN"</code></pre>
+                    <div class="endpoint-group">
+                        <h3 class="endpoint-title">📋 List Your Locks</h3>
+                        <div class="code-block">
+<pre><code><span class="cmd">curl</span> <span class="url">https://api.octostore.io/locks</span> \
+  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span></code></pre>
                         </div>
                     </div>
                 </div>
