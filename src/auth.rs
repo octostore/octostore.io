@@ -16,6 +16,7 @@ use reqwest::Client;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Deserialize;
 use std::{collections::HashMap, sync::Mutex};
+use dashmap::DashMap;
 use tracing::{debug, info};
 use uuid::Uuid;
 
@@ -24,6 +25,8 @@ pub struct AuthService {
     db: std::sync::Arc<Mutex<Connection>>,
     http_client: Client,
     config: Config,
+    /// Cache: token → user_id (avoids SQLite mutex on every request)
+    token_cache: std::sync::Arc<DashMap<String, Uuid>>,
 }
 
 #[derive(Deserialize)]
@@ -68,10 +71,28 @@ impl AuthService {
 
         info!("Database initialized at: {}", config.database_url);
 
+        // Pre-load existing tokens into cache
+        let token_cache = DashMap::new();
+        {
+            let mut stmt = conn.prepare("SELECT token, id FROM users")?;
+            let rows = stmt.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            for row in rows {
+                if let Ok((token, id)) = row {
+                    if let Ok(uuid) = Uuid::parse_str(&id) {
+                        token_cache.insert(token, uuid);
+                    }
+                }
+            }
+            info!("Loaded {} tokens into auth cache", token_cache.len());
+        }
+
         Ok(Self {
             db: std::sync::Arc::new(Mutex::new(conn)),
             http_client: Client::new(),
             config,
+            token_cache: std::sync::Arc::new(token_cache),
         })
     }
 
@@ -192,13 +213,18 @@ impl AuthService {
             created_at,
         };
 
+        // Add to token cache
+        self.token_cache.insert(user.token.clone(), user.id);
+        
         info!("New user created: {}", user.github_username);
         Ok(user)
     }
 
     pub async fn rotate_token(&self, current_token: &str) -> Result<String> {
-        let conn = self.db.lock().unwrap();
+        // Get user_id before rotating (for cache update)
+        let user_id = self.token_cache.get(current_token).map(|v| *v);
         
+        let conn = self.db.lock().unwrap();
         let new_token = self.generate_token();
         
         let updated_rows = conn.execute(
@@ -208,6 +234,12 @@ impl AuthService {
 
         if updated_rows == 0 {
             return Err(AppError::Unauthorized);
+        }
+
+        // Update cache: remove old token, add new one
+        self.token_cache.remove(current_token);
+        if let Some(uid) = user_id {
+            self.token_cache.insert(new_token.clone(), uid);
         }
 
         Ok(new_token)
@@ -223,6 +255,12 @@ impl AuthService {
             .strip_prefix("Bearer ")
             .ok_or(AppError::MissingAuth)?;
 
+        // Check cache first (lock-free, O(1))
+        if let Some(user_id) = self.token_cache.get(token) {
+            return Ok(*user_id);
+        }
+
+        // Cache miss — fall back to SQLite
         let conn = self.db.lock().unwrap();
         let user_id: String = conn
             .query_row(
@@ -233,7 +271,10 @@ impl AuthService {
             .optional()?
             .ok_or(AppError::Unauthorized)?;
 
-        Ok(Uuid::parse_str(&user_id)?)
+        let uuid = Uuid::parse_str(&user_id)?;
+        // Populate cache
+        self.token_cache.insert(token.to_string(), uuid);
+        Ok(uuid)
     }
 
     fn generate_token(&self) -> String {
