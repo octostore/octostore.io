@@ -558,8 +558,8 @@
                     </linearGradient>
                   </defs>
                 </svg>
-                <div class="hero-headline">Lock. Elect. <span class="highlight">Ship.</span></div>
-                <p class="tagline">Distributed locking and leader election over HTTP. Free, fast, zero config.</p>
+                <div class="hero-headline">Lock. Limit. <span class="highlight">Ship.</span></div>
+                <p class="tagline">Distributed locks, rate limiting, feature flags, and config store. Free, fast, zero config.</p>
                 <div class="cta-buttons">
                     <a href="https://api.octostore.io/auth/github" class="github-auth-btn">
                         <svg class="github-icon" viewBox="0 0 16 16">
@@ -581,7 +581,7 @@
 
         <section>
             <h2>What it does</h2>
-            <p class="section-subtitle">OctoStore provides distributed locking and leader election via a simple HTTP API. Sign up with GitHub, get a bearer token, start locking.</p>
+            <p class="section-subtitle">OctoStore provides distributed infrastructure services via a simple HTTP API. Sign up with GitHub, get a bearer token, start shipping.</p>
             
             <div class="features-grid">
                 <div class="feature-card">
@@ -590,24 +590,24 @@
                     <p class="feature-description">Acquire exclusive locks across distributed systems with automatic expiration and fencing tokens for safety.</p>
                 </div>
                 <div class="feature-card">
-                    <span class="feature-icon">👑</span>
-                    <h3 class="feature-title">Leader Election</h3>
-                    <p class="feature-description">Elect leaders in distributed systems with built-in failover and guaranteed single leadership.</p>
+                    <span class="feature-icon">🚦</span>
+                    <h3 class="feature-title">Rate Limiting</h3>
+                    <p class="feature-description">Control request rates with sliding window counters. Per-user limits with customizable windows and thresholds.</p>
                 </div>
                 <div class="feature-card">
-                    <span class="feature-icon">🛡️</span>
-                    <h3 class="feature-title">Fencing Tokens</h3>
-                    <p class="feature-description">Prevent split-brain scenarios with monotonically increasing fencing tokens for each lock acquisition.</p>
+                    <span class="feature-icon">🚩</span>
+                    <h3 class="feature-title">Feature Flags</h3>
+                    <p class="feature-description">Toggle features on/off with percentage rollouts. Consistent hashing ensures users get the same experience.</p>
+                </div>
+                <div class="feature-card">
+                    <span class="feature-icon">⚙️</span>
+                    <h3 class="feature-title">Config Store</h3>
+                    <p class="feature-description">Store arbitrary JSON configuration with versioning. Get current values or historical versions on demand.</p>
                 </div>
                 <div class="feature-card">
                     <span class="feature-icon">⚡</span>
                     <h3 class="feature-title">Simple HTTP API</h3>
                     <p class="feature-description">Pure REST API with JSON responses. No SDKs required. Works with any programming language or tool.</p>
-                </div>
-                <div class="feature-card">
-                    <span class="feature-icon">🔧</span>
-                    <h3 class="feature-title">Zero Configuration</h3>
-                    <p class="feature-description">No setup required. Sign in with GitHub and start using locks immediately. No infrastructure to manage.</p>
                 </div>
                 <div class="feature-card">
                     <span class="feature-icon">🚀</span>
@@ -668,6 +668,39 @@
   <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span></code></pre>
                         </div>
                     </div>
+
+                    <div class="endpoint-group">
+                        <h3 class="endpoint-title">🚦 Rate Limiting</h3>
+                        <div class="code-block">
+<pre><code><span class="comment"># Check if action is allowed</span>
+<span class="cmd">curl</span> <span class="flag">-X POST</span> <span class="url">https://api.octostore.io/limits/api-calls/check</span> \
+  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span> \
+  <span class="flag">-H</span> <span class="header">"Content-Type: application/json"</span> \
+  <span class="flag">-d</span> <span class="string">'{"max_requests": 100, "window_seconds": 60}'</span></code></pre>
+                        </div>
+                    </div>
+
+                    <div class="endpoint-group">
+                        <h3 class="endpoint-title">🚩 Feature Flags</h3>
+                        <div class="code-block">
+<pre><code><span class="comment"># Set a feature flag with 50% rollout</span>
+<span class="cmd">curl</span> <span class="flag">-X PUT</span> <span class="url">https://api.octostore.io/flags/dark-mode</span> \
+  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span> \
+  <span class="flag">-H</span> <span class="header">"Content-Type: application/json"</span> \
+  <span class="flag">-d</span> <span class="string">'{"enabled": true, "percentage": 50}'</span></code></pre>
+                        </div>
+                    </div>
+
+                    <div class="endpoint-group">
+                        <h3 class="endpoint-title">⚙️ Config Store</h3>
+                        <div class="code-block">
+<pre><code><span class="comment"># Store configuration with description</span>
+<span class="cmd">curl</span> <span class="flag">-X PUT</span> <span class="url">https://api.octostore.io/config/db-url</span> \
+  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span> \
+  <span class="flag">-H</span> <span class="header">"Content-Type: application/json"</span> \
+  <span class="flag">-d</span> <span class="string">'{"value": "postgres://localhost/mydb", "description": "Main database URL"}'</span></code></pre>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
@@ -675,10 +708,11 @@
         <div class="constraints">
             <h3>Service Constraints</h3>
             <ul>
-                <li>🔢 100 locks maximum per user</li>
-                <li>⏱️ 1 hour maximum TTL</li>
-                <li>💾 Ephemeral storage (locks don't persist across restarts)</li>
-                <li>🛡️ Fencing tokens included for safety</li>
+                <li>🔒 100 locks maximum per user</li>
+                <li>🚩 1000 feature flags maximum per user</li>
+                <li>⚙️ 500 config keys maximum per user</li>
+                <li>⏱️ 1 hour maximum TTL (locks only)</li>
+                <li>💾 Ephemeral storage (data doesn't persist across restarts)</li>
                 <li>🆓 Completely free, no rate limits</li>
             </ul>
         </div>
