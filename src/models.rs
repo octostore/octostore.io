@@ -19,6 +19,7 @@ pub struct Lock {
     pub fencing_token: u64,
     pub expires_at: DateTime<Utc>,
     pub metadata: Option<String>,
+    pub acquired_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Deserialize)]
