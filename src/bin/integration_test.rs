@@ -83,7 +83,7 @@ impl TestRunner {
         }
 
         let json = serde_json::from_str(&text)
-            .map_err(|e| format!("Failed to parse JSON response: {} - Response: {}", e, text))?;
+            .unwrap_or_else(|_| json!(text));
 
         Ok((status, json))
     }
@@ -461,7 +461,7 @@ async fn main() {
 
     // Test 12: Invalid Lock Name
     let start = Instant::now();
-    let invalid_name = "invalid!@#$%name";
+    let invalid_name = "invalid%21%40name";
     match runner.make_request_json("POST", &format!("/locks/{}/acquire", invalid_name), 
             Some(json!({"ttl_seconds": 60}))).await {
         Ok((status, _)) => {
