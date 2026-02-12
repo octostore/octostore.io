@@ -271,9 +271,18 @@ pub async fn github_auth(State(state): State<crate::AppState>) -> Redirect {
 pub async fn github_callback(
     State(state): State<crate::AppState>,
     query: Query<GitHubCallbackQuery>,
-) -> Result<Json<AuthTokenResponse>> {
+) -> Result<Redirect> {
     let response = state.auth_service.handle_github_callback(query).await?;
-    Ok(Json(response))
+    
+    // Redirect to the dashboard with token and user info as URL parameters
+    let dashboard_url = format!(
+        "https://octostore.io/dashboard.html?token={}&username={}&user_id={}",
+        urlencoding::encode(&response.token),
+        urlencoding::encode(&response.github_username),
+        response.user_id
+    );
+    
+    Ok(Redirect::permanent(&dashboard_url))
 }
 
 pub async fn rotate_token(

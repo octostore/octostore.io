@@ -4,7 +4,27 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OctoStore - Leader election as a service. That's it.</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-dark.min.css">
     <style>
+        :root {
+            --bg-primary: #0a0a0b;
+            --bg-secondary: #111111;
+            --bg-tertiary: #1a1a1b;
+            --text-primary: #ffffff;
+            --text-secondary: #e5e5e5;
+            --text-muted: #a1a1aa;
+            --accent: #6366f1;
+            --accent-hover: #5b5ce8;
+            --border: rgba(255, 255, 255, 0.08);
+            --border-hover: rgba(255, 255, 255, 0.12);
+            --gradient: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(168, 85, 247, 0.1) 100%);
+            --shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+            --shadow-lg: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -12,114 +32,347 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background-color: #0a0a0b;
-            color: #e5e5e5;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-secondary);
             line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* Background decoration */
+        body::before {
+            content: '';
+            position: fixed;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle at 25% 25%, rgba(99, 102, 241, 0.05) 0%, transparent 50%),
+                        radial-gradient(circle at 75% 75%, rgba(168, 85, 247, 0.05) 0%, transparent 50%);
+            z-index: -1;
+            animation: float 20s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: rotate(0deg) scale(1); }
+            50% { transform: rotate(180deg) scale(1.1); }
         }
 
         .container {
-            max-width: 900px;
+            max-width: 1200px;
             margin: 0 auto;
-            padding: 40px 20px;
+            padding: 0 24px;
         }
 
+        /* Header */
         header {
+            padding: 80px 0 120px;
             text-align: center;
-            margin-bottom: 60px;
+            position: relative;
         }
 
-        h1 {
-            font-size: 4rem;
-            font-weight: 700;
-            margin-bottom: 20px;
-            color: #ffffff;
+        .hero-content {
+            animation: fadeInUp 0.8s ease-out;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .hero-logo {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 32px;
+            gap: 20px;
         }
 
         .hero-icon {
-            font-size: 3rem;
-            margin-right: 15px;
+            font-size: 4rem;
+            filter: drop-shadow(0 0 20px rgba(99, 102, 241, 0.3));
+        }
+
+        h1 {
+            font-size: 4.5rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            background: linear-gradient(135deg, #ffffff 0%, #e5e5e5 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin: 0;
         }
 
         .tagline {
             font-size: 1.5rem;
-            color: #a1a1aa;
-            margin-bottom: 30px;
+            color: var(--text-muted);
+            margin: 32px 0 48px;
+            font-weight: 500;
         }
 
+        .cta-buttons {
+            display: flex;
+            gap: 24px;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .github-auth-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            background: #24292f;
+            border: 1px solid #30363d;
+            color: #ffffff;
+            text-decoration: none;
+            padding: 16px 32px;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 1.1rem;
+            transition: all 0.2s ease;
+            box-shadow: var(--shadow);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .github-auth-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, transparent 50%);
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+
+        .github-auth-btn:hover::before {
+            opacity: 1;
+        }
+
+        .github-auth-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
+            border-color: #4c5861;
+        }
+
+        .github-icon {
+            width: 24px;
+            height: 24px;
+            fill: currentColor;
+        }
+
+        .secondary-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            text-decoration: none;
+            padding: 16px 32px;
+            border-radius: 12px;
+            font-weight: 500;
+            font-size: 1.1rem;
+            transition: all 0.2s ease;
+            backdrop-filter: blur(10px);
+        }
+
+        .secondary-btn:hover {
+            border-color: var(--border-hover);
+            background: rgba(255, 255, 255, 0.05);
+            transform: translateY(-1px);
+        }
+
+        /* Disclaimer */
         .disclaimer {
-            background-color: #1a1a1b;
-            border: 1px solid #333;
-            border-radius: 8px;
-            padding: 20px;
-            margin: 40px 0;
+            background: var(--gradient);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 32px;
+            margin: 80px 0;
             text-align: center;
+            backdrop-filter: blur(10px);
+            animation: fadeIn 0.8s ease-out 0.3s both;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
         }
 
         .disclaimer p {
-            color: #a1a1aa;
-            font-size: 1.1rem;
+            color: var(--text-muted);
+            font-size: 1.2rem;
+            font-weight: 500;
         }
 
+        /* Sections */
         section {
-            margin-bottom: 50px;
+            margin: 100px 0;
+            animation: fadeIn 0.8s ease-out both;
+        }
+
+        section:nth-child(even) {
+            animation-delay: 0.1s;
+        }
+
+        section:nth-child(odd) {
+            animation-delay: 0.2s;
         }
 
         h2 {
-            font-size: 2rem;
-            margin-bottom: 20px;
-            color: #ffffff;
+            font-size: 2.5rem;
+            margin-bottom: 24px;
+            color: var(--text-primary);
+            font-weight: 700;
+            text-align: center;
         }
 
-        h3 {
+        .section-subtitle {
+            text-align: center;
+            font-size: 1.2rem;
+            color: var(--text-muted);
+            margin-bottom: 60px;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        /* Feature grid */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 32px;
+            margin: 60px 0;
+        }
+
+        .feature-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 32px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--accent), transparent);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .feature-card:hover::before {
+            opacity: 1;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-4px);
+            border-color: var(--border-hover);
+            box-shadow: var(--shadow);
+        }
+
+        .feature-icon {
+            font-size: 2.5rem;
+            margin-bottom: 20px;
+            display: block;
+        }
+
+        .feature-title {
             font-size: 1.5rem;
-            margin-bottom: 15px;
-            color: #e5e5e5;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 16px;
         }
 
-        p {
-            margin-bottom: 15px;
-            color: #a1a1aa;
+        .feature-description {
+            color: var(--text-muted);
+            line-height: 1.6;
         }
 
-        .api-overview {
-            background-color: #111111;
-            border-radius: 8px;
-            padding: 25px;
-            margin: 20px 0;
+        /* API section */
+        .api-section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 48px;
+            margin: 60px 0;
+            position: relative;
+            overflow: hidden;
         }
 
-        .endpoint {
-            margin-bottom: 20px;
+        .api-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--gradient);
+            opacity: 0.3;
+            z-index: -1;
+        }
+
+        .api-endpoints {
+            display: grid;
+            gap: 32px;
+            margin-top: 40px;
+        }
+
+        .endpoint-group {
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
         }
 
         .endpoint-title {
             font-weight: 600;
-            color: #ffffff;
-            margin-bottom: 8px;
+            color: var(--text-primary);
+            margin-bottom: 16px;
+            font-size: 1.3rem;
         }
 
-        pre {
-            background-color: #0a0a0b;
-            border: 1px solid #333;
-            border-radius: 6px;
-            padding: 15px;
-            overflow-x: auto;
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
-            font-size: 14px;
-            color: #e5e5e5;
-        }
-
-        .constraints {
-            background-color: #1a1a1b;
-            border-left: 4px solid #6366f1;
+        .code-block {
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
             padding: 20px;
-            margin: 20px 0;
+            overflow-x: auto;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            font-size: 14px;
+            line-height: 1.4;
         }
 
-        .constraints h4 {
-            color: #ffffff;
-            margin-bottom: 10px;
+        /* Constraints */
+        .constraints {
+            background: var(--bg-secondary);
+            border-left: 4px solid var(--accent);
+            border-radius: 12px;
+            padding: 32px;
+            margin: 40px 0;
+        }
+
+        .constraints h3 {
+            color: var(--text-primary);
+            margin-bottom: 20px;
+            font-size: 1.4rem;
         }
 
         .constraints ul {
@@ -127,111 +380,161 @@
         }
 
         .constraints li {
-            margin-bottom: 5px;
-            color: #a1a1aa;
+            margin-bottom: 12px;
+            color: var(--text-muted);
         }
 
-        .cta {
-            text-align: center;
-            margin: 40px 0;
-        }
-
-        .cta-link {
-            display: inline-block;
-            background-color: #6366f1;
-            color: #ffffff;
-            text-decoration: none;
-            padding: 15px 30px;
-            border-radius: 6px;
-            font-weight: 600;
-            transition: background-color 0.2s;
-        }
-
-        .cta-link:hover {
-            background-color: #5b5ce8;
-        }
-
+        /* Footer */
         footer {
             text-align: center;
-            margin-top: 80px;
-            padding-top: 40px;
-            border-top: 1px solid #333;
-            color: #6b7280;
-            font-style: italic;
+            margin: 120px 0 80px;
+            padding: 40px 0;
+            border-top: 1px solid var(--border);
+            color: var(--text-muted);
         }
 
-        .architecture {
-            background-color: #111111;
-            border-radius: 8px;
-            padding: 25px;
-            margin: 20px 0;
+        footer p {
+            font-size: 1.1rem;
         }
 
-        .get-started {
-            background-color: #1a1a1b;
-            border-radius: 8px;
-            padding: 25px;
-            margin: 20px 0;
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container {
+                padding: 0 16px;
+            }
+
+            h1 {
+                font-size: 3rem;
+            }
+
+            .tagline {
+                font-size: 1.2rem;
+            }
+
+            .cta-buttons {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .github-auth-btn,
+            .secondary-btn {
+                justify-content: center;
+            }
+
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .api-section {
+                padding: 32px 24px;
+            }
+
+            .code-block {
+                font-size: 12px;
+            }
         }
 
-        .get-started ol {
-            margin-left: 20px;
-        }
+        @media (max-width: 480px) {
+            header {
+                padding: 60px 0 80px;
+            }
 
-        .get-started li {
-            margin-bottom: 10px;
-            color: #a1a1aa;
+            h1 {
+                font-size: 2.5rem;
+            }
+
+            .hero-icon {
+                font-size: 3rem;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
-            <h1><span class="hero-icon">🐙</span>OctoStore</h1>
-            <p class="tagline">Leader election as a service. That's it.</p>
+            <div class="hero-content">
+                <div class="hero-logo">
+                    <span class="hero-icon">🐙</span>
+                    <h1>OctoStore</h1>
+                </div>
+                <p class="tagline">Leader election as a service. That's it.</p>
+                <div class="cta-buttons">
+                    <a href="https://api.octostore.io/auth/github" class="github-auth-btn">
+                        <svg class="github-icon" viewBox="0 0 16 16">
+                            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                        </svg>
+                        Sign in with GitHub
+                    </a>
+                    <a href="https://api.octostore.io/docs" class="secondary-btn">
+                        View API Docs
+                        <span>→</span>
+                    </a>
+                </div>
+            </div>
         </header>
 
         <div class="disclaimer">
-            <p>This is a free thing. There's no business model. No VC funding. No enterprise tier. Just a lock service.</p>
+            <p>This is a free thing. No business model. No VC funding. No enterprise tier. Just a lock service.</p>
         </div>
 
         <section>
             <h2>What it does</h2>
-            <p>OctoStore provides distributed locking and leader election via a simple HTTP API. Sign up with GitHub, get a bearer token, start locking.</p>
+            <p class="section-subtitle">OctoStore provides distributed locking and leader election via a simple HTTP API. Sign up with GitHub, get a bearer token, start locking.</p>
             
-            <div class="get-started">
-                <h3>Get Started</h3>
-                <ol>
-                    <li>Authenticate with GitHub OAuth</li>
-                    <li>Get your bearer token</li>
-                    <li>Start acquiring locks</li>
-                </ol>
-            </div>
-        </section>
-
-        <section>
-            <h2>Architecture</h2>
-            <div class="architecture">
-                <p><strong>Under the hood:</strong> a single Rust binary, Axum web framework, DashMap for concurrent in-memory storage, SQLite for user accounts. Runs on a single VM. No Kubernetes. No microservices. No blockchain.</p>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <span class="feature-icon">🔒</span>
+                    <h3 class="feature-title">Distributed Locking</h3>
+                    <p class="feature-description">Acquire exclusive locks across distributed systems with automatic expiration and fencing tokens for safety.</p>
+                </div>
+                <div class="feature-card">
+                    <span class="feature-icon">👑</span>
+                    <h3 class="feature-title">Leader Election</h3>
+                    <p class="feature-description">Elect leaders in distributed systems with built-in failover and guaranteed single leadership.</p>
+                </div>
+                <div class="feature-card">
+                    <span class="feature-icon">🛡️</span>
+                    <h3 class="feature-title">Fencing Tokens</h3>
+                    <p class="feature-description">Prevent split-brain scenarios with monotonically increasing fencing tokens for each lock acquisition.</p>
+                </div>
+                <div class="feature-card">
+                    <span class="feature-icon">⚡</span>
+                    <h3 class="feature-title">Simple HTTP API</h3>
+                    <p class="feature-description">Pure REST API with JSON responses. No SDKs required. Works with any programming language or tool.</p>
+                </div>
+                <div class="feature-card">
+                    <span class="feature-icon">🔧</span>
+                    <h3 class="feature-title">Zero Configuration</h3>
+                    <p class="feature-description">No setup required. Sign in with GitHub and start using locks immediately. No infrastructure to manage.</p>
+                </div>
+                <div class="feature-card">
+                    <span class="feature-icon">🚀</span>
+                    <h3 class="feature-title">Built for Speed</h3>
+                    <p class="feature-description">Rust-powered backend with in-memory storage for microsecond response times.</p>
+                </div>
             </div>
         </section>
 
         <section>
             <h2>API Overview</h2>
-            <div class="api-overview">
-                <div class="endpoint">
-                    <div class="endpoint-title">Auth Endpoints</div>
-                    <pre># Initiate GitHub OAuth
-GET /auth/github
+            <div class="api-section">
+                <div class="api-endpoints">
+                    <div class="endpoint-group">
+                        <h3 class="endpoint-title">🔐 Authentication</h3>
+                        <div class="code-block">
+<pre><code class="language-bash"># Sign in with GitHub OAuth
+curl https://api.octostore.io/auth/github
 
 # Rotate your bearer token
 curl -X POST https://api.octostore.io/auth/token/rotate \
-  -H "Authorization: Bearer YOUR_TOKEN"</pre>
-                </div>
+  -H "Authorization: Bearer YOUR_TOKEN"</code></pre>
+                        </div>
+                    </div>
 
-                <div class="endpoint">
-                    <div class="endpoint-title">Lock Operations</div>
-                    <pre># Acquire a lock
+                    <div class="endpoint-group">
+                        <h3 class="endpoint-title">🔒 Lock Operations</h3>
+                        <div class="code-block">
+<pre><code class="language-bash"># Acquire a lock
 curl -X POST https://api.octostore.io/locks/my-resource/acquire \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
@@ -243,40 +546,36 @@ curl -X POST https://api.octostore.io/locks/my-resource/release \
   -H "Content-Type: application/json" \
   -d '{"lease_id": "uuid-here"}'
 
-# Renew a lock
-curl -X POST https://api.octostore.io/locks/my-resource/renew \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"lease_id": "uuid-here", "ttl_seconds": 300}'
-
 # Check lock status
 curl https://api.octostore.io/locks/my-resource \
   -H "Authorization: Bearer YOUR_TOKEN"
 
 # List your active locks
 curl https://api.octostore.io/locks \
-  -H "Authorization: Bearer YOUR_TOKEN"</pre>
+  -H "Authorization: Bearer YOUR_TOKEN"</code></pre>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
 
         <div class="constraints">
-            <h4>Constraints</h4>
+            <h3>Service Constraints</h3>
             <ul>
-                <li>100 locks maximum per user</li>
-                <li>1 hour maximum TTL</li>
-                <li>Ephemeral storage (we store nothing permanently)</li>
-                <li>Fencing tokens included for safety</li>
+                <li>🔢 100 locks maximum per user</li>
+                <li>⏱️ 1 hour maximum TTL</li>
+                <li>💾 Ephemeral storage (locks don't persist across restarts)</li>
+                <li>🛡️ Fencing tokens included for safety</li>
+                <li>🆓 Completely free, no rate limits</li>
             </ul>
-        </div>
-
-        <div class="cta">
-            <a href="https://api.octostore.io/docs" class="cta-link">View Full API Documentation</a>
         </div>
 
         <footer>
             <p>Made with 🦀 and questionable judgment</p>
         </footer>
     </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
 </body>
 </html>
