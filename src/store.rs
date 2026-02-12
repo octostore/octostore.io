@@ -169,4 +169,18 @@ impl LockStore {
     pub fn get_fencing_counter(&self) -> u64 {
         self.fencing_counter.load(Ordering::SeqCst)
     }
+
+    pub fn get_all_active_locks(&self) -> Vec<Lock> {
+        self.locks
+            .iter()
+            .filter_map(|entry| {
+                let lock = entry.value();
+                if !lock.is_expired() {
+                    Some(lock.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
 }

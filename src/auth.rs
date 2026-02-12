@@ -260,6 +260,34 @@ impl AuthService {
         )?;
         Ok(())
     }
+
+    pub fn get_user_by_id(&self, user_id: &str) -> Result<Option<String>> {
+        let conn = self.db.lock().unwrap();
+        let username: Option<String> = conn.query_row(
+            "SELECT github_username FROM users WHERE id = ?",
+            params![user_id],
+            |row| row.get(0),
+        ).optional()?;
+        Ok(username)
+    }
+
+    pub fn get_all_users(&self) -> Result<Vec<serde_json::Value>> {
+        let conn = self.db.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT id, github_username, created_at FROM users")?;
+        let user_rows = stmt.query_map([], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "github_username": row.get::<_, String>(1)?,
+                "created_at": row.get::<_, String>(2)?
+            }))
+        })?;
+
+        let mut users = Vec::new();
+        for user_result in user_rows {
+            users.push(user_result?);
+        }
+        Ok(users)
+    }
 }
 
 // Route handlers  

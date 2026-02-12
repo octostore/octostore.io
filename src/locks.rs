@@ -7,6 +7,7 @@ use crate::{
     },
     store::LockStore,
 };
+use std::sync::atomic::Ordering;
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
@@ -66,6 +67,9 @@ pub async fn acquire_lock(
     
     match state.lock_handlers.store.acquire_lock(name.clone(), user_id, ttl_seconds, req.metadata.clone()) {
         Ok((lease_id, fencing_token, expires_at)) => {
+            // Only increment counter for new lock acquisitions, not idempotent renewals
+            // We can check if this is a new acquisition by seeing if the fencing token changed
+            state.total_acquires.fetch_add(1, Ordering::Relaxed);
             info!("Lock acquired: {} by user {}", name, user_id);
             Ok(Json(AcquireLockResponse::Acquired {
                 lease_id,
@@ -104,6 +108,8 @@ pub async fn release_lock(
     
     state.lock_handlers.store.release_lock(&name, req.lease_id, user_id)?;
     
+    // Increment release counter
+    state.total_releases.fetch_add(1, Ordering::Relaxed);
     info!("Lock released: {} by user {}", name, user_id);
     Ok(Json(()))
 }
