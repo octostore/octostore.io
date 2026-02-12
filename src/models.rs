@@ -18,11 +18,13 @@ pub struct Lock {
     pub lease_id: Uuid,
     pub fencing_token: u64,
     pub expires_at: DateTime<Utc>,
+    pub metadata: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct AcquireLockRequest {
     pub ttl_seconds: Option<u32>,
+    pub metadata: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -33,11 +35,13 @@ pub enum AcquireLockResponse {
         lease_id: Uuid,
         fencing_token: u64,
         expires_at: DateTime<Utc>,
+        metadata: Option<String>,
     },
     #[serde(rename = "held")]
     Held {
         holder_id: Uuid,
         expires_at: DateTime<Utc>,
+        metadata: Option<String>,
     },
 }
 
@@ -65,6 +69,7 @@ pub struct LockStatusResponse {
     pub holder_id: Option<Uuid>,
     pub fencing_token: u64,
     pub expires_at: Option<DateTime<Utc>>,
+    pub metadata: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -78,6 +83,7 @@ pub struct UserLockInfo {
     pub lease_id: Uuid,
     pub fencing_token: u64,
     pub expires_at: DateTime<Utc>,
+    pub metadata: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -129,5 +135,14 @@ pub fn validate_ttl(ttl_seconds: u32) -> Result<(), String> {
         return Err("TTL cannot exceed 3600 seconds (1 hour)".to_string());
     }
     
+    Ok(())
+}
+
+pub fn validate_metadata(metadata: &Option<String>) -> Result<(), String> {
+    if let Some(meta) = metadata {
+        if meta.len() > 1024 {
+            return Err("Metadata cannot exceed 1024 bytes".to_string());
+        }
+    }
     Ok(())
 }

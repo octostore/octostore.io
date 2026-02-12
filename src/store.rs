@@ -60,6 +60,7 @@ impl LockStore {
         name: String,
         holder_id: Uuid,
         ttl_seconds: u32,
+        metadata: Option<String>,
     ) -> Result<(Uuid, u64, DateTime<Utc>)> {
         let expires_at = Utc::now() + chrono::Duration::seconds(ttl_seconds as i64);
         let lease_id = Uuid::new_v4();
@@ -74,6 +75,7 @@ impl LockStore {
                     lease_id,
                     fencing_token,
                     expires_at,
+                    metadata: metadata.clone(),
                 };
                 entry.insert(lock);
                 Ok((lease_id, fencing_token, expires_at))
@@ -89,6 +91,7 @@ impl LockStore {
                         lease_id,
                         fencing_token,
                         expires_at,
+                        metadata: metadata.clone(),
                     };
                     entry.insert(lock);
                     Ok((lease_id, fencing_token, expires_at))

@@ -2,7 +2,7 @@ use crate::{
     auth::AuthService,
     error::{AppError, Result},
     models::{
-        validate_lock_name, validate_ttl, AcquireLockRequest, AcquireLockResponse, LockStatusResponse,
+        validate_lock_name, validate_ttl, validate_metadata, AcquireLockRequest, AcquireLockResponse, LockStatusResponse,
         ReleaseLockRequest, RenewLockRequest, RenewLockResponse, UserLockInfo, UserLocksResponse,
     },
     store::LockStore,
@@ -43,6 +43,10 @@ pub async fn acquire_lock(
     validate_ttl(ttl_seconds)
         .map_err(|reason| AppError::InvalidTtl { reason })?;
     
+    // Validate metadata
+    validate_metadata(&req.metadata)
+        .map_err(|reason| AppError::Internal(anyhow::anyhow!("Invalid metadata: {}", reason)))?;
+    
     // Check user lock limit (max 100)
     let current_lock_count = state.lock_handlers.store.count_user_locks(user_id);
     if current_lock_count >= 100 {
@@ -53,19 +57,21 @@ pub async fn acquire_lock(
                     lease_id: existing_lock.lease_id,
                     fencing_token: existing_lock.fencing_token,
                     expires_at: existing_lock.expires_at,
+                    metadata: existing_lock.metadata.clone(),
                 }));
             }
         }
         return Err(AppError::LockLimitExceeded);
     }
     
-    match state.lock_handlers.store.acquire_lock(name.clone(), user_id, ttl_seconds) {
+    match state.lock_handlers.store.acquire_lock(name.clone(), user_id, ttl_seconds, req.metadata.clone()) {
         Ok((lease_id, fencing_token, expires_at)) => {
             info!("Lock acquired: {} by user {}", name, user_id);
             Ok(Json(AcquireLockResponse::Acquired {
                 lease_id,
                 fencing_token,
                 expires_at,
+                metadata: req.metadata.clone(),
             }))
         }
         Err(AppError::LockHeld) => {
@@ -74,6 +80,7 @@ pub async fn acquire_lock(
                 Ok(Json(AcquireLockResponse::Held {
                     holder_id: lock.holder_id,
                     expires_at: lock.expires_at,
+                    metadata: lock.metadata.clone(),
                 }))
             } else {
                 // This shouldn't happen, but handle gracefully
@@ -144,6 +151,7 @@ pub async fn get_lock_status(
                 holder_id: None,
                 fencing_token: lock.fencing_token, // Keep the last known fencing token
                 expires_at: None,
+                metadata: None, // Expired lock, no metadata
             }))
         } else {
             Ok(Json(LockStatusResponse {
@@ -152,6 +160,7 @@ pub async fn get_lock_status(
                 holder_id: Some(lock.holder_id),
                 fencing_token: lock.fencing_token,
                 expires_at: Some(lock.expires_at),
+                metadata: lock.metadata.clone(),
             }))
         }
     } else {
@@ -164,6 +173,7 @@ pub async fn get_lock_status(
             holder_id: None,
             fencing_token: next_fencing_token,
             expires_at: None,
+            metadata: None,
         }))
     }
 }
@@ -182,6 +192,7 @@ pub async fn list_user_locks(
             lease_id: lock.lease_id,
             fencing_token: lock.fencing_token,
             expires_at: lock.expires_at,
+            metadata: lock.metadata,
         })
         .collect();
     
