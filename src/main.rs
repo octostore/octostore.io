@@ -2,30 +2,31 @@ mod auth;
 mod config;
 mod error;
 mod locks;
+mod metrics;
 mod models;
 mod store;
 
 use auth::{github_auth, github_callback, rotate_token, AuthService};
 use axum::{
-    extract::State,
+    extract::{Request, State},
     http::HeaderValue,
+    middleware::{self, Next},
     response::{Html, IntoResponse, Response},
     routing::{get, post},
     Router,
 };
 use config::Config;
 use locks::{acquire_lock, get_lock_status, list_user_locks, release_lock, renew_lock, LockHandlers};
+use metrics::{endpoint_from_path, Metrics};
 
 #[derive(Clone)]
 pub struct AppState {
     pub lock_handlers: LockHandlers,
     pub auth_service: AuthService,
     pub config: config::Config,
-    pub total_acquires: Arc<AtomicU64>,
-    pub total_releases: Arc<AtomicU64>,
-    pub start_time: std::time::Instant,
+    pub metrics: Arc<Metrics>,
 }
-use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
+use std::sync::Arc;
 use store::LockStore;
 use tokio::signal;
 use tower_http::cors::CorsLayer;
@@ -67,6 +68,70 @@ async fn api_docs() -> impl IntoResponse {
     Html(html_content)
 }
 
+// Metrics middleware to track request latencies
+async fn metrics_middleware(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let start = std::time::Instant::now();
+    let path = request.uri().path().to_string();
+    
+    let response = next.run(request).await;
+    
+    let duration = start.elapsed();
+    let duration_ms = duration.as_micros() as f64 / 1000.0;
+    
+    // Determine if this was an error (4xx/5xx status codes)
+    let is_error = response.status().as_u16() >= 400;
+    
+    // Map path to endpoint name
+    if let Some(endpoint) = endpoint_from_path(&path) {
+        state.metrics.record_request(endpoint, duration_ms, is_error);
+    }
+    
+    response
+}
+
+// Metrics endpoint - requires admin key
+async fn metrics_endpoint(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+) -> Result<axum::Json<serde_json::Value>, axum::response::Response> {
+    // Check admin key from header
+    let provided_key = headers
+        .get("x-admin-key")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let admin_key_valid = match (&provided_key, &state.config.admin_key) {
+        (Some(provided), Some(expected)) => provided == expected,
+        _ => false,
+    };
+
+    if !admin_key_valid {
+        return Err(axum::response::Response::builder()
+            .status(401)
+            .body("Unauthorized: Provide X-Admin-Key header".into())
+            .unwrap());
+    }
+
+    // Get metrics snapshot
+    let mut metrics_json = state.metrics.snapshot();
+    
+    // Add current active locks and users count
+    let active_locks = state.lock_handlers.store.get_all_active_locks();
+    let users = state.auth_service.get_all_users().unwrap_or_default();
+    
+    // Update the snapshot with real data
+    if let Some(obj) = metrics_json.as_object_mut() {
+        obj.insert("active_locks".to_string(), serde_json::Value::Number(active_locks.len().into()));
+        obj.insert("total_users".to_string(), serde_json::Value::Number(users.len().into()));
+    }
+
+    Ok(axum::Json(metrics_json))
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Initialize tracing
@@ -99,13 +164,12 @@ async fn main() -> anyhow::Result<()> {
 
     // Create app state
     let lock_handlers = LockHandlers::new(lock_store.clone(), auth_service.clone());
+    let metrics = Metrics::new();
     let app_state = AppState {
         lock_handlers: lock_handlers.clone(),
         auth_service: auth_service.clone(),
         config: config.clone(),
-        total_acquires: Arc::new(AtomicU64::new(0)),
-        total_releases: Arc::new(AtomicU64::new(0)),
-        start_time: std::time::Instant::now(),
+        metrics: metrics.clone(),
     };
 
     // Build router
@@ -127,6 +191,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/health", get(health_check))
         // Admin routes  
         .route("/admin/status", get(admin_status))
+        // Metrics endpoint
+        .route("/metrics", get(metrics_endpoint))
+        // Add metrics middleware layer
+        .layer(middleware::from_fn_with_state(app_state.clone(), metrics_middleware))
         // Add CORS layer
         .layer(
             CorsLayer::new()
@@ -231,9 +299,9 @@ async fn admin_status(
     // Get all registered users
     let users = state.auth_service.get_all_users().unwrap_or_default();
 
-    let uptime_seconds = state.start_time.elapsed().as_secs();
-    let total_acquires = state.total_acquires.load(Ordering::Relaxed);
-    let total_releases = state.total_releases.load(Ordering::Relaxed);
+    let uptime_seconds = state.metrics.start_time.elapsed().as_secs();
+    let total_acquires = state.metrics.lock_store_acquires.load(std::sync::atomic::Ordering::Relaxed);
+    let total_releases = state.metrics.lock_store_releases.load(std::sync::atomic::Ordering::Relaxed);
     let active_locks = locks.len();
     let total_users = users.len();
 
