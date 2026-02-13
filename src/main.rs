@@ -1,3 +1,4 @@
+mod app;
 mod auth;
 mod config;
 mod error;
@@ -6,6 +7,7 @@ mod metrics;
 mod models;
 mod store;
 
+use app::AppState;
 use auth::{github_auth, github_callback, rotate_token, AuthService};
 use axum::{
     extract::{Request, State},
@@ -19,13 +21,6 @@ use config::Config;
 use locks::{acquire_lock, get_lock_status, list_user_locks, release_lock, renew_lock, LockHandlers};
 use metrics::{endpoint_from_path, Metrics};
 
-#[derive(Clone)]
-pub struct AppState {
-    pub lock_handlers: LockHandlers,
-    pub auth_service: AuthService,
-    pub config: config::Config,
-    pub metrics: Arc<Metrics>,
-}
 use std::sync::Arc;
 use store::LockStore;
 use tokio::signal;
@@ -465,7 +460,7 @@ mod tests {
         let app_state = AppState {
             lock_handlers,
             auth_service,
-            config,
+            config: config.clone(),
             metrics,
         };
 
