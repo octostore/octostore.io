@@ -1,30 +1,25 @@
 # 🐙 OctoStore
 
-**Leader election and distributed locking as a service. That's it.**
+Distributed locking as a service. One binary, simple HTTP API, SQLite persistence.
 
-No Kubernetes. No etcd cluster. No Consul agents. Just a single binary you can self-host, or use the free hosted version at [octostore.io](https://octostore.io).
+> **Alpha software.** API may change. AI-assisted development. No SLA.
 
-Sign up with GitHub → get a bearer token → start locking in 30 seconds.
+## What it does
 
-## Why?
+OctoStore gives you distributed locks over HTTP with monotonically increasing
+fencing tokens. No etcd, no ZooKeeper, no Consul — just a single Rust binary.
 
-Every existing solution for distributed locking requires you to run your own consensus cluster (etcd, ZooKeeper, Consul) or use a cloud vendor's proprietary service. OctoStore is:
+Sign up with GitHub → get a bearer token → start locking.
 
-- **One binary** — `./octostore` and you're running
-- **Simple HTTP API** — no client libraries needed, `curl` works fine
-- **Fencing tokens** — actually safe distributed locking (not Redlock)
-- **Self-hostable** — MIT licensed, zero external dependencies at runtime
-- **Free hosted** — [api.octostore.io](https://api.octostore.io/docs) if you don't want to run your own
+## Quick start
 
-## Quick Start
-
-### Use the hosted version
+### Hosted version
 
 ```bash
-# Sign in with GitHub
+# Sign in with GitHub (opens browser)
 open https://api.octostore.io/auth/github
 
-# Acquire a lock
+# Acquire a lock (60s TTL)
 curl -X POST https://api.octostore.io/locks/my-service/acquire \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
@@ -37,18 +32,15 @@ curl -X POST https://api.octostore.io/locks/my-service/acquire \
 ### Self-host
 
 ```bash
-# Download
-curl -fsSL https://octostore.io/install.sh | bash
-
-# Or build from source
+# Build from source
 cargo build --release
 
-# Configure
-cp .env.example .env
-# Edit .env with your GitHub OAuth credentials
+# Configure (needs GitHub OAuth app credentials)
+export GITHUB_CLIENT_ID=...
+export GITHUB_CLIENT_SECRET=...
 
 # Run
-./target/release/octostore-lock
+./target/release/octostore
 ```
 
 ## API
@@ -58,16 +50,16 @@ All lock endpoints require `Authorization: Bearer <token>`.
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/auth/github` | Start GitHub OAuth flow |
-| `POST` | `/auth/token/rotate` | Rotate your bearer token |
+| `POST` | `/auth/token/rotate` | Rotate bearer token |
 | `POST` | `/locks/{name}/acquire` | Acquire a lock |
 | `POST` | `/locks/{name}/release` | Release a lock |
-| `POST` | `/locks/{name}/renew` | Extend a lock's TTL |
+| `POST` | `/locks/{name}/renew` | Extend lock TTL |
 | `GET` | `/locks/{name}` | Check lock status |
-| `GET` | `/locks` | List your active locks |
-| `GET` | `/docs` | Interactive API docs (Scalar) |
-| `GET` | `/openapi.yaml` | OpenAPI spec |
+| `GET` | `/locks` | List your locks |
+| `GET` | `/docs` | Interactive API docs |
+| `GET` | `/health` | Health check |
 
-### Acquire a lock
+### Acquire
 
 ```bash
 curl -X POST https://api.octostore.io/locks/leader/acquire \
@@ -76,92 +68,64 @@ curl -X POST https://api.octostore.io/locks/leader/acquire \
   -d '{"ttl_seconds": 60}'
 ```
 
-**Won the lock:**
+**Lock acquired:**
 ```json
-{"status": "acquired", "lease_id": "uuid", "fencing_token": 42, "expires_at": "2026-02-12T01:00:00Z"}
+{"status": "acquired", "lease_id": "uuid", "fencing_token": 42, "expires_at": "..."}
 ```
 
-**Someone else has it:**
+**Already held:**
 ```json
-{"status": "held", "holder_id": "other-user-uuid", "expires_at": "2026-02-12T00:55:00Z"}
+{"status": "held", "holder_id": "other-uuid", "expires_at": "..."}
 ```
 
 ### Release / Renew
 
 ```bash
 # Release
-curl -X POST https://api.octostore.io/locks/leader/release \
+curl -X POST .../locks/leader/release \
   -H "Authorization: Bearer $TOKEN" \
   -d '{"lease_id": "your-lease-uuid"}'
 
-# Renew (extend TTL)
-curl -X POST https://api.octostore.io/locks/leader/renew \
+# Renew
+curl -X POST .../locks/leader/renew \
   -H "Authorization: Bearer $TOKEN" \
   -d '{"lease_id": "your-lease-uuid", "ttl_seconds": 60}'
 ```
 
-## Constraints
+## Fencing tokens
 
-- **100 locks** per account
-- **1 hour** max TTL (auto-expires — no zombie locks)
-- Lock names: alphanumeric + hyphens + dots, max 128 chars
-- **Fencing tokens**: monotonically increasing, safe for distributed coordination
+Every acquire returns a fencing token — a monotonically increasing integer.
+Use it to guard writes against stale lock holders:
 
-## Fencing Tokens
-
-Every acquire returns a fencing token — a monotonically increasing integer. Use it to prevent stale lock holders from making writes:
-
-```python
-# Safe write pattern
-def write_with_fence(data, fencing_token):
-    db.execute(
-        "UPDATE state SET data=?, fence=? WHERE fence < ?",
-        (data, fencing_token, fencing_token)
-    )
+```sql
+UPDATE state SET data = ?, fence = ? WHERE fence < ?
 ```
 
-This is the thing that makes OctoStore's locking actually *safe*, unlike Redis/Redlock.
+This is what makes the locking actually safe, unlike Redlock.
 
-## SDKs
+## Constraints
 
-Client libraries for all major languages:
-
-| Language | Package |
-|----------|---------|
-| Python | [`sdks/python`](sdks/python) |
-| Go | [`sdks/go`](sdks/go) |
-| Rust | [`sdks/rust`](sdks/rust) |
-| TypeScript | [`sdks/typescript`](sdks/typescript) |
-| Java | [`sdks/java`](sdks/java) |
-| C# | [`sdks/csharp`](sdks/csharp) |
-| Ruby | [`sdks/ruby`](sdks/ruby) |
-| PHP | [`sdks/php`](sdks/php) |
+- **100 locks** per user
+- **1 hour** max TTL (auto-expires)
+- Lock names: `[a-zA-Z0-9.-]`, max 128 chars
+- Metadata: max 1 KB per lock
 
 ## Architecture
 
-Under the hood:
-
-- **Rust** (Axum + Tokio) — because lock services shouldn't have GC pauses
+- **Rust** — Axum + Tokio
 - **DashMap** — concurrent in-memory lock storage
-- **SQLite** — user accounts + fencing token persistence
-- **GitHub OAuth** — zero-friction signup
+- **SQLite** — user accounts, fencing counter, lock persistence
+- **GitHub OAuth** — authentication
 
-That's it. No Redis. No Raft. No consensus protocol. One process, one binary, one database file. If the server dies, all locks expire and clients re-acquire. Simple.
+Single process. Locks live in memory for speed, replayed from SQLite on restart.
 
-## Benchmark
+## Development
 
 ```bash
-cargo build --release
-./target/release/octostore-bench \
-  --token $TOKEN \
-  --admin-key $KEY \
-  --concurrency 100 \
-  --duration 30
+cargo test
+cargo bench       # criterion benchmarks
+cargo check
 ```
-
-## Contributing
-
-PRs welcome. This is a community project with no business model.
 
 ## License
 

@@ -2,8 +2,9 @@ use crate::{
     auth::AuthService,
     error::{AppError, Result},
     models::{
-        validate_lock_name, validate_ttl, validate_metadata, AcquireLockRequest, AcquireLockResponse, LockStatusResponse,
-        ReleaseLockRequest, RenewLockRequest, RenewLockResponse, UserLockInfo, UserLocksResponse,
+        validate_lock_name, validate_metadata, validate_ttl, AcquireLockRequest,
+        AcquireLockResponse, LockStatusResponse, ReleaseLockRequest, RenewLockRequest,
+        RenewLockResponse, UserLockInfo, UserLocksResponse,
     },
     store::LockStore,
 };
@@ -45,7 +46,7 @@ pub async fn acquire_lock(
     
     // Validate metadata
     validate_metadata(&req.metadata)
-        .map_err(|reason| AppError::Internal(anyhow::anyhow!("Invalid metadata: {}", reason)))?;
+        .map_err(|reason| AppError::InvalidInput(reason))?;
     
     // Check user lock limit (max 100)
     let current_lock_count = state.lock_handlers.store.count_user_locks(user_id);
@@ -208,59 +209,42 @@ pub async fn list_user_locks(
 mod tests {
     use super::*;
     use crate::config::Config;
+    use tempfile::NamedTempFile;
     use uuid::Uuid;
 
-    fn create_test_handlers() -> LockHandlers {
+    fn create_test_handlers() -> (LockHandlers, NamedTempFile) {
+        let temp_file = NamedTempFile::new().unwrap();
+        let db_path = temp_file.path().to_str().unwrap().to_string();
+
         let config = Config {
             bind_addr: "127.0.0.1:3000".to_string(),
-            database_url: ":memory:".to_string(),
+            database_url: db_path.clone(),
             github_client_id: "test_client_id".to_string(),
             github_client_secret: "test_client_secret".to_string(),
             github_redirect_uri: "http://localhost:3000/callback".to_string(),
             admin_key: Some("test_admin_key".to_string()),
         };
-        
+
         let auth_service = AuthService::new(config).unwrap();
-        let store = LockStore::new().unwrap();
-        
-        LockHandlers::new(store, auth_service)
+        let store = LockStore::new(&db_path, 1).unwrap();
+
+        (LockHandlers::new(store, auth_service), temp_file)
     }
 
     #[test]
-    fn test_lock_handlers_new() {
-        let config = Config {
-            bind_addr: "127.0.0.1:3000".to_string(),
-            database_url: ":memory:".to_string(),
-            github_client_id: "test_client_id".to_string(),
-            github_client_secret: "test_client_secret".to_string(),
-            github_redirect_uri: "http://localhost:3000/callback".to_string(),
-            admin_key: Some("test_admin_key".to_string()),
-        };
-        
-        let auth_service = AuthService::new(config).unwrap();
-        let store = LockStore::new().unwrap();
-        
-        let handlers = LockHandlers::new(store.clone(), auth_service);
-        
-        // Just verify the handlers are created successfully
-        // The actual testing of functionality is complex due to axum state requirements
-        // and is better suited for integration tests in main.rs
+    fn test_new_handlers_have_no_locks() {
+        let (handlers, _tmp) = create_test_handlers();
         assert_eq!(handlers.store.count_user_locks(Uuid::new_v4()), 0);
     }
 
-    #[test] 
-    fn test_lock_handlers_clone() {
-        let handlers = create_test_handlers();
+    #[test]
+    fn test_cloned_handlers_share_state() {
+        let (handlers, _tmp) = create_test_handlers();
         let cloned = handlers.clone();
-        
-        // Verify that cloning works (both use the same underlying stores)
         let user_id = Uuid::new_v4();
-        assert_eq!(handlers.store.count_user_locks(user_id), 0);
-        assert_eq!(cloned.store.count_user_locks(user_id), 0);
+
+        handlers.store.acquire_lock("shared-test".into(), user_id, 60, None).unwrap();
+        assert_eq!(cloned.store.count_user_locks(user_id), 1,
+            "cloned handlers should see locks created through the original");
     }
 }
-
-// Note: Most functionality testing is done through integration tests in main.rs
-// since these handlers require complex axum state setup including AppState with
-// metrics, auth_service, lock_handlers, etc. The core business logic is tested
-// thoroughly in the individual module tests (store.rs, auth.rs, etc.).
