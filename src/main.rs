@@ -14,7 +14,7 @@ use axum::{
     http::HeaderValue,
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
-    routing::{get, post, put},
+    routing::{get, post},
     Router,
 };
 use config::Config;
@@ -377,7 +377,6 @@ mod tests {
     use serde_json::{json, Value};
     use tempfile::NamedTempFile;
     use tower::util::ServiceExt; // for oneshot
-    use uuid::Uuid;
 
     async fn create_test_app() -> Router {
         let temp_file = NamedTempFile::new().unwrap();
@@ -421,22 +420,6 @@ mod tests {
             .route("/metrics", get(metrics_endpoint))
             .layer(middleware::from_fn_with_state(app_state.clone(), metrics_middleware))
             .with_state(app_state)
-    }
-
-    async fn create_test_user(app: &Router) -> (String, Uuid) {
-        let github_user = crate::models::GitHubUser {
-            id: 12345,
-            login: "testuser".to_string(),
-        };
-        
-        // Extract state from app to create user directly (simulating OAuth flow)
-        // In a real test, we'd mock the GitHub OAuth flow
-        let state = app.clone().into_make_service().try_into_inner().unwrap();
-        
-        // This is a bit hacky but works for testing
-        // In production tests, you might want to create a test-specific user creation method
-        let user_token = "test_token_12345";
-        (user_token.to_string(), Uuid::new_v4())
     }
 
     #[tokio::test]
