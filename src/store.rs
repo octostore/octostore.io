@@ -763,4 +763,333 @@ mod tests {
             assert!(!lock.unwrap().is_expired());
         }
     }
+
+    // Property-based tests using proptest
+    
+    use proptest::prelude::*;
+    use crate::models::AcquireLockRequest;
+    use std::collections::HashSet;
+
+    // Property: Any lock that is acquired can be released
+    proptest! {
+        #[test]
+        fn prop_acquired_lock_can_be_released(
+            lock_name in "[a-zA-Z0-9_-]{1,100}",
+            ttl_seconds in 1u32..3600,
+            metadata in prop::option::of("[a-zA-Z0-9_\\- ]{0,1000}")
+        ) {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let (store, _temp_file) = create_test_store();
+                let user_id = Uuid::new_v4();
+                let request = AcquireLockRequest {
+                    ttl_seconds: Some(ttl_seconds),
+                    metadata,
+                };
+
+                // Acquire lock
+                let acquire_result = store.acquire_lock(&lock_name, user_id, &request).await;
+                prop_assert!(acquire_result.is_ok());
+                
+                let acquire_response = acquire_result.unwrap();
+                
+                // Release lock should always succeed
+                let release_result = store.release_lock(&lock_name, user_id, acquire_response.fencing_token).await;
+                prop_assert!(release_result.is_ok());
+                
+                // Verify lock is gone
+                let lock_status = store.get_lock_status(&lock_name);
+                prop_assert!(lock_status.is_none());
+                
+                Ok(())
+            })?;
+        }
+    }
+
+    // Property: Fencing tokens are strictly monotonically increasing
+    proptest! {
+        #[test]
+        fn prop_fencing_tokens_monotonic(
+            lock_names in prop::collection::vec("[a-zA-Z0-9_-]{1,50}", 1..20)
+        ) {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let (store, _temp_file) = create_test_store();
+                let user_id = Uuid::new_v4();
+                let mut fencing_tokens = Vec::new();
+                let request = AcquireLockRequest {
+                    ttl_seconds: Some(60),
+                    metadata: Some("test".to_string()),
+                };
+
+                // Acquire multiple locks and collect fencing tokens
+                for lock_name in lock_names {
+                    let acquire_result = store.acquire_lock(&lock_name, user_id, &request).await;
+                    prop_assert!(acquire_result.is_ok());
+                    
+                    fencing_tokens.push(acquire_result.unwrap().fencing_token);
+                }
+
+                // Verify fencing tokens are strictly increasing
+                for i in 1..fencing_tokens.len() {
+                    prop_assert!(fencing_tokens[i] > fencing_tokens[i-1]);
+                }
+                
+                Ok(())
+            })?;
+        }
+    }
+
+    // Property: A lock acquired by user A cannot be released by user B
+    proptest! {
+        #[test]
+        fn prop_lock_user_isolation(
+            lock_name in "[a-zA-Z0-9_-]{1,100}",
+            ttl_seconds in 1u32..3600
+        ) {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let (store, _temp_file) = create_test_store();
+                let user_a = Uuid::new_v4();
+                let user_b = Uuid::new_v4();
+                prop_assume!(user_a != user_b);
+                
+                let request = AcquireLockRequest {
+                    ttl_seconds: Some(ttl_seconds),
+                    metadata: Some("test".to_string()),
+                };
+
+                // User A acquires lock
+                let acquire_result = store.acquire_lock(&lock_name, user_a, &request).await;
+                prop_assert!(acquire_result.is_ok());
+                
+                let acquire_response = acquire_result.unwrap();
+
+                // User B cannot release lock acquired by user A
+                let release_result = store.release_lock(&lock_name, user_b, acquire_response.fencing_token).await;
+                prop_assert!(release_result.is_err());
+                
+                // Lock should still exist and belong to user A
+                let lock_status = store.get_lock_status(&lock_name);
+                prop_assert!(lock_status.is_some());
+                prop_assert_eq!(lock_status.unwrap().holder_id, user_a);
+                
+                Ok(())
+            })?;
+        }
+    }
+
+    // Property: Lock names with arbitrary Unicode strings work correctly
+    proptest! {
+        #[test]
+        fn prop_unicode_lock_names(
+            // Use a more constrained Unicode set to avoid filesystem issues
+            lock_name in "[\\p{L}\\p{N}\\p{M}_-]{1,100}",
+            ttl_seconds in 1u32..300
+        ) {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let (store, _temp_file) = create_test_store();
+                let user_id = Uuid::new_v4();
+                let request = AcquireLockRequest {
+                    ttl_seconds: Some(ttl_seconds),
+                    metadata: Some("unicode test".to_string()),
+                };
+
+                // Should be able to acquire lock with unicode name
+                let acquire_result = store.acquire_lock(&lock_name, user_id, &request).await;
+                prop_assert!(acquire_result.is_ok());
+                
+                let acquire_response = acquire_result.unwrap();
+
+                // Should be able to get lock status with the same unicode name
+                let lock_status = store.get_lock_status(&lock_name);
+                prop_assert!(lock_status.is_some());
+                prop_assert_eq!(lock_status.unwrap().name, lock_name);
+
+                // Should be able to release with the same unicode name
+                let release_result = store.release_lock(&lock_name, user_id, acquire_response.fencing_token).await;
+                prop_assert!(release_result.is_ok());
+                
+                Ok(())
+            })?;
+        }
+    }
+
+    // Property: TTL values are always respected
+    proptest! {
+        #[test]
+        fn prop_ttl_respected(
+            lock_name in "[a-zA-Z0-9_-]{1,50}",
+            ttl_seconds in 1u32..5 // Short TTLs for faster testing
+        ) {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let (store, _temp_file) = create_test_store();
+                let user_id = Uuid::new_v4();
+                let request = AcquireLockRequest {
+                    ttl_seconds: Some(ttl_seconds),
+                    metadata: Some("ttl test".to_string()),
+                };
+
+                // Acquire lock
+                let acquire_result = store.acquire_lock(&lock_name, user_id, &request).await;
+                prop_assert!(acquire_result.is_ok());
+
+                // Immediately after acquire, lock should exist and not be expired
+                let lock_status = store.get_lock_status(&lock_name);
+                prop_assert!(lock_status.is_some());
+                let lock = lock_status.unwrap();
+                prop_assert!(!lock.is_expired());
+
+                // Wait for TTL + 1 second to ensure expiry
+                tokio::time::sleep(tokio::time::Duration::from_secs(ttl_seconds as u64 + 1)).await;
+                
+                // Lock should be expired but may still be in memory (depends on cleanup)
+                // The key property is that we can't renew an expired lock and can acquire a new one
+                let new_acquire_result = store.acquire_lock(&lock_name, user_id, &request).await;
+                prop_assert!(new_acquire_result.is_ok()); // Should succeed because old lock expired
+                
+                Ok(())
+            })?;
+        }
+    }
+
+    // Property: Concurrent acquires on the same lock never both succeed
+    proptest! {
+        #[test]
+        fn prop_concurrent_acquire_exclusion(
+            lock_name in "[a-zA-Z0-9_-]{1,50}",
+            ttl_seconds in 60u32..300
+        ) {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let (store, _temp_file) = create_test_store();
+                let store = Arc::new(store);
+                let user_a = Uuid::new_v4();
+                let user_b = Uuid::new_v4();
+                prop_assume!(user_a != user_b);
+                
+                let request_a = AcquireLockRequest {
+                    ttl_seconds: Some(ttl_seconds),
+                    metadata: Some("user_a".to_string()),
+                };
+                let request_b = AcquireLockRequest {
+                    ttl_seconds: Some(ttl_seconds),
+                    metadata: Some("user_b".to_string()),
+                };
+
+                // Try to acquire the same lock concurrently
+                let store_a = store.clone();
+                let store_b = store.clone();
+                let lock_name_a = lock_name.clone();
+                let lock_name_b = lock_name.clone();
+
+                let (result_a, result_b) = tokio::join!(
+                    store_a.acquire_lock(&lock_name_a, user_a, &request_a),
+                    store_b.acquire_lock(&lock_name_b, user_b, &request_b)
+                );
+
+                // At most one should succeed
+                let success_count = [&result_a, &result_b].iter().filter(|r| r.is_ok()).count();
+                prop_assert!(success_count <= 1);
+                
+                // If one succeeded, it should be the lock holder
+                if let Ok(acquire_response) = &result_a {
+                    let lock_status = store.get_lock_status(&lock_name);
+                    prop_assert!(lock_status.is_some());
+                    prop_assert_eq!(lock_status.unwrap().holder_id, user_a);
+                } else if let Ok(acquire_response) = &result_b {
+                    let lock_status = store.get_lock_status(&lock_name);
+                    prop_assert!(lock_status.is_some());
+                    prop_assert_eq!(lock_status.unwrap().holder_id, user_b);
+                }
+                
+                Ok(())
+            })?;
+        }
+    }
+
+    // Property: After release, the same lock can be re-acquired
+    proptest! {
+        #[test]
+        fn prop_lock_reacquisition(
+            lock_name in "[a-zA-Z0-9_-]{1,50}",
+            ttl_seconds in 60u32..300
+        ) {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let (store, _temp_file) = create_test_store();
+                let user_id = Uuid::new_v4();
+                let request = AcquireLockRequest {
+                    ttl_seconds: Some(ttl_seconds),
+                    metadata: Some("reacquisition test".to_string()),
+                };
+
+                // First acquisition
+                let acquire_result_1 = store.acquire_lock(&lock_name, user_id, &request).await;
+                prop_assert!(acquire_result_1.is_ok());
+                
+                let acquire_response_1 = acquire_result_1.unwrap();
+                let fencing_token_1 = acquire_response_1.fencing_token;
+
+                // Release
+                let release_result = store.release_lock(&lock_name, user_id, fencing_token_1).await;
+                prop_assert!(release_result.is_ok());
+
+                // Second acquisition should succeed
+                let acquire_result_2 = store.acquire_lock(&lock_name, user_id, &request).await;
+                prop_assert!(acquire_result_2.is_ok());
+                
+                let acquire_response_2 = acquire_result_2.unwrap();
+                let fencing_token_2 = acquire_response_2.fencing_token;
+
+                // Second fencing token should be higher than first
+                prop_assert!(fencing_token_2 > fencing_token_1);
+                
+                // Verify lock is held
+                let lock_status = store.get_lock_status(&lock_name);
+                prop_assert!(lock_status.is_some());
+                prop_assert_eq!(lock_status.unwrap().fencing_token, fencing_token_2);
+                
+                Ok(())
+            })?;
+        }
+    }
+
+    // Property: Metadata of any size up to 1KB persists correctly
+    proptest! {
+        #[test]
+        fn prop_metadata_persistence(
+            lock_name in "[a-zA-Z0-9_-]{1,50}",
+            metadata in prop::option::of("[\\p{L}\\p{N}\\p{P}\\p{S}\\p{Z}]{0,1000}")
+        ) {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let (store, _temp_file) = create_test_store();
+                let user_id = Uuid::new_v4();
+                let request = AcquireLockRequest {
+                    ttl_seconds: Some(60),
+                    metadata: metadata.clone(),
+                };
+
+                // Acquire lock with metadata
+                let acquire_result = store.acquire_lock(&lock_name, user_id, &request).await;
+                prop_assert!(acquire_result.is_ok());
+
+                // Verify metadata is preserved
+                let lock_status = store.get_lock_status(&lock_name);
+                prop_assert!(lock_status.is_some());
+                let lock = lock_status.unwrap();
+                prop_assert_eq!(lock.metadata, metadata);
+
+                // Release and clean up
+                let acquire_response = acquire_result.unwrap();
+                let release_result = store.release_lock(&lock_name, user_id, acquire_response.fencing_token).await;
+                prop_assert!(release_result.is_ok());
+                
+                Ok(())
+            })?;
+        }
+    }
 }
