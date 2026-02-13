@@ -95,7 +95,7 @@ pub struct AuthTokenResponse {
     pub github_username: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct GitHubUser {
     pub id: u64,
     pub login: String,

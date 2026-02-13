@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicU64, AtomicU32, Ordering};
 use std::sync::Arc;
-use std::time::{Instant, Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use std::collections::VecDeque;
 use std::sync::RwLock;
 use serde_json::{json, Value};
@@ -322,9 +322,6 @@ impl Metrics {
     }
     
     pub fn record_request(&self, endpoint: &str, duration_ms: f64, is_error: bool) {
-        self.total_requests.fetch_add(1, Ordering::Relaxed);
-        self.timeseries.record_request();
-        
         let endpoint_metrics = match endpoint {
             "acquire" => &self.acquire,
             "release" => &self.release,
@@ -335,6 +332,8 @@ impl Metrics {
             _ => return, // Unknown endpoint
         };
         
+        self.total_requests.fetch_add(1, Ordering::Relaxed);
+        self.timeseries.record_request();
         endpoint_metrics.record(duration_ms, is_error);
     }
     
