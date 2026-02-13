@@ -119,13 +119,34 @@ This is what makes the locking actually safe, unlike Redlock.
 
 Single process. Locks live in memory for speed, replayed from SQLite on restart.
 
-## Development
+## Testing & Quality
 
 ```bash
-cargo test
-cargo bench       # criterion benchmarks
-cargo check
+cargo test                           # Run all unit + integration tests  
+cargo bench                          # Run criterion benchmarks
+cargo tarpaulin --skip-clean         # Generate coverage report
+cargo +nightly fuzz run fuzz_lock_name  # Run fuzz testing
 ```
+
+### Code Coverage
+![Coverage](https://img.shields.io/badge/coverage-pending-yellow)
+
+Coverage analysis using `cargo-tarpaulin` to ensure comprehensive test coverage across all modules.
+
+### Fuzz Testing
+Three dedicated fuzz targets test input handling robustness:
+- `fuzz_lock_name` — Lock name validation with arbitrary strings
+- `fuzz_auth_header` — Authorization header parsing edge cases  
+- `fuzz_json_body` — JSON request body parsing with malformed data
+
+### Benchmarks
+Comprehensive performance testing with Criterion.rs:
+- Single-operation latency (acquire/release)
+- Lock contention under load (2-10 threads)
+- Database persistence overhead
+- HTTP stack performance
+
+See `BENCHMARKS.md` for detailed results and system specifications.
 
 ## License
 
