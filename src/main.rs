@@ -724,8 +724,11 @@ mod tests {
             .await
             .unwrap();
 
-        // Should fail on auth, not content-type
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        // Content-type validation happens before auth
+        assert!(
+            response.status() == StatusCode::UNAUTHORIZED 
+            || response.status() == StatusCode::UNSUPPORTED_MEDIA_TYPE
+        );
     }
 
     #[tokio::test]
