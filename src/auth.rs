@@ -387,8 +387,6 @@ pub async fn rotate_token(
 mod tests {
     use super::*;
     use crate::config::Config;
-    use rusqlite::Connection;
-    use std::collections::HashMap;
     use tempfile::NamedTempFile;
     use uuid::Uuid;
 
@@ -454,7 +452,7 @@ mod tests {
         assert!(url.contains("https://github.com/login/oauth/authorize"));
         assert!(url.contains("client_id=test_client_id"));
         assert!(url.contains("redirect_uri="));
-        assert!(url.contains("scope=user%3Aemail"));
+        assert!(url.contains("scope=user:email"));
     }
 
     #[test]
