@@ -3,6 +3,10 @@ name = "octostore"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "octostore"
+path = "src/lib.rs"
+
 [[bin]]
 name = "octostore-test"
 path = "src/bin/integration_test.rs"
@@ -37,5 +41,11 @@ urlencoding = "2.1"
 clap = { version = "4.0", features = ["derive"] }
 sha2 = "0.10"
 
+[[bench]]
+name = "lock_benchmarks"
+harness = false
+
 [dev-dependencies]
 tempfile = "3.8"
+criterion = { version = "0.5", features = ["html_reports"] }
+futures = "0.3"
