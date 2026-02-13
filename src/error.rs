@@ -6,6 +6,10 @@ use axum::{
 use serde_json::json;
 use thiserror::Error;
 
+/// Unified error type for all API failures.
+///
+/// Each variant maps to a specific HTTP status code and produces a consistent
+/// JSON error response with `error` and `details` fields.
 #[derive(Error, Debug)]
 pub enum AppError {
     #[error("Authentication failed")]
