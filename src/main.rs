@@ -1,12 +1,9 @@
 mod auth;
 mod config;
-mod configstore;
 mod error;
-mod flags;
 mod locks;
 mod metrics;
 mod models;
-mod ratelimit;
 mod store;
 
 use auth::{github_auth, github_callback, rotate_token, AuthService};
@@ -19,22 +16,12 @@ use axum::{
     Router,
 };
 use config::Config;
-use configstore::{
-    delete_config, get_config, get_config_history, list_configs, set_config, ConfigStoreHandlers,
-};
-use flags::{delete_flag, get_flag, list_flags, set_flag, FeatureFlagHandlers};
 use locks::{acquire_lock, get_lock_status, list_user_locks, release_lock, renew_lock, LockHandlers};
 use metrics::{endpoint_from_path, Metrics};
-use ratelimit::{
-    check_rate_limit, get_rate_limit_status, list_rate_limits, reset_rate_limit, RateLimitHandlers,
-};
 
 #[derive(Clone)]
 pub struct AppState {
     pub lock_handlers: LockHandlers,
-    pub ratelimit_handlers: RateLimitHandlers,
-    pub flags_handlers: FeatureFlagHandlers,
-    pub configstore_handlers: ConfigStoreHandlers,
     pub auth_service: AuthService,
     pub config: config::Config,
     pub metrics: Arc<Metrics>,
@@ -246,15 +233,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Create app state
     let lock_handlers = LockHandlers::new(lock_store.clone(), auth_service.clone());
-    let ratelimit_handlers = RateLimitHandlers::new(auth_service.clone());
-    let flags_handlers = FeatureFlagHandlers::new(auth_service.clone());
-    let configstore_handlers = ConfigStoreHandlers::new(auth_service.clone());
     let metrics = Metrics::new();
     let app_state = AppState {
         lock_handlers: lock_handlers.clone(),
-        ratelimit_handlers: ratelimit_handlers.clone(),
-        flags_handlers: flags_handlers.clone(),
-        configstore_handlers: configstore_handlers.clone(),
         auth_service: auth_service.clone(),
         config: config.clone(),
         metrics: metrics.clone(),
@@ -272,17 +253,6 @@ async fn main() -> anyhow::Result<()> {
         .route("/locks/:name/renew", post(renew_lock))
         .route("/locks/:name", get(get_lock_status))
         .route("/locks", get(list_user_locks))
-        // Rate limit routes
-        .route("/limits/:name/check", post(check_rate_limit))
-        .route("/limits/:name", get(get_rate_limit_status).delete(reset_rate_limit))
-        .route("/limits", get(list_rate_limits))
-        // Feature flag routes
-        .route("/flags/:name", put(set_flag).get(get_flag).delete(delete_flag))
-        .route("/flags", get(list_flags))
-        // Config store routes
-        .route("/config/:key", put(set_config).get(get_config).delete(delete_config))
-        .route("/config/:key/history", get(get_config_history))
-        .route("/config", get(list_configs))
         // Documentation routes
         .route("/openapi.yaml", get(openapi_spec))
         .route("/docs", get(api_docs))
@@ -490,16 +460,10 @@ mod tests {
         let lock_store = LockStore::new(&config.database_url, 0).unwrap();
         
         let lock_handlers = LockHandlers::new(lock_store.clone(), auth_service.clone());
-        let ratelimit_handlers = RateLimitHandlers::new(auth_service.clone());
-        let flags_handlers = FeatureFlagHandlers::new(auth_service.clone());
-        let configstore_handlers = ConfigStoreHandlers::new(auth_service.clone());
         let metrics = Metrics::new();
         
         let app_state = AppState {
             lock_handlers,
-            ratelimit_handlers,
-            flags_handlers,
-            configstore_handlers,
             auth_service,
             config,
             metrics,
@@ -514,14 +478,6 @@ mod tests {
             .route("/locks/:name/renew", post(renew_lock))
             .route("/locks/:name", get(get_lock_status))
             .route("/locks", get(list_user_locks))
-            .route("/limits/:name/check", post(check_rate_limit))
-            .route("/limits/:name", get(get_rate_limit_status).delete(reset_rate_limit))
-            .route("/limits", get(list_rate_limits))
-            .route("/flags/:name", put(set_flag).get(get_flag).delete(delete_flag))
-            .route("/flags", get(list_flags))
-            .route("/config/:key", put(set_config).get(get_config).delete(delete_config))
-            .route("/config/:key/history", get(get_config_history))
-            .route("/config", get(list_configs))
             .route("/openapi.yaml", get(openapi_spec))
             .route("/docs", get(api_docs))
             .route("/health", get(health_check))
@@ -832,92 +788,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_rate_limit_endpoints_require_auth() {
-        let app = create_test_app().await;
-        
-        let endpoints = vec![
-            ("/limits/test/check", "POST"),
-            ("/limits/test", "GET"),
-            ("/limits/test", "DELETE"),
-            ("/limits", "GET"),
-        ];
-
-        for (path, method) in endpoints {
-            let response = app
-                .clone()
-                .oneshot(
-                    Request::builder()
-                        .uri(path)
-                        .method(method)
-                        .body(Body::empty())
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
-
-            assert_eq!(response.status(), StatusCode::UNAUTHORIZED, 
-                       "Expected 401 for {} {}", method, path);
-        }
-    }
 
     #[tokio::test]
-    async fn test_flags_endpoints_require_auth() {
-        let app = create_test_app().await;
-        
-        let endpoints = vec![
-            ("/flags/test", "PUT"),
-            ("/flags/test", "GET"),
-            ("/flags/test", "DELETE"),
-            ("/flags", "GET"),
-        ];
-
-        for (path, method) in endpoints {
-            let response = app
-                .clone()
-                .oneshot(
-                    Request::builder()
-                        .uri(path)
-                        .method(method)
-                        .body(Body::empty())
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
-
-            assert_eq!(response.status(), StatusCode::UNAUTHORIZED,
-                       "Expected 401 for {} {}", method, path);
-        }
-    }
 
     #[tokio::test]
-    async fn test_config_endpoints_require_auth() {
-        let app = create_test_app().await;
-        
-        let endpoints = vec![
-            ("/config/test", "PUT"),
-            ("/config/test", "GET"),
-            ("/config/test", "DELETE"),
-            ("/config/test/history", "GET"),
-            ("/config", "GET"),
-        ];
-
-        for (path, method) in endpoints {
-            let response = app
-                .clone()
-                .oneshot(
-                    Request::builder()
-                        .uri(path)
-                        .method(method)
-                        .body(Body::empty())
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
-
-            assert_eq!(response.status(), StatusCode::UNAUTHORIZED,
-                       "Expected 401 for {} {}", method, path);
-        }
-    }
 
     #[tokio::test]
     async fn test_content_type_handling() {

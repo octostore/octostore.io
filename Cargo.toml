@@ -11,10 +11,6 @@ path = "src/bin/integration_test.rs"
 name = "octostore-bench"
 path = "src/bin/benchmark.rs"
 
-[[bin]]
-name = "octostore-fuzz"
-path = "src/bin/fuzz.rs"
-
 [profile.profiling]
 inherits = "release"
 debug = true  # Keep debug symbols for flame graphs
