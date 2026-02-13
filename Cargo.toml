@@ -49,3 +49,5 @@ harness = false
 tempfile = "3.8"
 criterion = { version = "0.5", features = ["html_reports"] }
 futures = "0.3"
+proptest = "1.3"
+tokio-test = "0.4"
