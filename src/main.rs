@@ -28,8 +28,53 @@ use tower_http::cors::CorsLayer;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-// Include OpenAPI spec at compile time
 const OPENAPI_SPEC: &str = include_str!("../openapi.yaml");
+
+/// Validates that the request carries a valid admin credential.
+///
+/// Accepts either an `X-Admin-Key` / `X-OctoStore-Admin-Key` header,
+/// a `Bearer admin:<key>` authorization header, or a regular bearer token
+/// belonging to the hardcoded admin username.
+fn require_admin(
+    headers: &axum::http::HeaderMap,
+    state: &AppState,
+) -> std::result::Result<(), axum::response::Response> {
+    let provided_key = headers
+        .get("x-admin-key")
+        .or_else(|| headers.get("x-octostore-admin-key"))
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            headers.get("authorization")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.strip_prefix("Bearer admin:"))
+                .map(|s| s.to_string())
+        });
+
+    let admin_key_valid = match (&provided_key, &state.config.admin_key) {
+        (Some(provided), Some(expected)) => provided == expected,
+        _ => false,
+    };
+
+    if admin_key_valid {
+        return Ok(());
+    }
+
+    // Fall back to OAuth-based admin check
+    let user_id = state.auth_service.authenticate(headers)
+        .map_err(|_| axum::response::Response::builder()
+            .status(401)
+            .body("Unauthorized: Provide X-Admin-Key header or valid Bearer token".into())
+            .unwrap())?;
+
+    match state.auth_service.get_user_by_id(&user_id.to_string()) {
+        Ok(Some(username)) if username == "aronchick" => Ok(()),
+        _ => Err(axum::response::Response::builder()
+            .status(403)
+            .body("Forbidden: Admin access required".into())
+            .unwrap()),
+    }
+}
 
 // Handler to serve OpenAPI spec
 async fn openapi_spec() -> impl IntoResponse {
@@ -93,31 +138,7 @@ async fn metrics_endpoint(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
 ) -> Result<axum::Json<serde_json::Value>, axum::response::Response> {
-    // Check admin key from header
-    let provided_key = headers
-        .get("x-admin-key")
-        .or_else(|| headers.get("x-octostore-admin-key"))
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .or_else(|| {
-            // Also accept "Bearer admin:<key>" in Authorization header
-            headers.get("authorization")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.strip_prefix("Bearer admin:"))
-                .map(|s| s.to_string())
-        });
-
-    let admin_key_valid = match (&provided_key, &state.config.admin_key) {
-        (Some(provided), Some(expected)) => provided == expected,
-        _ => false,
-    };
-
-    if !admin_key_valid {
-        return Err(axum::response::Response::builder()
-            .status(401)
-            .body("Unauthorized: Provide X-Admin-Key header".into())
-            .unwrap());
-    }
+    require_admin(&headers, &state)?;
 
     // Get metrics snapshot
     let mut metrics_json = state.metrics.snapshot();
@@ -141,47 +162,7 @@ async fn timeseries_endpoint(
     headers: axum::http::HeaderMap,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<axum::Json<serde_json::Value>, axum::response::Response> {
-    // Check admin key from header
-    let provided_key = headers
-        .get("x-admin-key")
-        .or_else(|| headers.get("x-octostore-admin-key"))
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .or_else(|| {
-            // Also accept "Bearer admin:<key>" in Authorization header
-            headers.get("authorization")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.strip_prefix("Bearer admin:"))
-                .map(|s| s.to_string())
-        });
-
-    let admin_key_valid = match (&provided_key, &state.config.admin_key) {
-        (Some(provided), Some(expected)) => provided == expected,
-        _ => false,
-    };
-
-    if !admin_key_valid {
-        // Fall back to OAuth-based admin check
-        let user_id = match state.auth_service.authenticate(&headers) {
-            Ok(id) => id,
-            Err(_) => {
-                return Err(axum::response::Response::builder()
-                    .status(401)
-                    .body("Unauthorized: Provide X-Admin-Key header or valid Bearer token".into())
-                    .unwrap());
-            }
-        };
-
-        match state.auth_service.get_user_by_id(&user_id.to_string()) {
-            Ok(Some(username)) if username == "aronchick" => {}
-            _ => {
-                return Err(axum::response::Response::builder()
-                    .status(403)
-                    .body("Forbidden: Admin access required".into())
-                    .unwrap());
-            }
-        }
-    }
+    require_admin(&headers, &state)?;
 
     // Get window parameter (default to "1h")
     let window = params.get("window").map(|s| s.as_str()).unwrap_or("1h");
@@ -299,47 +280,7 @@ async fn admin_status(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
 ) -> Result<axum::Json<serde_json::Value>, axum::response::Response> {
-    // Check admin key from header
-    let provided_key = headers
-        .get("x-admin-key")
-        .or_else(|| headers.get("x-octostore-admin-key"))
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .or_else(|| {
-            // Also accept "Bearer admin:<key>" in Authorization header
-            headers.get("authorization")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.strip_prefix("Bearer admin:"))
-                .map(|s| s.to_string())
-        });
-
-    let admin_key_valid = match (&provided_key, &state.config.admin_key) {
-        (Some(provided), Some(expected)) => provided == expected,
-        _ => false,
-    };
-
-    if !admin_key_valid {
-        // Fall back to OAuth-based admin check
-        let user_id = match state.auth_service.authenticate(&headers) {
-            Ok(id) => id,
-            Err(_) => {
-                return Err(axum::response::Response::builder()
-                    .status(401)
-                    .body("Unauthorized: Provide X-Admin-Key header or valid Bearer token".into())
-                    .unwrap());
-            }
-        };
-
-        match state.auth_service.get_user_by_id(&user_id.to_string()) {
-            Ok(Some(username)) if username == "aronchick" => {}
-            _ => {
-                return Err(axum::response::Response::builder()
-                    .status(403)
-                    .body("Forbidden: Admin access required".into())
-                    .unwrap());
-            }
-        }
-    }
+    require_admin(&headers, &state)?;
 
     // Get all active locks
     let active_locks = state.lock_handlers.store.get_all_active_locks();
@@ -781,12 +722,6 @@ mod tests {
         // CORS layer should handle OPTIONS requests
         assert!(response.status().is_success() || response.status() == StatusCode::METHOD_NOT_ALLOWED);
     }
-
-    #[tokio::test]
-
-    #[tokio::test]
-
-    #[tokio::test]
 
     #[tokio::test]
     async fn test_content_type_handling() {

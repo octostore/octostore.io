@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OctoStore - Leader election as a service. That's it.</title>
+    <title>OctoStore — Distributed locking as a service</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -558,8 +558,8 @@
                     </linearGradient>
                   </defs>
                 </svg>
-                <div class="hero-headline">Lock. Limit. <span class="highlight">Ship.</span></div>
-                <p class="tagline">Distributed locks, rate limiting, feature flags, and config store. Free, fast, zero config.</p>
+                <div class="hero-headline">Lock. <span class="highlight">Ship.</span></div>
+                <p class="tagline">Distributed locking with fencing tokens. One binary, simple HTTP API, free to use.</p>
                 <div class="cta-buttons">
                     <a href="https://api.octostore.io/auth/github" class="github-auth-btn">
                         <svg class="github-icon" viewBox="0 0 16 16">
@@ -576,43 +576,33 @@
         </header>
 
         <div class="disclaimer">
-            <p>No business model. No enterprise tier. Just an octopus holding your locks. 🐙</p>
+            <p>⚠️ Alpha software. No SLA, no business model. Just an octopus holding your locks. 🐙</p>
         </div>
 
         <section>
             <h2>What it does</h2>
-            <p class="section-subtitle">OctoStore provides distributed infrastructure services via a simple HTTP API. Sign up with GitHub, get a bearer token, start shipping.</p>
+            <p class="section-subtitle">Distributed locking via a simple HTTP API. Sign up with GitHub, get a bearer token, start locking.</p>
             
             <div class="features-grid">
                 <div class="feature-card">
                     <span class="feature-icon">🔒</span>
                     <h3 class="feature-title">Distributed Locking</h3>
-                    <p class="feature-description">Acquire exclusive locks across distributed systems with automatic expiration and fencing tokens for safety.</p>
+                    <p class="feature-description">Acquire exclusive locks with automatic expiration and monotonic fencing tokens for safe distributed coordination.</p>
                 </div>
                 <div class="feature-card">
-                    <span class="feature-icon">🚦</span>
-                    <h3 class="feature-title">Rate Limiting</h3>
-                    <p class="feature-description">Control request rates with sliding window counters. Per-user limits with customizable windows and thresholds.</p>
-                </div>
-                <div class="feature-card">
-                    <span class="feature-icon">🚩</span>
-                    <h3 class="feature-title">Feature Flags</h3>
-                    <p class="feature-description">Toggle features on/off with percentage rollouts. Consistent hashing ensures users get the same experience.</p>
-                </div>
-                <div class="feature-card">
-                    <span class="feature-icon">⚙️</span>
-                    <h3 class="feature-title">Config Store</h3>
-                    <p class="feature-description">Store arbitrary JSON configuration with versioning. Get current values or historical versions on demand.</p>
+                    <span class="feature-icon">🛡️</span>
+                    <h3 class="feature-title">Fencing Tokens</h3>
+                    <p class="feature-description">Every acquire returns a strictly increasing token. Use it to prevent stale holders from corrupting shared state.</p>
                 </div>
                 <div class="feature-card">
                     <span class="feature-icon">⚡</span>
                     <h3 class="feature-title">Simple HTTP API</h3>
-                    <p class="feature-description">Pure REST API with JSON responses. No SDKs required. Works with any programming language or tool.</p>
+                    <p class="feature-description">Pure REST with JSON responses. No client libraries needed — curl works fine.</p>
                 </div>
                 <div class="feature-card">
-                    <span class="feature-icon">🚀</span>
-                    <h3 class="feature-title">Built for Speed</h3>
-                    <p class="feature-description">Rust-powered backend with in-memory storage for microsecond response times.</p>
+                    <span class="feature-icon">📦</span>
+                    <h3 class="feature-title">One Binary</h3>
+                    <p class="feature-description">No etcd, no ZooKeeper, no Consul. Self-host with a single binary and a SQLite file.</p>
                 </div>
             </div>
         </section>
@@ -670,35 +660,12 @@
                     </div>
 
                     <div class="endpoint-group">
-                        <h3 class="endpoint-title">🚦 Rate Limiting</h3>
+                        <h3 class="endpoint-title">🔄 Renew a Lock</h3>
                         <div class="code-block">
-<pre><code><span class="comment"># Check if action is allowed</span>
-<span class="cmd">curl</span> <span class="flag">-X POST</span> <span class="url">https://api.octostore.io/limits/api-calls/check</span> \
+<pre><code><span class="cmd">curl</span> <span class="flag">-X POST</span> <span class="url">https://api.octostore.io/locks/my-resource/renew</span> \
   <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span> \
   <span class="flag">-H</span> <span class="header">"Content-Type: application/json"</span> \
-  <span class="flag">-d</span> <span class="string">'{"max_requests": 100, "window_seconds": 60}'</span></code></pre>
-                        </div>
-                    </div>
-
-                    <div class="endpoint-group">
-                        <h3 class="endpoint-title">🚩 Feature Flags</h3>
-                        <div class="code-block">
-<pre><code><span class="comment"># Set a feature flag with 50% rollout</span>
-<span class="cmd">curl</span> <span class="flag">-X PUT</span> <span class="url">https://api.octostore.io/flags/dark-mode</span> \
-  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span> \
-  <span class="flag">-H</span> <span class="header">"Content-Type: application/json"</span> \
-  <span class="flag">-d</span> <span class="string">'{"enabled": true, "percentage": 50}'</span></code></pre>
-                        </div>
-                    </div>
-
-                    <div class="endpoint-group">
-                        <h3 class="endpoint-title">⚙️ Config Store</h3>
-                        <div class="code-block">
-<pre><code><span class="comment"># Store configuration with description</span>
-<span class="cmd">curl</span> <span class="flag">-X PUT</span> <span class="url">https://api.octostore.io/config/db-url</span> \
-  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span> \
-  <span class="flag">-H</span> <span class="header">"Content-Type: application/json"</span> \
-  <span class="flag">-d</span> <span class="string">'{"value": "postgres://localhost/mydb", "description": "Main database URL"}'</span></code></pre>
+  <span class="flag">-d</span> <span class="string">'{"lease_id": "uuid-from-acquire", "ttl_seconds": 300}'</span></code></pre>
                         </div>
                     </div>
                 </div>
@@ -706,14 +673,13 @@
         </section>
 
         <div class="constraints">
-            <h3>Service Constraints</h3>
+            <h3>Constraints</h3>
             <ul>
-                <li>🔒 100 locks maximum per user</li>
-                <li>🚩 1000 feature flags maximum per user</li>
-                <li>⚙️ 500 config keys maximum per user</li>
-                <li>⏱️ 1 hour maximum TTL (locks only)</li>
-                <li>💾 Ephemeral storage (data doesn't persist across restarts)</li>
-                <li>🆓 Completely free, no rate limits</li>
+                <li>🔒 100 locks per user</li>
+                <li>⏱️ 1 hour max TTL (auto-expires)</li>
+                <li>📛 Lock names: alphanumeric + hyphens + dots, max 128 chars</li>
+                <li>💾 Locks persist to SQLite, survive restarts</li>
+                <li>🆓 Free, no rate limits</li>
             </ul>
         </div>
 

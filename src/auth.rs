@@ -360,9 +360,11 @@ pub async fn rotate_token(
 ) -> Result<Json<AuthTokenResponse>> {
     let user_id = state.auth_service.authenticate(&headers)?;
     
-    // Get current token
-    let auth_header = headers.get("authorization").unwrap().to_str().unwrap();
-    let current_token = auth_header.strip_prefix("Bearer ").unwrap();
+    let current_token = headers
+        .get("authorization")
+        .and_then(|h| h.to_str().ok())
+        .and_then(|h| h.strip_prefix("Bearer "))
+        .ok_or(AppError::MissingAuth)?;
     
     let new_token = state.auth_service.rotate_token(current_token).await?;
     
