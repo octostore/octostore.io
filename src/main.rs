@@ -33,7 +33,7 @@ static VERSIONED_SPEC: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 fn versioned_openapi_spec() -> &'static str {
     VERSIONED_SPEC.get_or_init(|| {
         include_str!("../openapi.yaml")
-            .replacen("  version: 1.0.0", &format!("  version: {}", env!("CARGO_PKG_VERSION")), 1)
+            .replacen("  version: 0.0.0-dev", &format!("  version: {}", env!("CARGO_PKG_VERSION")), 1)
     })
 }
 

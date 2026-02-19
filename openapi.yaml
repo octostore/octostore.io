@@ -6,7 +6,7 @@ info:
     
     Simple HTTP services for distributed systems with GitHub authentication.
     Provides distributed locking, rate limiting, feature flags, and config storage.
-  version: 1.0.0
+  version: 0.0.0-dev
   contact:
     name: OctoStore
     url: https://octostore.io
