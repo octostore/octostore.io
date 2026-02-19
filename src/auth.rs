@@ -744,4 +744,20 @@ mod tests {
         svc.save_fencing_counter(42).unwrap();
         assert_eq!(svc.load_fencing_counter().unwrap(), 42);
     }
+
+    #[test]
+    fn test_auth_service_new_memory() {
+        let cfg = local_config();
+        let svc = AuthService::new(cfg);
+        assert!(svc.is_ok());
+    }
+
+    #[test]
+    fn test_parse_token_list_whitespace() {
+        let pairs = parse_token_list(" alice : tok1 , bob : tok2 ");
+        assert_eq!(pairs, vec![
+            ("alice".to_string(), "tok1".to_string()),
+            ("bob".to_string(), "tok2".to_string()),
+        ]);
+    }
 }
