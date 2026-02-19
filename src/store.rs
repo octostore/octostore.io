@@ -13,6 +13,10 @@ use tokio::time;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
+/// A shared, thread-safe SQLite connection used by both [`LockStore`] and
+/// [`crate::auth::AuthService`] so the process opens only one file handle.
+pub type DbConn = Arc<Mutex<Connection>>;
+
 /// In-memory lock store backed by SQLite for durability.
 ///
 /// Locks live in a `DashMap` for fast concurrent access. Every mutation is
