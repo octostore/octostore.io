@@ -244,7 +244,7 @@ mod tests {
             github_client_secret: None,
             github_redirect_uri: "http://localhost:3000/callback".to_string(),
             admin_key: Some("test_admin_key".to_string()),
-            static_tokens: Some("testuser:testtoken".to_string()),
+            static_tokens: Some("testuser:testtoken,user2:token2".to_string()),
             static_tokens_file: None,
             admin_username: None,
         };
@@ -264,9 +264,10 @@ mod tests {
         let router = axum::Router::new()
             .route("/locks/:name/acquire", axum::routing::post(acquire_lock))
             .route("/locks/:name/release", axum::routing::post(release_lock))
+            .route("/locks/:name/renew", axum::routing::post(renew_lock))
             .route("/locks/:name", axum::routing::get(get_lock_status))
             .with_state(app_state);
-            
+
         (router, temp_file)
     }
 
@@ -410,5 +411,81 @@ mod tests {
         ).await.unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_acquire_renew_release_lifecycle() {
+        let (app, _tmp) = test_app().await;
+
+        // 1. Acquire
+        let response = app.clone().oneshot(
+            Request::builder()
+                .uri("/locks/renew-test/acquire")
+                .method("POST")
+                .header("authorization", "Bearer testtoken")
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"ttl_seconds": 60}).to_string()))
+                .unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let acquired: Value = serde_json::from_slice(&body).unwrap();
+        let lease_id = acquired["lease_id"].as_str().unwrap().to_string();
+
+        // 2. Renew
+        let response = app.clone().oneshot(
+            Request::builder()
+                .uri("/locks/renew-test/renew")
+                .method("POST")
+                .header("authorization", "Bearer testtoken")
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"lease_id": lease_id, "ttl_seconds": 120}).to_string()))
+                .unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let renewed: Value = serde_json::from_slice(&body).unwrap();
+        assert!(renewed["expires_at"].is_string(), "renew should return new expires_at");
+
+        // 3. Release
+        let response = app.clone().oneshot(
+            Request::builder()
+                .uri("/locks/renew-test/release")
+                .method("POST")
+                .header("authorization", "Bearer testtoken")
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"lease_id": lease_id}).to_string()))
+                .unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_acquire_held_by_another_user() {
+        let (app, _tmp) = test_app().await;
+
+        // user1 acquires the lock
+        let response = app.clone().oneshot(
+            Request::builder()
+                .uri("/locks/contested-lock/acquire")
+                .method("POST")
+                .header("authorization", "Bearer testtoken")
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"ttl_seconds": 60}).to_string()))
+                .unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // user2 tries to acquire the same lock → 409 Conflict
+        let response = app.clone().oneshot(
+            Request::builder()
+                .uri("/locks/contested-lock/acquire")
+                .method("POST")
+                .header("authorization", "Bearer token2")
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"ttl_seconds": 60}).to_string()))
+                .unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
     }
 }
