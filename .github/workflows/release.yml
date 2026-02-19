@@ -67,3 +67,44 @@ jobs:
         run: cargo publish --no-verify
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  deploy:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          echo "${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+
+      - name: Deploy to demo-host
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes daaronch@77.42.29.236 bash -s <<EOF
+            set -e
+            cd /opt/octostore-lock
+
+            echo "=== Pulling latest site files (${TAG}) ==="
+            git fetch origin main
+            git checkout main
+            git pull origin main
+
+            echo "=== Downloading binary from release ==="
+            curl -fsSL \
+              "https://github.com/octostore/octostore.io/releases/download/${TAG}/octostore-linux-amd64" \
+              -o /tmp/octostore-new
+            chmod +x /tmp/octostore-new
+
+            echo "=== Stop → swap → start ==="
+            sudo systemctl stop octostore
+            mv /tmp/octostore-new /opt/octostore-lock/octostore
+            sudo systemctl start octostore
+
+            echo "=== Verifying ==="
+            sleep 3
+            sudo systemctl is-active octostore
+            echo "Deploy complete: ${TAG}"
+          EOF
