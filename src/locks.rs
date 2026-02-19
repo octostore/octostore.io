@@ -3,15 +3,18 @@ use crate::{
     models::{
         validate_lock_name, validate_metadata, validate_ttl, AcquireLockRequest,
         AcquireLockResponse, LockStatusResponse, ReleaseLockRequest, RenewLockRequest,
-        RenewLockResponse, UserLockInfo, UserLocksResponse,
+        RenewLockResponse, UserLockInfo, UserLocksResponse, LockEvent,
     },
     store::LockStore,
 };
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
+    response::sse::{Event, KeepAlive, Sse},
     Json,
 };
+use futures::stream::{Stream, StreamExt};
+use std::convert::Infallible;
 use tracing::info;
 
 #[derive(Clone)]
@@ -175,6 +178,33 @@ pub async fn get_lock_status(
     }
 }
 
+/// Watches a lock for real-time state changes via Server-Sent Events (SSE).
+pub async fn watch_lock(
+    Path(name): Path<String>,
+    State(state): State<crate::AppState>,
+    headers: HeaderMap,
+) -> Result<Sse<impl Stream<Item = std::result::Result<Event, Infallible>>>> {
+    // Authenticate the user
+    let _user_id = state.auth_service.authenticate(&headers)?;
+    
+    validate_lock_name(&name)?;
+
+    let rx = state.lock_handlers.store.watch_lock(&name);
+    
+    let stream = tokio_stream::wrappers::BroadcastStream::new(rx)
+        .filter_map(|msg| async move {
+            match msg {
+                Ok(event) => {
+                    let event_json = serde_json::to_string(&event).ok()?;
+                    Some(Ok(Event::default().data(event_json)))
+                }
+                Err(_) => None, // Handle lag by dropping events
+            }
+        });
+
+    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
+}
+
 pub async fn list_user_locks(
     State(state): State<crate::AppState>,
     headers: HeaderMap,
@@ -272,6 +302,7 @@ mod tests {
             .route("/locks/:name/acquire", axum::routing::post(acquire_lock))
             .route("/locks/:name/release", axum::routing::post(release_lock))
             .route("/locks/:name/renew", axum::routing::post(renew_lock))
+            .route("/locks/:name/watch", axum::routing::get(watch_lock))
             .route("/locks/:name", axum::routing::get(get_lock_status))
             .with_state(app_state);
 

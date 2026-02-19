@@ -3,6 +3,7 @@ use reqwest::Client;
 use serde_json::{json, Value};
 use std::{process, time::Instant};
 use uuid::Uuid;
+use futures::stream::StreamExt;
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -649,6 +650,81 @@ async fn main() {
             runner.add_test_result("Metadata Size Validation".to_string(), false, start.elapsed().as_millis(), Some(e));
         }
     }
+
+    // Test 17: SSE Watch API
+    let start = Instant::now();
+    let watch_lock_name = runner.generate_lock_name();
+    runner.add_cleanup_lock(watch_lock_name.clone());
+
+    let mut success = false;
+    let mut error_msg = None;
+
+    // Start watching in a separate task
+    let watch_url = format!("{}/locks/{}/watch", runner.base_url, watch_lock_name);
+    let runner_token = runner.token.clone();
+    let watch_lock_name_clone = watch_lock_name.clone();
+    
+    let watch_handle = tokio::spawn(async move {
+        let client = Client::new();
+        let response = client.get(&watch_url)
+            .header("Authorization", format!("Bearer {}", runner_token))
+            .send()
+            .await;
+            
+        if let Ok(res) = response {
+            if res.status() == 200 {
+                let mut stream = res.bytes_stream();
+                while let Some(item) = stream.next().await {
+                    match item {
+                        Ok(bytes) => {
+                            let text = String::from_utf8_lossy(&bytes);
+                            if text.contains("acquired") && text.contains(&watch_lock_name_clone) {
+                                return Ok(());
+                            }
+                        },
+                        Err(e) => return Err(format!("Stream error: {}", e)),
+                    }
+                }
+            } else {
+                return Err(format!("SSE watch failed with status {}", res.status()));
+            }
+        }
+        Err("Failed to receive expected event".to_string())
+    });
+    
+    // Give the watch request a moment to establish
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    
+    // Trigger the event
+    match runner.make_request_json("POST", &format!("/locks/{}/acquire", watch_lock_name), 
+            Some(json!({"ttl_seconds": 60}))).await {
+        Ok((status, _)) => {
+            if status == 200 {
+                // Wait for the watch task to complete
+                match tokio::time::timeout(std::time::Duration::from_secs(5), watch_handle).await {
+                    Ok(Ok(Ok(()))) => {
+                        success = true;
+                    }
+                    Ok(Ok(Err(e))) => {
+                        error_msg = Some(e);
+                    }
+                    Ok(Err(e)) => {
+                        error_msg = Some(format!("Watch task panicked: {}", e));
+                    }
+                    Err(_) => {
+                        error_msg = Some("Timed out waiting for SSE event".to_string());
+                    }
+                }
+            } else {
+                error_msg = Some(format!("Acquire failed with status {}", status));
+            }
+        }
+        Err(e) => {
+            error_msg = Some(format!("Acquire failed: {}", e));
+        }
+    }
+    
+    runner.add_test_result("SSE Watch API".to_string(), success, start.elapsed().as_millis(), error_msg);
 
     // Cleanup
     runner.cleanup().await;

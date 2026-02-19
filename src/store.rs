@@ -1,4 +1,7 @@
-use crate::{error::Result, models::Lock};
+use crate::{
+    error::Result, 
+    models::{Lock, LockEvent, LockEventType}
+};
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use rusqlite::{params, Connection};
@@ -10,6 +13,7 @@ use std::{
     time::Duration,
 };
 use tokio::time;
+use tokio::sync::broadcast;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -27,6 +31,8 @@ pub struct LockStore {
     locks: Arc<DashMap<String, Lock>>,
     fencing_counter: Arc<AtomicU64>,
     db: DbConn,
+    /// Registry of broadcast channels for lock status watchers.
+    watch_channels: Arc<DashMap<String, broadcast::Sender<LockEvent>>>,
 }
 
 impl LockStore {
@@ -57,6 +63,7 @@ impl LockStore {
             locks: Arc::new(DashMap::new()),
             fencing_counter: Arc::new(AtomicU64::new(initial_fencing_token)),
             db,
+            watch_channels: Arc::new(DashMap::new()),
         };
         
         // Load existing unexpired locks from database
@@ -87,10 +94,10 @@ impl LockStore {
                 .map_err(|e| rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(e)))?;
             let lease_id = Uuid::parse_str(&lease_id_str)
                 .map_err(|e| rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(e)))?;
-            let expires_at = chrono::DateTime::parse_from_rfc3339(&expires_at_str)
+            let expires_at = DateTime::parse_from_rfc3339(&expires_at_str)
                 .map_err(|e| rusqlite::Error::FromSqlConversionFailure(4, rusqlite::types::Type::Text, Box::new(e)))?
                 .with_timezone(&chrono::Utc);
-            let acquired_at = chrono::DateTime::parse_from_rfc3339(&acquired_at_str)
+            let acquired_at = DateTime::parse_from_rfc3339(&acquired_at_str)
                 .map_err(|e| rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, Box::new(e)))?
                 .with_timezone(&chrono::Utc);
             
@@ -184,12 +191,37 @@ impl LockStore {
             if let Some((_, lock)) = self.locks.remove(&lock_name) {
                 debug!("Expired lock: {} (holder: {})", lock_name, lock.holder_id);
                 
+                // Broadcast expiration event
+                self.broadcast_event(LockEvent {
+                    event: LockEventType::Expired,
+                    lock_name: lock_name.clone(),
+                    lock: None, // Lock is gone
+                    timestamp: now,
+                });
+                
                 // Also remove from database
                 if let Err(e) = self.delete_lock_from_database(&lock_name) {
                     warn!("Failed to delete expired lock {} from database: {}", lock_name, e);
                 }
             }
         }
+    }
+
+    /// Broadcasts a lock event to all active watchers for that lock.
+    fn broadcast_event(&self, event: LockEvent) {
+        if let Some(sender) = self.watch_channels.get(&event.lock_name) {
+            // We ignore send errors as they just mean no receivers are currently active
+            let _ = sender.send(event);
+        }
+    }
+
+    /// Returns a broadcast receiver for real-time events on a specific lock.
+    pub fn watch_lock(&self, name: &str) -> broadcast::Receiver<LockEvent> {
+        let sender = self.watch_channels.entry(name.to_string()).or_insert_with(|| {
+            let (tx, _) = broadcast::channel(100);
+            tx
+        });
+        sender.subscribe()
     }
 
     pub fn acquire_lock(
@@ -221,8 +253,15 @@ impl LockStore {
                 // Persist to database
                 if let Err(e) = self.save_lock_to_database(&lock) {
                     warn!("Failed to save lock {} to database: {}", name, e);
-                    // Continue anyway - DashMap is the source of truth
                 }
+                
+                // Broadcast acquisition
+                self.broadcast_event(LockEvent {
+                    event: LockEventType::Acquired,
+                    lock_name: name.clone(),
+                    lock: Some(lock),
+                    timestamp: now,
+                });
                 
                 Ok((lease_id, fencing_token, expires_at))
             }
@@ -245,8 +284,15 @@ impl LockStore {
                     // Persist to database
                     if let Err(e) = self.save_lock_to_database(&lock) {
                         warn!("Failed to save lock {} to database: {}", name, e);
-                        // Continue anyway - DashMap is the source of truth
                     }
+
+                    // Broadcast new acquisition
+                    self.broadcast_event(LockEvent {
+                        event: LockEventType::Acquired,
+                        lock_name: name.clone(),
+                        lock: Some(lock),
+                        timestamp: now,
+                    });
                     
                     Ok((lease_id, fencing_token, expires_at))
                 }
@@ -268,10 +314,17 @@ impl LockStore {
                 drop(lock); // Release the reference before removing
                 self.locks.remove(name);
                 
+                // Broadcast release
+                self.broadcast_event(LockEvent {
+                    event: LockEventType::Released,
+                    lock_name: name.to_string(),
+                    lock: None,
+                    timestamp: Utc::now(),
+                });
+
                 // Also remove from database
                 if let Err(e) = self.delete_lock_from_database(name) {
                     warn!("Failed to delete lock {} from database: {}", name, e);
-                    // Continue anyway - DashMap removal was successful
                 }
                 
                 Ok(())
@@ -290,14 +343,22 @@ impl LockStore {
     ) -> Result<DateTime<Utc>> {
         match self.locks.get_mut(name) {
             Some(mut lock) if lock.holder_id == holder_id && lock.lease_id == lease_id => {
-                let new_expires_at = Utc::now() + chrono::Duration::seconds(ttl_seconds as i64);
+                let now = Utc::now();
+                let new_expires_at = now + chrono::Duration::seconds(ttl_seconds as i64);
                 lock.expires_at = new_expires_at;
                 
                 // Update database with new expiry time
                 if let Err(e) = self.save_lock_to_database(&lock.clone()) {
                     warn!("Failed to update lock {} in database: {}", name, e);
-                    // Continue anyway - DashMap update was successful
                 }
+
+                // Broadcast renewal
+                self.broadcast_event(LockEvent {
+                    event: LockEventType::Renewed,
+                    lock_name: name.to_string(),
+                    lock: Some(lock.clone()),
+                    timestamp: now,
+                });
                 
                 Ok(new_expires_at)
             }

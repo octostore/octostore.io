@@ -18,7 +18,7 @@ use axum::{
     Json, Router,
 };
 use config::Config;
-use locks::{acquire_lock, get_lock_status, list_user_locks, release_lock, renew_lock, LockHandlers};
+use locks::{acquire_lock, get_lock_status, list_user_locks, release_lock, renew_lock, watch_lock, LockHandlers};
 use metrics::{endpoint_from_path, Metrics};
 
 use std::sync::{Arc, Mutex};
@@ -254,6 +254,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/locks/:name/acquire", post(acquire_lock))
         .route("/locks/:name/release", post(release_lock))
         .route("/locks/:name/renew", post(renew_lock))
+        .route("/locks/:name/watch", get(watch_lock))
         .route("/locks/:name", get(get_lock_status))
         .route("/locks", get(list_user_locks))
         // Documentation routes
@@ -481,6 +482,7 @@ mod tests {
             .route("/locks/:name/acquire", post(acquire_lock))
             .route("/locks/:name/release", post(release_lock))
             .route("/locks/:name/renew", post(renew_lock))
+            .route("/locks/:name/watch", get(watch_lock))
             .route("/locks/:name", get(get_lock_status))
             .route("/locks", get(list_user_locks))
             .route("/openapi.yaml", get(openapi_spec))

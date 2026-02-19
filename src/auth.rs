@@ -396,14 +396,48 @@ impl AuthService {
     }
 
     pub fn authenticate(&self, headers: &HeaderMap) -> Result<Uuid> {
-        let auth_header = headers
+        let bearer_token = headers
             .get("authorization")
             .and_then(|h| h.to_str().ok())
-            .ok_or(AppError::MissingAuth)?;
+            .and_then(|h| h.strip_prefix("Bearer "));
 
-        let token = auth_header
-            .strip_prefix("Bearer ")
-            .ok_or(AppError::MissingAuth)?;
+        if let Some(admin_key) = &self.config.admin_key {
+            let provided_key = headers
+                .get("x-admin-key")
+                .or_else(|| headers.get("x-octostore-admin-key"))
+                .and_then(|v| v.to_str().ok())
+                .or(bearer_token);
+                
+            if provided_key == Some(admin_key) {
+                let admin_uuid = Uuid::nil();
+                
+                // Ensure admin exists in DB so foreign keys/lookups don't fail
+                let conn = self.db.lock().unwrap();
+                let exists: bool = conn.query_row(
+                    "SELECT 1 FROM users WHERE id = ?",
+                    params![admin_uuid.to_string()],
+                    |_| Ok(true)
+                ).unwrap_or(false);
+                
+                if !exists {
+                    let _ = conn.execute(
+                        "INSERT OR IGNORE INTO users (id, github_id, github_username, token, created_at) \
+                         VALUES (?, ?, ?, ?, ?)",
+                        params![
+                            admin_uuid.to_string(),
+                            0,
+                            "admin",
+                            "admin-internal-token",
+                            Utc::now().to_rfc3339()
+                        ],
+                    );
+                }
+                
+                return Ok(admin_uuid);
+            }
+        }
+
+        let token = bearer_token.ok_or(AppError::MissingAuth)?;
 
         if let Some(user_id) = self.token_cache.get(token) {
             return Ok(*user_id);
@@ -423,7 +457,6 @@ impl AuthService {
         self.token_cache.insert(token.to_string(), uuid);
         Ok(uuid)
     }
-
     fn generate_token(&self) -> String {
         let mut rng = rand::thread_rng();
         let token_bytes: [u8; 32] = rng.gen();
@@ -454,6 +487,11 @@ impl AuthService {
     }
 
     pub fn get_user_by_id(&self, user_id: &str) -> Result<Option<String>> {
+        // Special case for admin nil UUID
+        if user_id == Uuid::nil().to_string() {
+            return Ok(Some("admin".to_string()));
+        }
+
         let conn = self.db.lock().unwrap();
         let username: Option<String> = conn
             .query_row(

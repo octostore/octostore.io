@@ -14,7 +14,7 @@ pub struct User {
 }
 
 /// A held distributed lock with its ownership and expiry metadata.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Lock {
     pub name: String,
     pub holder_id: Uuid,
@@ -23,6 +23,24 @@ pub struct Lock {
     pub expires_at: DateTime<Utc>,
     pub metadata: Option<String>,
     pub acquired_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LockEventType {
+    Acquired,
+    Released,
+    Renewed,
+    Expired,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LockEvent {
+    pub event: LockEventType,
+    pub lock_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lock: Option<Lock>,
+    pub timestamp: DateTime<Utc>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -43,7 +61,7 @@ pub enum AcquireLockResponse {
     },
     #[serde(rename = "held")]
     Held {
-        holder_id: Uuid,
+        holder_id: uuid::Uuid,
         expires_at: DateTime<Utc>,
         metadata: Option<String>,
     },
