@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::error::{AppError, Result};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
     pub id: Uuid,
@@ -117,38 +119,51 @@ impl Lock {
 /// Names must be 1–128 characters, containing only alphanumeric characters,
 /// hyphens, and dots. This keeps lock names safe for use as database keys
 /// and URL path segments.
-pub fn validate_lock_name(name: &str) -> Result<(), String> {
+pub fn validate_lock_name(name: &str) -> Result<()> {
     if name.is_empty() {
-        return Err("Lock name cannot be empty".to_string());
+        return Err(AppError::InvalidLockName {
+            reason: "Lock name cannot be empty".to_string(),
+        });
     }
-    
+
     if name.len() > 128 {
-        return Err("Lock name cannot exceed 128 characters".to_string());
+        return Err(AppError::InvalidLockName {
+            reason: "Lock name cannot exceed 128 characters".to_string(),
+        });
     }
-    
+
     if !name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '.') {
-        return Err("Lock name can only contain alphanumeric characters, hyphens, and dots".to_string());
+        return Err(AppError::InvalidLockName {
+            reason: "Lock name can only contain alphanumeric characters, hyphens, and dots"
+                .to_string(),
+        });
     }
-    
+
     Ok(())
 }
 
-pub fn validate_ttl(ttl_seconds: u32) -> Result<(), String> {
+pub fn validate_ttl(ttl_seconds: u32) -> Result<()> {
     if ttl_seconds == 0 {
-        return Err("TTL must be greater than 0".to_string());
+        return Err(AppError::InvalidTtl {
+            reason: "TTL must be greater than 0".to_string(),
+        });
     }
-    
+
     if ttl_seconds > 3600 {
-        return Err("TTL cannot exceed 3600 seconds (1 hour)".to_string());
+        return Err(AppError::InvalidTtl {
+            reason: "TTL cannot exceed 3600 seconds (1 hour)".to_string(),
+        });
     }
-    
+
     Ok(())
 }
 
-pub fn validate_metadata(metadata: &Option<String>) -> Result<(), String> {
+pub fn validate_metadata(metadata: &Option<String>) -> Result<()> {
     if let Some(meta) = metadata {
         if meta.len() > 1024 {
-            return Err("Metadata cannot exceed 1024 bytes".to_string());
+            return Err(AppError::InvalidInput(
+                "Metadata cannot exceed 1024 bytes".to_string(),
+            ));
         }
     }
     Ok(())
@@ -157,6 +172,7 @@ pub fn validate_metadata(metadata: &Option<String>) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::AppError;
     use chrono::{Duration, Utc};
     use serde_json;
 
@@ -215,35 +231,35 @@ mod tests {
         assert!(validate_lock_name("test.lock.with.dots").is_ok());
 
         // Invalid lock names - empty
-        assert_eq!(
+        assert!(matches!(
             validate_lock_name("").unwrap_err(),
-            "Lock name cannot be empty"
-        );
+            AppError::InvalidLockName { reason } if reason == "Lock name cannot be empty"
+        ));
 
         // Invalid lock names - too long
         let long_name = "a".repeat(129);
-        assert_eq!(
+        assert!(matches!(
             validate_lock_name(&long_name).unwrap_err(),
-            "Lock name cannot exceed 128 characters"
-        );
+            AppError::InvalidLockName { reason } if reason == "Lock name cannot exceed 128 characters"
+        ));
 
         // Invalid lock names - invalid characters
-        assert_eq!(
+        assert!(matches!(
             validate_lock_name("invalid name").unwrap_err(),
-            "Lock name can only contain alphanumeric characters, hyphens, and dots"
-        );
-        assert_eq!(
+            AppError::InvalidLockName { .. }
+        ));
+        assert!(matches!(
             validate_lock_name("invalid_name").unwrap_err(),
-            "Lock name can only contain alphanumeric characters, hyphens, and dots"
-        );
-        assert_eq!(
+            AppError::InvalidLockName { .. }
+        ));
+        assert!(matches!(
             validate_lock_name("invalid@name").unwrap_err(),
-            "Lock name can only contain alphanumeric characters, hyphens, and dots"
-        );
-        assert_eq!(
+            AppError::InvalidLockName { .. }
+        ));
+        assert!(matches!(
             validate_lock_name("invalid/name").unwrap_err(),
-            "Lock name can only contain alphanumeric characters, hyphens, and dots"
-        );
+            AppError::InvalidLockName { .. }
+        ));
     }
 
     #[test]
@@ -254,20 +270,20 @@ mod tests {
         assert!(validate_ttl(3600).is_ok()); // 1 hour max
 
         // Invalid TTL - zero
-        assert_eq!(
+        assert!(matches!(
             validate_ttl(0).unwrap_err(),
-            "TTL must be greater than 0"
-        );
+            AppError::InvalidTtl { reason } if reason == "TTL must be greater than 0"
+        ));
 
         // Invalid TTL - too large
-        assert_eq!(
+        assert!(matches!(
             validate_ttl(3601).unwrap_err(),
-            "TTL cannot exceed 3600 seconds (1 hour)"
-        );
-        assert_eq!(
+            AppError::InvalidTtl { reason } if reason == "TTL cannot exceed 3600 seconds (1 hour)"
+        ));
+        assert!(matches!(
             validate_ttl(7200).unwrap_err(),
-            "TTL cannot exceed 3600 seconds (1 hour)"
-        );
+            AppError::InvalidTtl { .. }
+        ));
     }
 
     #[test]
@@ -283,10 +299,10 @@ mod tests {
 
         // Too long metadata
         let long_metadata = "a".repeat(1025);
-        assert_eq!(
+        assert!(matches!(
             validate_metadata(&Some(long_metadata)).unwrap_err(),
-            "Metadata cannot exceed 1024 bytes"
-        );
+            AppError::InvalidInput(msg) if msg == "Metadata cannot exceed 1024 bytes"
+        ));
     }
 
     #[test]
