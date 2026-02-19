@@ -352,6 +352,7 @@ impl Metrics {
         }
     }
     
+    #[allow(dead_code)]
     pub fn record_cache_hit(&self, hit: bool) {
         if hit {
             self.cache_hits.fetch_add(1, Ordering::Relaxed);
