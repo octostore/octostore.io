@@ -232,6 +232,7 @@ async fn cleanup_locks(client: &Client, base_url: &str, token: &str, lock_names:
     sleep(Duration::from_millis(500)).await;
 }
 
+#[allow(dead_code)]
 struct WaveResult {
     workers: u64,
     duration_secs: f64,
