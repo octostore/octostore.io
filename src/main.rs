@@ -21,8 +21,8 @@ use config::Config;
 use locks::{acquire_lock, get_lock_status, list_user_locks, release_lock, renew_lock, LockHandlers};
 use metrics::{endpoint_from_path, Metrics};
 
-use std::sync::Arc;
-use store::LockStore;
+use std::sync::{Arc, Mutex};
+use store::{DbConn, LockStore};
 use tokio::signal;
 use tower_http::cors::CorsLayer;
 use tracing::{info, warn};
@@ -215,8 +215,9 @@ async fn main() -> anyhow::Result<()> {
     let initial_fencing_token = auth_service.load_fencing_counter()?;
     info!("Loaded fencing counter: {}", initial_fencing_token);
 
-    // Initialize lock store
-    let lock_store = LockStore::new(&config.database_url, initial_fencing_token)?;
+    // Initialize lock store (connection opened separately; will be unified in #19 final step)
+    let lock_db: DbConn = Arc::new(Mutex::new(rusqlite::Connection::open(&config.database_url)?));
+    let lock_store = LockStore::new(lock_db, initial_fencing_token)?;
     
     // Start background expiry task
     let expiry_store = lock_store.clone();
@@ -448,7 +449,10 @@ mod tests {
         };
 
         let auth_service = AuthService::new(config.clone()).unwrap();
-        let lock_store = LockStore::new(&config.database_url, 0).unwrap();
+        let lock_db: DbConn = Arc::new(Mutex::new(
+            rusqlite::Connection::open(&config.database_url).unwrap(),
+        ));
+        let lock_store = LockStore::new(lock_db, 0).unwrap();
 
         let lock_handlers = LockHandlers::new(lock_store.clone());
         let metrics = Metrics::new();

@@ -26,17 +26,16 @@ pub type DbConn = Arc<Mutex<Connection>>;
 pub struct LockStore {
     locks: Arc<DashMap<String, Lock>>,
     fencing_counter: Arc<AtomicU64>,
-    db: Arc<Mutex<Connection>>,
+    db: DbConn,
 }
 
 impl LockStore {
-    pub fn new(database_url: &str, initial_fencing_token: u64) -> Result<Self> {
-        // Create database connection
-        let conn = Connection::open(database_url)?;
-        
+    pub fn new(db: DbConn, initial_fencing_token: u64) -> Result<Self> {
         // Create locks table if it doesn't exist
-        conn.execute(
-            r#"
+        {
+            let conn = db.lock().unwrap();
+            conn.execute(
+                r#"
             CREATE TABLE IF NOT EXISTS locks (
                 name TEXT PRIMARY KEY,
                 holder_id TEXT NOT NULL,
@@ -47,16 +46,17 @@ impl LockStore {
                 acquired_at TEXT NOT NULL
             )
             "#,
-            [],
-        )?;
-        
+                [],
+            )?;
+        }
+
         info!("Locks table initialized");
-        
+
         // Create the store instance
         let store = Self {
             locks: Arc::new(DashMap::new()),
             fencing_counter: Arc::new(AtomicU64::new(initial_fencing_token)),
-            db: Arc::new(Mutex::new(conn)),
+            db,
         };
         
         // Load existing unexpired locks from database
@@ -385,15 +385,20 @@ mod tests {
     use tempfile::NamedTempFile;
     use tokio::time::{sleep, Duration as TokioDuration};
     
+    fn make_db(path: &str) -> DbConn {
+        let conn = Connection::open(path).expect("Failed to open DB");
+        Arc::new(std::sync::Mutex::new(conn))
+    }
+
     fn create_test_store() -> (LockStore, NamedTempFile) {
         let temp_file = NamedTempFile::new().expect("Failed to create temp file");
         let db_path = temp_file.path().to_string_lossy().to_string();
-        let store = LockStore::new(&db_path, 1).expect("Failed to create store");
+        let store = LockStore::new(make_db(&db_path), 1).expect("Failed to create store");
         (store, temp_file)
     }
-    
+
     fn create_test_store_with_path(db_path: &str) -> LockStore {
-        LockStore::new(db_path, 1).expect("Failed to create store")
+        LockStore::new(make_db(db_path), 1).expect("Failed to create store")
     }
 
     #[tokio::test]
