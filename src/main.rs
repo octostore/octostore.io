@@ -185,6 +185,12 @@ async fn timeseries_endpoint(
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Handle --version flag before starting the server
+    if std::env::args().any(|a| a == "--version" || a == "-V") {
+        println!("octostore {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
+
     // Initialize tracing
     tracing_subscriber::registry()
         .with(
