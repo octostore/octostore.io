@@ -29,6 +29,9 @@ pub enum AppError {
     
     #[error("Lock limit exceeded (max 100 per user)")]
     LockLimitExceeded,
+
+    #[error("Forbidden: {0}")]
+    Forbidden(String),
     
     #[error("Invalid TTL: {reason}")]
     InvalidTtl { reason: String },
@@ -70,6 +73,7 @@ impl IntoResponse for AppError {
             AppError::LockHeld => (StatusCode::CONFLICT, "Lock is held by another user"),
             AppError::InvalidLeaseId => (StatusCode::BAD_REQUEST, "Invalid lease ID"),
             AppError::LockLimitExceeded => (StatusCode::FORBIDDEN, "Lock limit exceeded"),
+            AppError::Forbidden(_) => (StatusCode::FORBIDDEN, "Forbidden"),
             AppError::InvalidTtl { .. } => (StatusCode::BAD_REQUEST, "Invalid TTL"),
             AppError::InvalidLockName { .. } => (StatusCode::BAD_REQUEST, "Invalid lock name"),
             AppError::InvalidInput(_) => (StatusCode::BAD_REQUEST, "Invalid input"),
