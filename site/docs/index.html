@@ -5,12 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>OctoStore API Docs</title>
   <meta name="description" content="OctoStore REST API reference — distributed locking, rate limiting, feature flags, and config storage." />
-  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
   <style>
-    /* ── Reset ── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    /* ── Brand dark shell ── */
     body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
       background: #0a0a0b;
@@ -18,7 +15,6 @@
       min-height: 100vh;
     }
 
-    /* ── Top bar ── */
     .topbar {
       background: #111111;
       border-bottom: 1px solid rgba(255,255,255,0.08);
@@ -29,7 +25,7 @@
       justify-content: space-between;
       position: sticky;
       top: 0;
-      z-index: 100;
+      z-index: 9999;
     }
     .topbar-brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
     .topbar-brand span { font-size: 1.1rem; font-weight: 700; color: #fff; }
@@ -46,72 +42,13 @@
     .topbar nav a:hover { color: #fff; background: rgba(255,255,255,0.06); }
     .topbar nav a.active { color: #fff; background: rgba(99,102,241,0.15); }
 
-    /* ── Swagger UI overrides ── */
-    #swagger-ui { max-width: 1200px; margin: 0 auto; padding: 24px; }
-
-    /* Force dark backgrounds */
-    #swagger-ui .swagger-ui,
-    #swagger-ui .swagger-ui .info,
-    #swagger-ui .swagger-ui .scheme-container,
-    #swagger-ui .swagger-ui .opblock-tag-section,
-    #swagger-ui .swagger-ui .opblock {
-      background: transparent !important;
+    /* push Scalar below our sticky topbar */
+    #scalar-container {
+      height: calc(100vh - 56px);
     }
-    #swagger-ui .swagger-ui .wrapper { padding: 0; }
-    #swagger-ui .swagger-ui .opblock {
-      border-radius: 8px;
-      border: 1px solid rgba(255,255,255,0.08) !important;
-      box-shadow: none !important;
-      margin-bottom: 8px;
-    }
-    #swagger-ui .swagger-ui .opblock-summary { border-radius: 8px; }
-    #swagger-ui .swagger-ui .opblock-summary-description { color: #a1a1aa; }
-
-    /* Info block */
-    #swagger-ui .swagger-ui .info .title { color: #fff; font-size: 2rem; }
-    #swagger-ui .swagger-ui .info p,
-    #swagger-ui .swagger-ui .info li { color: #a1a1aa; }
-    #swagger-ui .swagger-ui .info a { color: #6366f1; }
-
-    /* Tags */
-    #swagger-ui .swagger-ui .opblock-tag { color: #e5e5e5; border-bottom: 1px solid rgba(255,255,255,0.08); }
-
-    /* Scheme select */
-    #swagger-ui .swagger-ui select { background: #1a1a1b; color: #e5e5e5; border: 1px solid rgba(255,255,255,0.12); }
-    #swagger-ui .swagger-ui input { background: #1a1a1b; color: #e5e5e5; border: 1px solid rgba(255,255,255,0.12); }
-
-    /* Response / model backgrounds */
-    #swagger-ui .swagger-ui .responses-inner,
-    #swagger-ui .swagger-ui .model-box,
-    #swagger-ui .swagger-ui section.models,
-    #swagger-ui .swagger-ui .model-container {
-      background: #111111 !important;
-    }
-    #swagger-ui .swagger-ui .model-title,
-    #swagger-ui .swagger-ui table thead tr th { color: #e5e5e5; }
-    #swagger-ui .swagger-ui table tbody tr td { color: #a1a1aa; }
-
-    /* Authorize button */
-    #swagger-ui .swagger-ui .btn.authorize {
-      background: #6366f1;
-      border-color: #6366f1;
-      color: #fff;
-    }
-    #swagger-ui .swagger-ui .btn.authorize:hover { background: #5b5ce8; }
-
-    /* Code blocks */
-    #swagger-ui .swagger-ui .highlight-code pre,
-    #swagger-ui .swagger-ui .microlight {
-      background: #0d0d0e !important;
-      color: #e5e5e5 !important;
-    }
-
-    /* Hide the Swagger UI top bar (we have our own) */
-    #swagger-ui .swagger-ui .topbar { display: none; }
   </style>
 </head>
 <body>
-
   <header class="topbar">
     <a class="topbar-brand" href="/">
       <span>🐙 OctoStore</span>
@@ -120,38 +57,17 @@
       <a href="/">Home</a>
       <a href="/status.html">Status</a>
       <a href="/docs/" class="active">API Docs</a>
-      <a href="https://github.com/octostore/octostore.io" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/aronchick/octostore-lock" target="_blank" rel="noopener">GitHub</a>
     </nav>
   </header>
 
-  <div id="swagger-ui"></div>
-
-  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
-  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-standalone-preset.js"></script>
-  <script>
-    SwaggerUIBundle({
-      url: 'https://api.octostore.io/openapi.yaml',
-      dom_id: '#swagger-ui',
-      deepLinking: true,
-      presets: [
-        SwaggerUIBundle.presets.apis,
-        SwaggerUIStandalonePreset
-      ],
-      plugins: [
-        SwaggerUIBundle.plugins.DownloadUrl
-      ],
-      layout: 'StandaloneLayout',
-      tryItOutEnabled: true,
-      requestInterceptor: (request) => {
-        // Let the user's auth header flow through unchanged
-        return request;
-      },
-      onComplete: () => {
-        // Hide the standalone topbar rendered by SwaggerUI (we have our own)
-        const bar = document.querySelector('.swagger-ui .topbar');
-        if (bar) bar.style.display = 'none';
-      }
-    });
-  </script>
+  <div id="scalar-container">
+    <script
+      id="api-reference"
+      data-url="https://api.octostore.io/openapi.yaml"
+      data-configuration='{"theme":"purple","layout":"modern","defaultHttpClient":{"targetKey":"shell","clientKey":"curl"}}'
+      src="https://cdn.jsdelivr.net/npm/@scalar/api-reference">
+    </script>
+  </div>
 </body>
 </html>
