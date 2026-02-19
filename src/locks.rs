@@ -242,4 +242,188 @@ mod tests {
         assert_eq!(cloned.store.count_user_locks(user_id), 1,
             "cloned handlers should see locks created through the original");
     }
+
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
+    use serde_json::{json, Value};
+
+    async fn test_app() -> (axum::Router, NamedTempFile) {
+        let temp_file = NamedTempFile::new().unwrap();
+        let db_path = temp_file.path().to_str().unwrap().to_string();
+        
+        let config = Config {
+            bind_addr: "127.0.0.1:3000".to_string(),
+            database_url: db_path,
+            github_client_id: None,
+            github_client_secret: None,
+            github_redirect_uri: "http://localhost:3000/callback".to_string(),
+            admin_key: Some("test_admin_key".to_string()),
+            static_tokens: Some("testuser:testtoken".to_string()),
+            static_tokens_file: None,
+            admin_username: None,
+        };
+
+        let auth_service = AuthService::new(config.clone()).unwrap();
+        auth_service.seed_static_tokens();
+        let lock_store = LockStore::new(&config.database_url, 0).unwrap();
+        let lock_handlers = LockHandlers::new(lock_store.clone());
+        
+        let app_state = crate::app::AppState {
+            lock_handlers,
+            auth_service,
+            config: config.clone(),
+            metrics: crate::metrics::Metrics::new(),
+        };
+
+        let router = axum::Router::new()
+            .route("/locks/:name/acquire", axum::routing::post(acquire_lock))
+            .route("/locks/:name/release", axum::routing::post(release_lock))
+            .route("/locks/:name", axum::routing::get(get_lock_status))
+            .with_state(app_state);
+            
+        (router, temp_file)
+    }
+
+    #[tokio::test]
+    async fn test_acquire_status_release_roundtrip() {
+        let (app, _tmp) = test_app().await;
+
+        // 1. Acquire
+        let response = app.clone().oneshot(
+            Request::builder()
+                .uri("/locks/test-lock/acquire")
+                .method("POST")
+                .header("authorization", "Bearer testtoken")
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"ttl_seconds": 60}).to_string()))
+                .unwrap()
+        ).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let res: Value = serde_json::from_slice(&body).unwrap();
+        let lease_id = res["lease_id"].as_str().unwrap().to_string();
+
+        // 2. Get Status
+        let response = app.clone().oneshot(
+            Request::builder()
+                .uri("/locks/test-lock")
+                .header("authorization", "Bearer testtoken")
+                .body(Body::empty())
+                .unwrap()
+        ).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let res: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(res["status"], "held");
+
+        // 3. Release
+        let response = app.oneshot(
+            Request::builder()
+                .uri("/locks/test-lock/release")
+                .method("POST")
+                .header("authorization", "Bearer testtoken")
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"lease_id": lease_id}).to_string()))
+                .unwrap()
+        ).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_idempotent_reacquire() {
+        let (app, _tmp) = test_app().await;
+
+        let req = Request::builder()
+            .uri("/locks/test-lock/acquire")
+            .method("POST")
+            .header("authorization", "Bearer testtoken")
+            .header("content-type", "application/json")
+            .body(Body::from(json!({"ttl_seconds": 60}).to_string()))
+            .unwrap();
+
+        let response = app.clone().oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let res1: Value = serde_json::from_slice(&body).unwrap();
+
+        let req2 = Request::builder()
+            .uri("/locks/test-lock/acquire")
+            .method("POST")
+            .header("authorization", "Bearer testtoken")
+            .header("content-type", "application/json")
+            .body(Body::from(json!({"ttl_seconds": 60}).to_string()))
+            .unwrap();
+
+        let response2 = app.oneshot(req2).await.unwrap();
+        let body2 = axum::body::to_bytes(response2.into_body(), usize::MAX).await.unwrap();
+        let res2: Value = serde_json::from_slice(&body2).unwrap();
+
+        assert_eq!(res1["lease_id"], res2["lease_id"], "Idempotent re-acquire should return same lease_id");
+    }
+
+    #[tokio::test]
+    async fn test_release_wrong_lease() {
+        let (app, _tmp) = test_app().await;
+
+        // 1. Acquire
+        let response = app.clone().oneshot(
+            Request::builder()
+                .uri("/locks/test-lock/acquire")
+                .method("POST")
+                .header("authorization", "Bearer testtoken")
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"ttl_seconds": 60}).to_string()))
+                .unwrap()
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // 2. Release with wrong lease
+        let response = app.oneshot(
+            Request::builder()
+                .uri("/locks/test-lock/release")
+                .method("POST")
+                .header("authorization", "Bearer testtoken")
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"lease_id": Uuid::new_v4()}).to_string()))
+                .unwrap()
+        ).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_acquire_expired_lock() {
+        let (app, _tmp) = test_app().await;
+
+        // 1. Acquire with 1s TTL
+        let response = app.clone().oneshot(
+            Request::builder()
+                .uri("/locks/test-lock/acquire")
+                .method("POST")
+                .header("authorization", "Bearer testtoken")
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"ttl_seconds": 1}).to_string()))
+                .unwrap()
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // 2. Wait 2s
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        // 3. Re-acquire should succeed (different lease_id)
+        let response = app.oneshot(
+            Request::builder()
+                .uri("/locks/test-lock/acquire")
+                .method("POST")
+                .header("authorization", "Bearer testtoken")
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"ttl_seconds": 60}).to_string()))
+                .unwrap()
+        ).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
 }
