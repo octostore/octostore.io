@@ -28,7 +28,14 @@ use tower_http::cors::CorsLayer;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-const OPENAPI_SPEC: &str = include_str!("../openapi.yaml");
+static VERSIONED_SPEC: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+fn versioned_openapi_spec() -> &'static str {
+    VERSIONED_SPEC.get_or_init(|| {
+        include_str!("../openapi.yaml")
+            .replacen("  version: 1.0.0", &format!("  version: {}", env!("CARGO_PKG_VERSION")), 1)
+    })
+}
 
 /// Validates that the request carries a valid admin credential.
 ///
@@ -78,7 +85,7 @@ fn require_admin(
 
 // Handler to serve OpenAPI spec
 async fn openapi_spec() -> impl IntoResponse {
-    let mut response = Response::new(OPENAPI_SPEC.to_string());
+    let mut response = Response::new(versioned_openapi_spec().to_string());
     response.headers_mut().insert(
         "content-type",
         HeaderValue::from_static("application/yaml"),
