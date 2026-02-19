@@ -1,6 +1,6 @@
 [package]
 name = "octostore"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2021"
 description = "Distributed locking as a service — one binary, simple HTTP API, SQLite persistence, optional GitHub OAuth"
 license = "MIT"
