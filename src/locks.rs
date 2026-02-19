@@ -219,10 +219,12 @@ mod tests {
         let config = Config {
             bind_addr: "127.0.0.1:3000".to_string(),
             database_url: db_path.clone(),
-            github_client_id: "test_client_id".to_string(),
-            github_client_secret: "test_client_secret".to_string(),
+            github_client_id: Some("test_client_id".to_string()),
+            github_client_secret: Some("test_client_secret".to_string()),
             github_redirect_uri: "http://localhost:3000/callback".to_string(),
             admin_key: Some("test_admin_key".to_string()),
+            static_tokens: None,
+            static_tokens_file: None,
         };
 
         let auth_service = AuthService::new(config).unwrap();

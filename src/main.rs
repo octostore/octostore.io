@@ -8,7 +8,7 @@ mod models;
 mod store;
 
 use app::AppState;
-use auth::{github_auth, github_callback, rotate_token, AuthService};
+use auth::{github_auth, github_callback, rotate_token, register_local, AuthService};
 use axum::{
     extract::{Request, State},
     http::HeaderValue,
@@ -195,6 +195,15 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize auth service
     let auth_service = AuthService::new(config.clone())?;
+
+    // Seed static tokens (no-op when GitHub OAuth is enabled)
+    if !config.is_github_enabled() {
+        auth_service.seed_static_tokens();
+        if config.static_tokens.is_none() && config.static_tokens_file.is_none() {
+            tracing::warn!("Running in local-auth mode with no STATIC_TOKENS configured. ");
+            tracing::warn!("Use POST /auth/register to create users, or set STATIC_TOKENS.");
+        }
+    }
     
     // Load fencing counter from database
     let initial_fencing_token = auth_service.load_fencing_counter()?;
@@ -217,11 +226,20 @@ async fn main() -> anyhow::Result<()> {
         metrics: metrics.clone(),
     };
 
-    // Build router
+    // Build router: GitHub auth routes are only registered when OAuth credentials
+    // are present.  In local-auth mode, /auth/register is available instead.
+    let auth_router = if config.is_github_enabled() {
+        Router::new()
+            .route("/auth/github", get(github_auth))
+            .route("/auth/github/callback", get(github_callback))
+    } else {
+        Router::new()
+            .route("/auth/register", post(register_local))
+    };
+
     let app = Router::new()
-        // Auth routes
-        .route("/auth/github", get(github_auth))
-        .route("/auth/github/callback", get(github_callback))
+        .merge(auth_router)
+        // Auth routes (always available)
         .route("/auth/token/rotate", post(rotate_token))
         // Lock routes
         .route("/locks/:name/acquire", post(acquire_lock))
@@ -385,10 +403,12 @@ mod tests {
         let config = Config {
             bind_addr: "127.0.0.1:3000".to_string(),
             database_url: db_path,
-            github_client_id: "test_client_id".to_string(),
-            github_client_secret: "test_client_secret".to_string(),
+            github_client_id: Some("test_client_id".to_string()),
+            github_client_secret: Some("test_client_secret".to_string()),
             github_redirect_uri: "http://localhost:3000/callback".to_string(),
             admin_key: Some("test_admin_key".to_string()),
+            static_tokens: None,
+            static_tokens_file: None,
         };
 
         let auth_service = AuthService::new(config.clone()).unwrap();
@@ -404,9 +424,17 @@ mod tests {
             metrics,
         };
 
+        let auth_router = if config.is_github_enabled() {
+            Router::new()
+                .route("/auth/github", get(github_auth))
+                .route("/auth/github/callback", get(github_callback))
+        } else {
+            Router::new()
+                .route("/auth/register", post(register_local))
+        };
+
         Router::new()
-            .route("/auth/github", get(github_auth))
-            .route("/auth/github/callback", get(github_callback))
+            .merge(auth_router)
             .route("/auth/token/rotate", post(rotate_token))
             .route("/locks/:name/acquire", post(acquire_lock))
             .route("/locks/:name/release", post(release_lock))
