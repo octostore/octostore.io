@@ -36,17 +36,14 @@ pub async fn acquire_lock(
     let user_id = state.auth_service.authenticate(&headers)?;
     
     // Validate lock name
-    validate_lock_name(&name)
-        .map_err(|reason| AppError::InvalidLockName { reason })?;
-    
+    validate_lock_name(&name)?;
+
     // Validate TTL
     let ttl_seconds = req.ttl_seconds.unwrap_or(60);
-    validate_ttl(ttl_seconds)
-        .map_err(|reason| AppError::InvalidTtl { reason })?;
-    
+    validate_ttl(ttl_seconds)?;
+
     // Validate metadata
-    validate_metadata(&req.metadata)
-        .map_err(|reason| AppError::InvalidInput(reason))?;
+    validate_metadata(&req.metadata)?;
     
     // Check user lock limit (max 100)
     let current_lock_count = state.lock_handlers.store.count_user_locks(user_id);
@@ -103,9 +100,8 @@ pub async fn release_lock(
 ) -> Result<Json<()>> {
     let user_id = state.auth_service.authenticate(&headers)?;
     
-    validate_lock_name(&name)
-        .map_err(|reason| AppError::InvalidLockName { reason })?;
-    
+    validate_lock_name(&name)?;
+
     state.lock_handlers.store.release_lock(&name, req.lease_id, user_id)?;
     
     // Increment release counter
@@ -122,12 +118,10 @@ pub async fn renew_lock(
 ) -> Result<Json<RenewLockResponse>> {
     let user_id = state.auth_service.authenticate(&headers)?;
     
-    validate_lock_name(&name)
-        .map_err(|reason| AppError::InvalidLockName { reason })?;
-    
+    validate_lock_name(&name)?;
+
     let ttl_seconds = req.ttl_seconds.unwrap_or(60);
-    validate_ttl(ttl_seconds)
-        .map_err(|reason| AppError::InvalidTtl { reason })?;
+    validate_ttl(ttl_seconds)?;
     
     let expires_at = state.lock_handlers.store.renew_lock(&name, req.lease_id, user_id, ttl_seconds)?;
     
@@ -145,9 +139,8 @@ pub async fn get_lock_status(
 ) -> Result<Json<LockStatusResponse>> {
     let _user_id = state.auth_service.authenticate(&headers)?; // Auth required but user_id not used
     
-    validate_lock_name(&name)
-        .map_err(|reason| AppError::InvalidLockName { reason })?;
-    
+    validate_lock_name(&name)?;
+
     if let Some(lock) = state.lock_handlers.store.get_lock(&name) {
         if lock.is_expired() {
             // Lock exists but is expired, treat as free
