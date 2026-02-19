@@ -15,7 +15,7 @@ use axum::{
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
     routing::{get, post},
-    Router,
+    Json, Router,
 };
 use config::Config;
 use locks::{acquire_lock, get_lock_status, list_user_locks, release_lock, renew_lock, LockHandlers};
@@ -252,7 +252,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/docs", get(api_docs))
         // Health check
         .route("/health", get(health_check))
-        // Admin routes  
+        // Public status endpoint (no auth)
+        .route("/status", get(status_check))
+        // Admin routes
         .route("/admin/status", get(admin_status))
         .route("/admin/metrics/timeseries", get(timeseries_endpoint))
         // Metrics endpoint
@@ -293,6 +295,23 @@ async fn main() -> anyhow::Result<()> {
 
 async fn health_check() -> &'static str {
     "OK"
+}
+
+async fn status_check(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let active_locks = state.lock_handlers.store.get_all_active_locks();
+    let users = state.auth_service.get_all_users().unwrap_or_default();
+    let uptime_seconds = state.metrics.start_time.elapsed().as_secs();
+    let total_acquires = state.metrics.lock_store_acquires.load(std::sync::atomic::Ordering::Relaxed);
+    let total_releases = state.metrics.lock_store_releases.load(std::sync::atomic::Ordering::Relaxed);
+
+    Json(serde_json::json!({
+        "status": "ok",
+        "uptime_seconds": uptime_seconds,
+        "active_locks": active_locks.len(),
+        "total_users": users.len(),
+        "total_acquires": total_acquires,
+        "total_releases": total_releases
+    }))
 }
 
 async fn admin_status(
@@ -445,6 +464,7 @@ mod tests {
             .route("/openapi.yaml", get(openapi_spec))
             .route("/docs", get(api_docs))
             .route("/health", get(health_check))
+            .route("/status", get(status_check))
             .route("/admin/status", get(admin_status))
             .route("/metrics", get(metrics_endpoint))
             .layer(middleware::from_fn_with_state(app_state.clone(), metrics_middleware))
