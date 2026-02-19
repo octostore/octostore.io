@@ -2,6 +2,15 @@
 name = "octostore"
 version = "0.2.2"
 edition = "2021"
+description = "Distributed locking as a service — one binary, simple HTTP API, SQLite persistence, optional GitHub OAuth"
+license = "MIT"
+repository = "https://github.com/octostore/octostore.io"
+homepage = "https://octostore.io"
+documentation = "https://docs.rs/octostore"
+readme = "README.md"
+keywords = ["distributed", "locking", "mutex", "coordination", "http"]
+categories = ["web-programming::http-server", "database"]
+exclude = ["site/*", "benches/*", "fuzz/*", ".github/*", "openapi.yaml"]
 
 [lib]
 name = "octostore"
