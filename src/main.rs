@@ -255,10 +255,13 @@ async fn main() -> anyhow::Result<()> {
         .route("/locks/:name", get(get_lock_status))
         .route("/locks", get(list_user_locks))
         // Documentation routes
+        .route("/", get(api_docs))
         .route("/openapi.yaml", get(openapi_spec))
         .route("/docs", get(api_docs))
+        
         // Health check
         .route("/health", get(health_check))
+        .fallback(api_docs)
         // Public status endpoint (no auth)
         .route("/status", get(status_check))
         // Admin routes
