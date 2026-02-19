@@ -203,11 +203,15 @@ mod tests {
     use crate::config::Config;
     use tempfile::NamedTempFile;
     use uuid::Uuid;
+    use rusqlite::Connection;
 
     fn create_test_handlers() -> (LockHandlers, NamedTempFile) {
         let temp_file = NamedTempFile::new().unwrap();
         let db_path = temp_file.path().to_str().unwrap().to_string();
-        let store = LockStore::new(&db_path, 1).unwrap();
+        let db: crate::store::DbConn = std::sync::Arc::new(std::sync::Mutex::new(
+            rusqlite::Connection::open(&db_path).unwrap(),
+        ));
+        let store = LockStore::new(db, 1).unwrap();
         (LockHandlers::new(store), temp_file)
     }
 
@@ -251,7 +255,10 @@ mod tests {
 
         let auth_service = AuthService::new(config.clone()).unwrap();
         auth_service.seed_static_tokens();
-        let lock_store = LockStore::new(&config.database_url, 0).unwrap();
+        let lock_db: crate::store::DbConn = std::sync::Arc::new(std::sync::Mutex::new(
+            rusqlite::Connection::open(&config.database_url).unwrap(),
+        ));
+        let lock_store = LockStore::new(lock_db, 0).unwrap();
         let lock_handlers = LockHandlers::new(lock_store.clone());
         
         let app_state = crate::app::AppState {
