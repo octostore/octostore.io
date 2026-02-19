@@ -18,12 +18,11 @@ use tracing::info;
 #[derive(Clone)]
 pub struct LockHandlers {
     pub store: LockStore,
-    pub auth: AuthService,
 }
 
 impl LockHandlers {
-    pub fn new(store: LockStore, auth: AuthService) -> Self {
-        Self { store, auth }
+    pub fn new(store: LockStore) -> Self {
+        Self { store }
     }
 }
 
@@ -224,7 +223,7 @@ mod tests {
         let auth_service = AuthService::new(config).unwrap();
         let store = LockStore::new(&db_path, 1).unwrap();
 
-        (LockHandlers::new(store, auth_service), temp_file)
+        (LockHandlers::new(store), temp_file)
     }
 
     #[test]
