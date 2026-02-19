@@ -20,7 +20,13 @@
             --accent-hover: #5b5ce8;
             --border: rgba(255, 255, 255, 0.08);
             --border-hover: rgba(255, 255, 255, 0.12);
-            --gradient: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(168, 85, 247, 0.1) 100%);
+            --gradient: linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(168,85,247,0.06) 100%);
+            --c-indigo: #6366f1;
+            --c-violet: #a855f7;
+            --c-sky:    #38bdf8;
+            --c-emerald:#10b981;
+            --c-amber:  #f59e0b;
+            --c-rose:   #f43f5e;
             --shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
             --shadow-lg: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
         }
@@ -39,23 +45,17 @@
             overflow-x: hidden;
         }
 
-        /* Background decoration */
+        /* Background glow */
         body::before {
             content: '';
             position: fixed;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            background: radial-gradient(circle at 25% 25%, rgba(99, 102, 241, 0.05) 0%, transparent 50%),
-                        radial-gradient(circle at 75% 75%, rgba(168, 85, 247, 0.05) 0%, transparent 50%);
+            top: 0; left: 50%;
+            transform: translateX(-50%);
+            width: 900px; height: 600px;
+            background: radial-gradient(ellipse at 40% 30%, rgba(99,102,241,0.12) 0%, transparent 60%),
+                        radial-gradient(ellipse at 70% 60%, rgba(168,85,247,0.08) 0%, transparent 55%);
             z-index: -1;
-            animation: float 20s ease-in-out infinite;
-        }
-
-        @keyframes float {
-            0%, 100% { transform: rotate(0deg) scale(1); }
-            50% { transform: rotate(180deg) scale(1.1); }
+            pointer-events: none;
         }
 
         .container {
@@ -216,13 +216,12 @@
 
         /* Disclaimer */
         .disclaimer {
-            background: var(--gradient);
-            border: 1px solid var(--border);
+            background: rgba(99,102,241,0.06);
+            border: 1px solid rgba(99,102,241,0.2);
             border-radius: 16px;
-            padding: 32px;
+            padding: 24px 32px;
             margin: 80px 0;
             text-align: center;
-            backdrop-filter: blur(10px);
             animation: fadeIn 0.8s ease-out 0.3s both;
         }
 
@@ -272,48 +271,39 @@
         /* Feature grid */
         .features-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 32px;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 24px;
             margin: 60px 0;
+        }
+
+        @media (max-width: 900px) {
+            .features-grid { grid-template-columns: repeat(2, 1fr) !important; }
         }
 
         .feature-card {
             background: var(--bg-secondary);
             border: 1px solid var(--border);
-            border-radius: 16px;
-            padding: 32px;
-            transition: all 0.3s ease;
+            border-top: 2px solid var(--card-color, var(--accent));
+            border-radius: 12px;
+            padding: 28px;
+            transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
             position: relative;
-            overflow: hidden;
-        }
-
-        .feature-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 1px;
-            background: linear-gradient(90deg, transparent, var(--accent), transparent);
-            opacity: 0;
-            transition: opacity 0.3s ease;
-        }
-
-        .feature-card:hover::before {
-            opacity: 1;
         }
 
         .feature-card:hover {
-            transform: translateY(-4px);
-            border-color: var(--border-hover);
-            box-shadow: var(--shadow);
+            transform: translateY(-3px);
+            border-color: var(--card-color, var(--accent));
+            box-shadow: 0 0 0 1px var(--card-color, var(--accent)), var(--shadow);
         }
 
         .feature-icon {
-            font-size: 2.5rem;
-            margin-bottom: 20px;
-            display: block;
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 44px; height: 44px; border-radius: 10px;
+            background: color-mix(in srgb, var(--card-color, var(--accent)) 15%, transparent);
+            font-size: 1.4rem; margin-bottom: 16px;
         }
+
+
 
         .feature-title {
             font-size: 1.5rem;
@@ -341,13 +331,9 @@
         .api-section::before {
             content: '';
             position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: var(--gradient);
-            opacity: 0.3;
-            z-index: -1;
+            inset: 0; border-radius: 20px;
+            background: linear-gradient(135deg, rgba(99,102,241,0.04) 0%, transparent 60%);
+            pointer-events: none;
         }
 
         .api-endpoints {
@@ -584,25 +570,35 @@
             <p class="section-subtitle">Distributed locking via a simple HTTP API. Sign up with GitHub, get a bearer token, start locking.</p>
             
             <div class="features-grid">
-                <div class="feature-card">
+                <div class="feature-card" style="--card-color: var(--c-indigo)">
                     <span class="feature-icon">🔒</span>
                     <h3 class="feature-title">Distributed Locking</h3>
                     <p class="feature-description">Acquire exclusive locks with automatic expiration and monotonic fencing tokens for safe distributed coordination.</p>
                 </div>
-                <div class="feature-card">
+                <div class="feature-card" style="--card-color: var(--c-violet)">
                     <span class="feature-icon">🛡️</span>
                     <h3 class="feature-title">Fencing Tokens</h3>
                     <p class="feature-description">Every acquire returns a strictly increasing token. Use it to prevent stale holders from corrupting shared state.</p>
                 </div>
-                <div class="feature-card">
+                <div class="feature-card" style="--card-color: var(--c-sky)">
                     <span class="feature-icon">⚡</span>
                     <h3 class="feature-title">Simple HTTP API</h3>
-                    <p class="feature-description">Pure REST with JSON responses. No client libraries needed — curl works fine.</p>
+                    <p class="feature-description">Pure REST with JSON responses. No client libraries needed — curl works fine from any language.</p>
                 </div>
-                <div class="feature-card">
+                <div class="feature-card" style="--card-color: var(--c-emerald)">
                     <span class="feature-icon">📦</span>
-                    <h3 class="feature-title">One Binary</h3>
-                    <p class="feature-description">No etcd, no ZooKeeper, no Consul. Self-host with a single binary and a SQLite file.</p>
+                    <h3 class="feature-title">One Binary, Zero Deps</h3>
+                    <p class="feature-description">No etcd, no ZooKeeper, no Consul. Self-host with a single binary and a SQLite file. Done in 60 seconds.</p>
+                </div>
+                <div class="feature-card" style="--card-color: var(--c-amber)">
+                    <span class="feature-icon">⏱️</span>
+                    <h3 class="feature-title">Auto-Expiry</h3>
+                    <p class="feature-description">Locks expire automatically via configurable TTLs. Crashed holders never block your system forever.</p>
+                </div>
+                <div class="feature-card" style="--card-color: var(--c-rose)">
+                    <span class="feature-icon">🏠</span>
+                    <h3 class="feature-title">Self-Hostable</h3>
+                    <p class="feature-description">Use octostore.io or run your own. Optional GitHub OAuth — or bring static tokens for fully air-gapped deployments.</p>
                 </div>
             </div>
         </section>
