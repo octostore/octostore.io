@@ -271,7 +271,12 @@ async fn main() -> anyhow::Result<()> {
                     "http://127.0.0.1:3000".parse().unwrap(),
                 ])
                 .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::PUT, axum::http::Method::DELETE])
-                .allow_headers([axum::http::header::AUTHORIZATION, axum::http::header::CONTENT_TYPE])
+                .allow_headers([
+                    axum::http::header::AUTHORIZATION,
+                    axum::http::header::CONTENT_TYPE,
+                    axum::http::HeaderName::from_static("x-admin-key"),
+                    axum::http::HeaderName::from_static("x-octostore-admin-key"),
+                ])
         )
         // Add state
         .with_state(app_state);
