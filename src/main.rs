@@ -449,7 +449,7 @@ mod tests {
 
         let auth_service = AuthService::new(config.clone()).unwrap();
         let lock_store = LockStore::new(&config.database_url, 0).unwrap();
-        
+
         let lock_handlers = LockHandlers::new(lock_store.clone());
         let metrics = Metrics::new();
         
