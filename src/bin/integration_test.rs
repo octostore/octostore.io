@@ -4,6 +4,7 @@ use serde_json::{json, Value};
 use std::{process, time::Instant};
 use uuid::Uuid;
 
+#[allow(dead_code)]
 #[derive(Debug)]
 struct TestResult {
     name: String,
@@ -138,6 +139,7 @@ impl TestRunner {
 
 #[tokio::main]
 async fn main() {
+    #[allow(unused_assignments)]
     let matches = Command::new("octostore-test")
         .about("OctoStore Integration Tests")
         .arg(Arg::new("url")
