@@ -88,7 +88,6 @@ jobs:
           fi
           echo "Tag '$TAG' is a clean release — proceeding."
 
-      - uses: actions/checkout@v4
       - name: Set up SSH
         run: |
           mkdir -p ~/.ssh
@@ -96,51 +95,8 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           echo "${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
 
-      - name: Deploy to demo-host
-        env:
-          TAG: ${{ github.ref_name }}
+      - name: Deploy to production
         run: |
-          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes daaronch@77.42.29.236 bash -s <<EOF
-            set -euo pipefail
-            cd /opt/octostore-lock
-
-            echo "=== Pulling latest site files (${TAG}) ==="
-            git fetch origin main
-            git checkout main
-            git reset --hard origin/main
-
-            echo "=== Downloading binary from release ==="
-            curl -fsSL \
-              "https://github.com/octostore/octostore.io/releases/download/${TAG}/octostore-linux-amd64" \
-              -o /tmp/octostore-new
-            chmod +x /tmp/octostore-new
-
-            echo "=== Verifying binary version ==="
-            BINARY_VERSION=\$(/tmp/octostore-new --version | awk '{print \$2}')
-            EXPECTED_VERSION="${TAG#v}"
-            if [[ "\$BINARY_VERSION" != "\$EXPECTED_VERSION" ]]; then
-              echo "ERROR: binary reports version '\$BINARY_VERSION', expected '\$EXPECTED_VERSION'"
-              rm /tmp/octostore-new
-              exit 1
-            fi
-            echo "Binary version verified: \$BINARY_VERSION"
-
-            echo "=== Stop → swap → start ==="
-            sudo systemctl stop octostore
-            sudo fuser -k 3030/tcp 2>/dev/null || true
-            sleep 1
-            rm -f /opt/octostore-lock/octostore
-            mv /tmp/octostore-new /opt/octostore-lock/octostore
-            sudo systemctl start octostore
-
-            echo "=== Verifying deployment ==="
-            sleep 3
-            sudo systemctl is-active octostore
-            LIVE_VERSION=\$(curl -sf https://api.octostore.io/openapi.yaml | grep '  version:' | awk '{print \$2}')
-            echo "Live API version: \$LIVE_VERSION"
-            if [[ "\$LIVE_VERSION" != "\$EXPECTED_VERSION" ]]; then
-              echo "ERROR: live version '\$LIVE_VERSION' != expected '\$EXPECTED_VERSION'"
-              exit 1
-            fi
-            echo "Deploy complete: ${TAG} ✓"
-          EOF
+          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes \
+            daaronch@${{ secrets.DEPLOY_HOST }} \
+            /opt/octostore-lock/deploy/deploy.sh ${{ github.ref_name }}
