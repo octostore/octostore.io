@@ -1,356 +1,852 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OctoStore - Status</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --bg-primary: #0a0a0b;
-            --bg-secondary: #111111;
-            --bg-tertiary: #1a1a1b;
-            --text-primary: #ffffff;
-            --text-secondary: #e5e5e5;
-            --text-muted: #a1a1aa;
-            --accent: #6366f1;
-            --accent-hover: #5b5ce8;
-            --success: #10b981;
-            --warning: #f59e0b;
-            --error: #ef4444;
-            --border: rgba(255,255,255,0.08);
-            --border-hover: rgba(255,255,255,0.12);
-            --shadow: 0 20px 25px -5px rgba(0,0,0,0.4), 0 10px 10px -5px rgba(0,0,0,0.2);
-        }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: var(--bg-primary);
-            color: var(--text-secondary);
-            line-height: 1.6;
-            min-height: 100vh;
-        }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OctoStore · Status</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <style>
+    :root {
+      --bg0: #060608;
+      --bg1: #0e0e11;
+      --bg2: #16161b;
+      --bg3: #1e1e25;
+      --border: rgba(255,255,255,0.07);
+      --border2: rgba(255,255,255,0.12);
+      --text1: #f4f4f5;
+      --text2: #a1a1aa;
+      --text3: #52525b;
+      --accent: #7c6dfa;
+      --accent2: #5b4de0;
+      --green: #22d3a0;
+      --red: #f43f5e;
+      --amber: #f59e0b;
+      --blue: #38bdf8;
+      --r: 10px;
+    }
 
-        /* Nav */
-        nav {
-            background: rgba(17,17,17,0.95);
-            backdrop-filter: blur(12px);
-            border-bottom: 1px solid var(--border);
-            padding: 0 2rem;
-            position: sticky;
-            top: 0;
-            z-index: 100;
-        }
-        .nav-inner {
-            max-width: 1100px;
-            margin: 0 auto;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            height: 60px;
-        }
-        .nav-logo {
-            font-weight: 700;
-            font-size: 1.1rem;
-            color: var(--text-primary);
-            text-decoration: none;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        .nav-links {
-            display: flex;
-            gap: 0.25rem;
-            list-style: none;
-        }
-        .nav-links a {
-            color: var(--text-muted);
-            text-decoration: none;
-            font-size: 0.875rem;
-            font-weight: 500;
-            padding: 0.4rem 0.75rem;
-            border-radius: 6px;
-            transition: color 0.15s, background 0.15s;
-        }
-        .nav-links a:hover { color: var(--text-primary); background: rgba(255,255,255,0.05); }
-        .nav-links a.active { color: var(--text-primary); background: rgba(99,102,241,0.15); }
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
 
-        /* Main */
-        main {
-            max-width: 1100px;
-            margin: 0 auto;
-            padding: 3rem 2rem;
-        }
+    html { font-size: 15px; }
 
-        /* Header row */
-        .page-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 2.5rem;
-        }
-        .page-title { font-size: 1.75rem; font-weight: 700; color: var(--text-primary); }
-        .header-actions { display: flex; align-items: center; gap: 1rem; }
-        .last-updated {
-            font-size: 0.8rem;
-            color: var(--text-muted);
-        }
-        .refresh-btn {
-            background: rgba(99,102,241,0.15);
-            border: 1px solid rgba(99,102,241,0.3);
-            color: var(--accent);
-            padding: 0.4rem 0.9rem;
-            border-radius: 6px;
-            font-size: 0.8rem;
-            font-weight: 500;
-            cursor: pointer;
-            transition: background 0.15s, border-color 0.15s;
-            font-family: inherit;
-        }
-        .refresh-btn:hover { background: rgba(99,102,241,0.25); border-color: rgba(99,102,241,0.5); }
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg0);
+      color: var(--text1);
+      min-height: 100vh;
+    }
 
-        /* Service status banner */
-        .status-banner {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            padding: 1rem 1.5rem;
-            border-radius: 10px;
-            border: 1px solid;
-            margin-bottom: 2rem;
-            font-weight: 500;
-        }
-        .status-banner.ok {
-            background: rgba(16,185,129,0.08);
-            border-color: rgba(16,185,129,0.25);
-            color: var(--success);
-        }
-        .status-banner.down {
-            background: rgba(239,68,68,0.08);
-            border-color: rgba(239,68,68,0.25);
-            color: var(--error);
-        }
-        .status-dot {
-            width: 10px; height: 10px;
-            border-radius: 50%;
-            flex-shrink: 0;
-        }
-        .status-banner.ok .status-dot { background: var(--success); box-shadow: 0 0 8px var(--success); }
-        .status-banner.down .status-dot { background: var(--error); }
-        .status-pulse {
-            animation: pulse 2s infinite;
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.4; }
-        }
+    /* ── AUTH GATE ───────────────────────────────────────── */
+    #gate {
+      position: fixed; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--bg0);
+      z-index: 999;
+    }
 
-        /* Stats grid */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1.25rem;
-        }
-        .stat-card {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.5rem;
-            transition: border-color 0.2s, transform 0.15s;
-        }
-        .stat-card:hover {
-            border-color: var(--border-hover);
-            transform: translateY(-1px);
-        }
-        .stat-icon { font-size: 1.5rem; margin-bottom: 0.75rem; }
-        .stat-label {
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: var(--text-muted);
-            margin-bottom: 0.4rem;
-        }
-        .stat-value {
-            font-size: 2rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            line-height: 1.1;
-        }
-        .stat-value.loading { color: var(--text-muted); font-size: 1.5rem; }
-        .stat-sub {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            margin-top: 0.25rem;
-        }
+    .gate-card {
+      width: 400px;
+      background: var(--bg1);
+      border: 1px solid var(--border2);
+      border-radius: 16px;
+      padding: 2.5rem;
+      box-shadow: 0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(124,109,250,0.08);
+    }
 
-        /* Skeleton shimmer */
-        .shimmer {
-            background: linear-gradient(90deg, var(--bg-tertiary) 25%, rgba(255,255,255,0.04) 50%, var(--bg-tertiary) 75%);
-            background-size: 200% 100%;
-            animation: shimmer 1.5s infinite;
-            border-radius: 4px;
-            height: 2rem;
-            width: 60%;
-        }
-        @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+    .gate-logo {
+      font-size: 2rem; text-align: center; margin-bottom: 0.5rem;
+    }
 
-        /* Auto-refresh bar */
-        .refresh-track {
-            height: 2px;
-            background: var(--border);
-            border-radius: 2px;
-            margin-top: 2.5rem;
-            overflow: hidden;
-        }
-        .refresh-bar {
-            height: 100%;
-            background: var(--accent);
-            border-radius: 2px;
-            transform-origin: left;
-            transition: width 1s linear;
-        }
-    </style>
+    .gate-title {
+      text-align: center;
+      font-size: 1.25rem; font-weight: 700;
+      color: var(--text1);
+      margin-bottom: 0.4rem;
+    }
+
+    .gate-sub {
+      text-align: center;
+      font-size: 0.8rem;
+      color: var(--text2);
+      margin-bottom: 2rem;
+    }
+
+    .gate-label {
+      font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.08em; color: var(--text2);
+      margin-bottom: 0.5rem; display: block;
+    }
+
+    .gate-input {
+      width: 100%;
+      background: var(--bg2);
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      color: var(--text1);
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.85rem;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      margin-bottom: 1rem;
+    }
+
+    .gate-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(124,109,250,0.18);
+    }
+
+    .gate-btn {
+      width: 100%;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border: none; border-radius: 8px;
+      padding: 0.75rem;
+      color: #fff; font-weight: 600; font-size: 0.9rem;
+      cursor: pointer; font-family: inherit;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+
+    .gate-btn:hover { opacity: 0.9; }
+    .gate-btn:active { transform: scale(0.99); }
+
+    .gate-error {
+      font-size: 0.8rem; color: var(--red);
+      margin-top: 0.75rem; text-align: center;
+      min-height: 1.2em;
+    }
+
+    /* ── NAV ─────────────────────────────────────────────── */
+    nav {
+      position: sticky; top: 0; z-index: 50;
+      background: rgba(6,6,8,0.85);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 1.5rem;
+    }
+
+    .nav-inner {
+      max-width: 1280px; margin: 0 auto;
+      height: 56px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+
+    .nav-logo {
+      font-weight: 800; font-size: 1rem; color: var(--text1);
+      text-decoration: none; display: flex; align-items: center; gap: 0.5rem;
+    }
+
+    .nav-links { display: flex; gap: 0.125rem; list-style: none; }
+    .nav-links a {
+      color: var(--text2); text-decoration: none;
+      font-size: 0.8rem; font-weight: 500;
+      padding: 0.375rem 0.75rem; border-radius: 6px;
+      transition: color 0.15s, background 0.15s;
+    }
+    .nav-links a:hover { color: var(--text1); background: rgba(255,255,255,0.05); }
+    .nav-links a.active { color: var(--text1); background: rgba(124,109,250,0.15); }
+
+    .nav-right {
+      display: flex; align-items: center; gap: 0.75rem;
+    }
+
+    .status-pill {
+      display: flex; align-items: center; gap: 0.45rem;
+      background: rgba(34,211,160,0.1); border: 1px solid rgba(34,211,160,0.2);
+      border-radius: 999px; padding: 0.25rem 0.75rem;
+      font-size: 0.75rem; font-weight: 600; color: var(--green);
+    }
+
+    .status-pill.down {
+      background: rgba(244,63,94,0.1); border-color: rgba(244,63,94,0.2);
+      color: var(--red);
+    }
+
+    .pulse {
+      width: 7px; height: 7px; border-radius: 50%; background: currentColor;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 0 currentColor; }
+      50% { opacity: 0.6; box-shadow: 0 0 0 4px transparent; }
+    }
+
+    .nav-sign-out {
+      background: none; border: 1px solid var(--border2);
+      border-radius: 6px; padding: 0.3rem 0.7rem;
+      color: var(--text2); font-size: 0.75rem; font-weight: 500;
+      cursor: pointer; font-family: inherit;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .nav-sign-out:hover { color: var(--text1); border-color: var(--border2); }
+
+    /* ── DASHBOARD ───────────────────────────────────────── */
+    #dashboard { display: none; }
+
+    main {
+      max-width: 1280px; margin: 0 auto;
+      padding: 2rem 1.5rem 4rem;
+    }
+
+    /* ── KPI CARDS ───────────────────────────────────────── */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+
+    .kpi {
+      background: var(--bg1);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 1.25rem 1.5rem;
+      position: relative; overflow: hidden;
+      transition: border-color 0.2s, transform 0.15s;
+    }
+
+    .kpi:hover { border-color: var(--border2); transform: translateY(-2px); }
+
+    .kpi::before {
+      content: ''; position: absolute;
+      inset: 0; opacity: 0.04;
+      background: radial-gradient(circle at top left, var(--kpi-color, var(--accent)), transparent 70%);
+    }
+
+    .kpi-icon { font-size: 1.25rem; margin-bottom: 0.75rem; }
+
+    .kpi-label {
+      font-size: 0.7rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--text2); margin-bottom: 0.35rem;
+    }
+
+    .kpi-value {
+      font-size: 2.25rem; font-weight: 800;
+      color: var(--text1); line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .kpi-sub { font-size: 0.72rem; color: var(--text3); margin-top: 0.3rem; }
+
+    /* ── CHARTS ──────────────────────────────────────────── */
+    .charts-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+
+    .chart-card {
+      background: var(--bg1);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 1.25rem;
+    }
+
+    .chart-header {
+      display: flex; align-items: baseline; justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+
+    .chart-title {
+      font-size: 0.8rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--text2);
+    }
+
+    .chart-now {
+      font-size: 1.4rem; font-weight: 800;
+      color: var(--text1); font-variant-numeric: tabular-nums;
+    }
+
+    .chart-wrap { width: 100%; }
+
+    svg text { font-family: 'Inter', system-ui, sans-serif; fill: var(--text3); }
+
+    /* ── TABLES ──────────────────────────────────────────── */
+    .tables-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+
+    .table-card {
+      background: var(--bg1);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      overflow: hidden;
+    }
+
+    .table-header {
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+
+    .table-title {
+      font-size: 0.8rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.06em; color: var(--text2);
+    }
+
+    .table-count {
+      font-size: 0.72rem; font-weight: 600;
+      background: rgba(124,109,250,0.12); color: var(--accent);
+      border-radius: 999px; padding: 0.15rem 0.55rem;
+    }
+
+    table {
+      width: 100%; border-collapse: collapse;
+    }
+
+    th {
+      font-size: 0.68rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--text3);
+      padding: 0.6rem 1.25rem; text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+
+    td {
+      padding: 0.7rem 1.25rem;
+      font-size: 0.8rem; color: var(--text2);
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+    }
+
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+
+    .td-name {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.75rem; color: var(--text1);
+    }
+
+    .td-user {
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+
+    .avatar {
+      width: 22px; height: 22px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.65rem; font-weight: 700; color: #fff;
+      flex-shrink: 0;
+    }
+
+    .ttl-bar-wrap {
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+
+    .ttl-bar {
+      flex: 1; height: 4px; background: var(--bg3); border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .ttl-bar-fill {
+      height: 100%; border-radius: 2px;
+      background: linear-gradient(90deg, var(--green), var(--accent));
+      transition: width 0.5s ease;
+    }
+
+    .ttl-bar-fill.low { background: linear-gradient(90deg, var(--red), var(--amber)); }
+
+    .empty-state {
+      padding: 2.5rem; text-align: center;
+      color: var(--text3); font-size: 0.8rem;
+    }
+
+    /* ── FOOTER ──────────────────────────────────────────── */
+    .refresh-footer {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-top: 2rem;
+      font-size: 0.72rem; color: var(--text3);
+    }
+
+    .refresh-track {
+      width: 160px; height: 2px;
+      background: var(--bg3); border-radius: 2px; overflow: hidden;
+    }
+
+    .refresh-fill {
+      height: 100%; background: var(--accent); border-radius: 2px;
+      transition: width 1s linear;
+    }
+
+    @media (max-width: 900px) {
+      .kpi-grid { grid-template-columns: 1fr 1fr; }
+      .charts-grid, .tables-grid { grid-template-columns: 1fr; }
+    }
+  </style>
 </head>
 <body>
 
-<nav>
+<!-- AUTH GATE -->
+<div id="gate">
+  <div class="gate-card">
+    <div class="gate-logo">🐙</div>
+    <div class="gate-title">OctoStore Status</div>
+    <div class="gate-sub">Admin key required to view this dashboard</div>
+    <label class="gate-label" for="keyInput">Admin Key</label>
+    <input id="keyInput" class="gate-input" type="password"
+      placeholder="Paste your admin key…" autocomplete="off">
+    <button class="gate-btn" onclick="authenticate()">Unlock Dashboard</button>
+    <div class="gate-error" id="gateError"></div>
+  </div>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dashboard">
+  <nav>
     <div class="nav-inner">
-        <a href="/" class="nav-logo">🐙 OctoStore</a>
-        <ul class="nav-links">
-            <li><a href="/">Home</a></li>
-            <li><a href="/dashboard.html">Dashboard</a></li>
-            <li><a href="/admin.html">Admin</a></li>
-            <li><a href="/docs" target="_blank">API Docs</a></li>
-            <li><a href="/status.html" class="active">Status</a></li>
-        </ul>
+      <a href="/" class="nav-logo">🐙 OctoStore</a>
+      <ul class="nav-links">
+        <li><a href="/">Home</a></li>
+        <li><a href="/dashboard.html">Dashboard</a></li>
+        <li><a href="/admin.html">Admin</a></li>
+        <li><a href="/docs" target="_blank">API Docs</a></li>
+        <li><a href="/status.html" class="active">Status</a></li>
+      </ul>
+      <div class="nav-right">
+        <div class="status-pill" id="statusPill">
+          <span class="pulse" id="statusPulse"></span>
+          <span id="statusLabel">Connecting…</span>
+        </div>
+        <button class="nav-sign-out" onclick="signOut()">Sign out</button>
+      </div>
     </div>
-</nav>
+  </nav>
 
-<main>
-    <div class="page-header">
-        <h1 class="page-title">System Status</h1>
-        <div class="header-actions">
-            <span class="last-updated" id="lastUpdated">Fetching…</span>
-            <button class="refresh-btn" onclick="fetchStatus()">↻ Refresh</button>
-        </div>
-    </div>
-
-    <div class="status-banner ok" id="statusBanner">
-        <div class="status-dot status-pulse" id="statusDot"></div>
-        <span id="statusText">Checking…</span>
-    </div>
-
-    <div class="stats-grid">
-        <div class="stat-card">
-            <div class="stat-icon">⏱</div>
-            <div class="stat-label">Uptime</div>
-            <div class="stat-value" id="uptime"><div class="shimmer"></div></div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-icon">🔒</div>
-            <div class="stat-label">Active Locks</div>
-            <div class="stat-value" id="activeLocks"><div class="shimmer"></div></div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-icon">👥</div>
-            <div class="stat-label">Total Users</div>
-            <div class="stat-value" id="totalUsers"><div class="shimmer"></div></div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-icon">📈</div>
-            <div class="stat-label">Total Operations</div>
-            <div class="stat-value" id="totalOps"><div class="shimmer"></div></div>
-            <div class="stat-sub" id="opsBreakdown"></div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-icon">⚡</div>
-            <div class="stat-label">Operations / sec</div>
-            <div class="stat-value" id="opsPerSec"><div class="shimmer"></div></div>
-            <div class="stat-sub">lifetime average</div>
-        </div>
+  <main>
+    <!-- KPI row -->
+    <div class="kpi-grid">
+      <div class="kpi" style="--kpi-color: var(--accent)">
+        <div class="kpi-icon">⏱</div>
+        <div class="kpi-label">Uptime</div>
+        <div class="kpi-value" id="kUptime">—</div>
+        <div class="kpi-sub" id="kUptimeSub"></div>
+      </div>
+      <div class="kpi" style="--kpi-color: var(--blue)">
+        <div class="kpi-icon">🔒</div>
+        <div class="kpi-label">Active Locks</div>
+        <div class="kpi-value" id="kLocks">—</div>
+        <div class="kpi-sub">right now</div>
+      </div>
+      <div class="kpi" style="--kpi-color: var(--green)">
+        <div class="kpi-icon">👥</div>
+        <div class="kpi-label">Total Users</div>
+        <div class="kpi-value" id="kUsers">—</div>
+        <div class="kpi-sub">registered</div>
+      </div>
+      <div class="kpi" style="--kpi-color: var(--amber)">
+        <div class="kpi-icon">⚡</div>
+        <div class="kpi-label">Total Operations</div>
+        <div class="kpi-value" id="kOps">—</div>
+        <div class="kpi-sub" id="kOpsSub"></div>
+      </div>
     </div>
 
-    <div class="refresh-track">
-        <div class="refresh-bar" id="refreshBar" style="width:100%"></div>
+    <!-- Charts -->
+    <div class="charts-grid">
+      <div class="chart-card">
+        <div class="chart-header">
+          <span class="chart-title">Active Locks</span>
+          <span class="chart-now" id="chartLockNow">—</span>
+        </div>
+        <div class="chart-wrap" id="chartLocks"></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-header">
+          <span class="chart-title">Ops / sec</span>
+          <span class="chart-now" id="chartOpsNow">—</span>
+        </div>
+        <div class="chart-wrap" id="chartOps"></div>
+      </div>
     </div>
-</main>
+
+    <!-- Tables -->
+    <div class="tables-grid">
+      <div class="table-card">
+        <div class="table-header">
+          <span class="table-title">Active Locks</span>
+          <span class="table-count" id="lockCount">0</span>
+        </div>
+        <div id="lockTableWrap"></div>
+      </div>
+      <div class="table-card">
+        <div class="table-header">
+          <span class="table-title">Users</span>
+          <span class="table-count" id="userCount">0</span>
+        </div>
+        <div id="userTableWrap"></div>
+      </div>
+    </div>
+
+    <div class="refresh-footer">
+      <span id="lastPoll">—</span>
+      <div style="display:flex;align-items:center;gap:0.6rem;">
+        <span>Next refresh</span>
+        <div class="refresh-track">
+          <div class="refresh-fill" id="refreshFill" style="width:100%"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
 
 <script>
-    const API = 'https://api.octostore.io/status';
-    const INTERVAL = 15; // seconds
-    let countdown = INTERVAL;
-    let timer;
+const API_BASE = 'https://api.octostore.io';
+const POLL_MS  = 10_000;
+const MAX_PTS  = 40;
 
-    function formatUptime(seconds) {
-        const d = Math.floor(seconds / 86400);
-        const h = Math.floor((seconds % 86400) / 3600);
-        const m = Math.floor((seconds % 3600) / 60);
-        const s = seconds % 60;
-        if (d > 0) return `${d}d ${h}h ${m}m`;
-        if (h > 0) return `${h}h ${m}m`;
-        if (m > 0) return `${m}m ${s}s`;
-        return `${s}s`;
+let adminKey = '';
+let countdown = POLL_MS / 1000;
+let pollTimer, tickTimer;
+
+// ── HISTORY BUFFERS ──────────────────────────────────────
+const history = { locks: [], opsPerSec: [], times: [] };
+let prevAcquires = null;
+let prevPollTime  = null;
+
+// ── AUTH ─────────────────────────────────────────────────
+function authenticate() {
+  const k = document.getElementById('keyInput').value.trim();
+  if (!k) { showGateError('Key cannot be empty'); return; }
+  adminKey = k;
+  document.getElementById('gateError').textContent = 'Connecting…';
+  poll().then(ok => {
+    if (ok) {
+      localStorage.setItem('octoAdminKey', k);
+      document.getElementById('gate').style.display = 'none';
+      document.getElementById('dashboard').style.display = 'block';
+      buildCharts();
+      startPolling();
+    } else {
+      adminKey = '';
+      showGateError('Authentication failed — check your admin key');
     }
+  });
+}
 
-    function setOk() {
-        const banner = document.getElementById('statusBanner');
-        banner.className = 'status-banner ok';
-        document.getElementById('statusDot').className = 'status-dot status-pulse';
-        document.getElementById('statusText').textContent = 'All Systems Operational';
-    }
+function showGateError(msg) {
+  document.getElementById('gateError').textContent = msg;
+}
 
-    function setDown(msg) {
-        const banner = document.getElementById('statusBanner');
-        banner.className = 'status-banner down';
-        document.getElementById('statusDot').className = 'status-dot';
-        document.getElementById('statusText').textContent = msg || 'Service Unavailable';
-        ['uptime','activeLocks','totalUsers','totalOps','opsPerSec'].forEach(id => {
-            document.getElementById(id).textContent = '—';
-        });
-    }
+function signOut() {
+  localStorage.removeItem('octoAdminKey');
+  adminKey = '';
+  clearInterval(pollTimer); clearInterval(tickTimer);
+  document.getElementById('dashboard').style.display = 'none';
+  document.getElementById('gate').style.display = 'flex';
+  document.getElementById('keyInput').value = '';
+  document.getElementById('gateError').textContent = '';
+}
 
-    async function fetchStatus() {
-        countdown = INTERVAL;
-        try {
-            const res = await fetch(API);
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const d = await res.json();
+document.getElementById('keyInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') authenticate();
+});
 
-            setOk();
-            document.getElementById('uptime').textContent = formatUptime(d.uptime_seconds);
-            document.getElementById('activeLocks').textContent = d.active_locks.toLocaleString();
-            document.getElementById('totalUsers').textContent = d.total_users.toLocaleString();
-            const totalOps = (d.total_acquires || 0) + (d.total_releases || 0);
-            document.getElementById('totalOps').textContent = totalOps.toLocaleString();
-            document.getElementById('opsBreakdown').textContent =
-                `${(d.total_acquires||0).toLocaleString()} acquires · ${(d.total_releases||0).toLocaleString()} releases`;
-            const opsPerSec = d.uptime_seconds > 0
-                ? (d.total_acquires / d.uptime_seconds).toFixed(3)
-                : '0.000';
-            document.getElementById('opsPerSec').textContent = opsPerSec;
-            document.getElementById('lastUpdated').textContent =
-                'Updated ' + new Date().toLocaleTimeString();
-        } catch (e) {
-            setDown('Service Unavailable — ' + e.message);
-            document.getElementById('lastUpdated').textContent = 'Failed at ' + new Date().toLocaleTimeString();
-        }
-    }
+// Auto-resume from localStorage
+const saved = localStorage.getItem('octoAdminKey');
+if (saved) { document.getElementById('keyInput').value = saved; authenticate(); }
 
-    // Countdown bar
-    function tick() {
-        countdown--;
-        const pct = (countdown / INTERVAL) * 100;
-        document.getElementById('refreshBar').style.width = pct + '%';
-        if (countdown <= 0) {
-            fetchStatus();
-        }
-    }
+// ── FETCH ─────────────────────────────────────────────────
+async function poll() {
+  try {
+    const res = await fetch(`${API_BASE}/admin/status`, {
+      headers: { 'X-Admin-Key': adminKey }
+    });
+    if (!res.ok) return false;
+    const d = await res.json();
+    render(d);
+    return true;
+  } catch {
+    setStatusDown();
+    return false;
+  }
+}
 
-    fetchStatus();
-    timer = setInterval(tick, 1000);
+// ── RENDER ────────────────────────────────────────────────
+function render(d) {
+  const now = Date.now();
+
+  // Status pill
+  const pill = document.getElementById('statusPill');
+  pill.className = 'status-pill' + (d.healthy ? '' : ' down');
+  document.getElementById('statusLabel').textContent = d.healthy ? 'Operational' : 'Degraded';
+
+  // Uptime
+  document.getElementById('kUptime').textContent = fmtUptime(d.uptime_seconds);
+  document.getElementById('kUptimeSub').textContent = `since ${fmtAgo(d.uptime_seconds)} ago`;
+
+  // KPIs
+  document.getElementById('kLocks').textContent = d.active_locks;
+  document.getElementById('kUsers').textContent = d.total_users;
+  document.getElementById('kOps').textContent = (d.total_acquires + d.total_releases).toLocaleString();
+  document.getElementById('kOpsSub').textContent =
+    `${d.total_acquires.toLocaleString()} acq · ${d.total_releases.toLocaleString()} rel`;
+
+  // Ops/sec (derivative)
+  let opsPerSec = 0;
+  if (prevAcquires !== null && prevPollTime !== null) {
+    const dt = (now - prevPollTime) / 1000;
+    opsPerSec = dt > 0 ? Math.max(0, (d.total_acquires - prevAcquires) / dt) : 0;
+  }
+  prevAcquires = d.total_acquires;
+  prevPollTime  = now;
+
+  // History
+  history.times.push(new Date(now));
+  history.locks.push(d.active_locks);
+  history.opsPerSec.push(+opsPerSec.toFixed(4));
+  if (history.times.length > MAX_PTS) {
+    history.times.shift(); history.locks.shift(); history.opsPerSec.shift();
+  }
+
+  // Chart callouts
+  document.getElementById('chartLockNow').textContent = d.active_locks;
+  document.getElementById('chartOpsNow').textContent  = opsPerSec.toFixed(3);
+
+  // Update charts
+  updateChart('locks', history.times, history.locks, '#38bdf8');
+  updateChart('ops',   history.times, history.opsPerSec, '#7c6dfa');
+
+  // Tables
+  renderLockTable(d.locks || []);
+  renderUserTable(d.users || []);
+
+  // Footer
+  document.getElementById('lastPoll').textContent =
+    'Last updated ' + new Date().toLocaleTimeString();
+}
+
+function setStatusDown() {
+  const pill = document.getElementById('statusPill');
+  pill.className = 'status-pill down';
+  document.getElementById('statusLabel').textContent = 'Unreachable';
+}
+
+// ── CHARTS ────────────────────────────────────────────────
+const charts = {};
+
+function buildCharts() {
+  charts.locks = createChart('chartLocks');
+  charts.ops   = createChart('chartOps');
+  window.addEventListener('resize', () => {
+    Object.values(charts).forEach(c => resizeChart(c));
+  });
+}
+
+function createChart(wrapperId) {
+  const wrap = document.getElementById(wrapperId);
+  const h = 180;
+  const margin = { top: 8, right: 12, bottom: 24, left: 36 };
+
+  const svg = d3.select(wrap).append('svg')
+    .attr('height', h)
+    .style('width', '100%')
+    .style('display', 'block');
+
+  const defs = svg.append('defs');
+
+  const gradId = 'grad-' + wrapperId;
+  const grad = defs.append('linearGradient')
+    .attr('id', gradId).attr('x1','0').attr('x2','0').attr('y1','0').attr('y2','1');
+  grad.append('stop').attr('offset','0%')
+    .attr('stop-color','#7c6dfa').attr('stop-opacity', 0.3);
+  grad.append('stop').attr('offset','100%')
+    .attr('stop-color','#7c6dfa').attr('stop-opacity', 0.0);
+
+  const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+  g.append('path').attr('class','chart-area')
+    .attr('fill', `url(#${gradId})`);
+  g.append('path').attr('class','chart-line')
+    .attr('fill','none').attr('stroke','#7c6dfa')
+    .attr('stroke-width', 2).attr('stroke-linecap','round');
+
+  g.append('g').attr('class','x-axis');
+  g.append('g').attr('class','y-axis');
+
+  return { svg, g, h, margin, gradId, wrap };
+}
+
+function updateChart(key, times, values, color) {
+  const c = charts[key];
+  if (!c || times.length < 2) return;
+
+  const svg = c.svg;
+  const g   = c.g;
+  const m   = c.margin;
+  const h   = c.h;
+  const W   = c.wrap.clientWidth;
+  const w   = W - m.left - m.right;
+  const ih  = h - m.top - m.bottom;
+
+  svg.attr('width', W);
+
+  const x = d3.scaleTime().domain(d3.extent(times)).range([0, w]);
+  const maxV = Math.max(d3.max(values), 1);
+  const y = d3.scaleLinear().domain([0, maxV * 1.2]).range([ih, 0]).nice();
+
+  // Update gradient color
+  svg.select(`#${c.gradId} stop:first-child`).attr('stop-color', color);
+  g.select('.chart-line').attr('stroke', color);
+
+  const area = d3.area()
+    .x((_, i) => x(times[i]))
+    .y0(ih)
+    .y1((v) => y(v))
+    .curve(d3.curveMonotoneX);
+
+  const line = d3.line()
+    .x((_, i) => x(times[i]))
+    .y((v) => y(v))
+    .curve(d3.curveMonotoneX);
+
+  const t = d3.transition().duration(400).ease(d3.easeQuadOut);
+
+  g.select('.chart-area').datum(values)
+    .transition(t).attr('d', area);
+
+  g.select('.chart-line').datum(values)
+    .transition(t).attr('d', line);
+
+  // Axes
+  const xAxis = d3.axisBottom(x).ticks(5).tickSize(0)
+    .tickFormat(d3.timeFormat('%H:%M:%S'));
+
+  const yAxis = d3.axisLeft(y).ticks(3).tickSize(-w)
+    .tickFormat(v => v % 1 === 0 ? v : v.toFixed(2));
+
+  g.select('.x-axis')
+    .attr('transform', `translate(0,${ih})`)
+    .transition(t).call(xAxis)
+    .call(ax => ax.select('.domain').remove())
+    .call(ax => ax.selectAll('.tick line').remove())
+    .call(ax => ax.selectAll('text').attr('dy', '1.2em').style('font-size','0.65rem'));
+
+  g.select('.y-axis')
+    .transition(t).call(yAxis)
+    .call(ax => ax.select('.domain').remove())
+    .call(ax => ax.selectAll('.tick line')
+      .attr('stroke', 'rgba(255,255,255,0.05)').attr('stroke-dasharray', '3,3'))
+    .call(ax => ax.selectAll('text').attr('dx', '-0.4em').style('font-size','0.65rem'));
+}
+
+function resizeChart(c) {
+  // Triggers re-render on next data point; no-op here
+}
+
+// ── TABLES ────────────────────────────────────────────────
+function renderLockTable(locks) {
+  document.getElementById('lockCount').textContent = locks.length;
+  const wrap = document.getElementById('lockTableWrap');
+  if (!locks.length) {
+    wrap.innerHTML = '<div class="empty-state">No active locks</div>';
+    return;
+  }
+  wrap.innerHTML = `
+    <table>
+      <thead><tr>
+        <th>Name</th><th>Owner</th><th>TTL</th>
+      </tr></thead>
+      <tbody>
+        ${locks.map(l => {
+          const exp = new Date(l.expires_at).getTime();
+          const acq = new Date(l.acquired_at).getTime();
+          const total = exp - acq;
+          const left  = Math.max(0, exp - Date.now());
+          const pct   = total > 0 ? (left / total) * 100 : 0;
+          const low   = pct < 25;
+          const secs  = Math.round(left / 1000);
+          return `<tr>
+            <td><span class="td-name">${escHtml(l.name)}</span></td>
+            <td>
+              <div class="td-user">
+                <div class="avatar">${(l.owner_username || '?')[0].toUpperCase()}</div>
+                ${escHtml(l.owner_username || l.owner_id.slice(0,8))}
+              </div>
+            </td>
+            <td>
+              <div class="ttl-bar-wrap">
+                <div class="ttl-bar">
+                  <div class="ttl-bar-fill ${low ? 'low' : ''}" style="width:${pct.toFixed(1)}%"></div>
+                </div>
+                <span style="font-size:0.72rem;color:${low ? 'var(--red)' : 'var(--text3)'};">${secs}s</span>
+              </div>
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
+}
+
+function renderUserTable(users) {
+  document.getElementById('userCount').textContent = users.length;
+  const wrap = document.getElementById('userTableWrap');
+  if (!users.length) {
+    wrap.innerHTML = '<div class="empty-state">No users</div>';
+    return;
+  }
+  wrap.innerHTML = `
+    <table>
+      <thead><tr><th>User</th><th>Joined</th></tr></thead>
+      <tbody>
+        ${users.map(u => `<tr>
+          <td>
+            <div class="td-user">
+              <div class="avatar">${(u.github_username || '?')[0].toUpperCase()}</div>
+              ${escHtml(u.github_username)}
+            </div>
+          </td>
+          <td>${fmtDate(u.created_at)}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+// ── POLLING ───────────────────────────────────────────────
+function startPolling() {
+  countdown = POLL_MS / 1000;
+  pollTimer = setInterval(() => { poll(); countdown = POLL_MS / 1000; }, POLL_MS);
+  tickTimer = setInterval(() => {
+    countdown = Math.max(0, countdown - 1);
+    const pct = (countdown / (POLL_MS / 1000)) * 100;
+    document.getElementById('refreshFill').style.width = pct + '%';
+  }, 1000);
+}
+
+// ── HELPERS ───────────────────────────────────────────────
+function fmtUptime(s) {
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m ${s % 60}s`;
+}
+
+function fmtAgo(s) {
+  if (s < 60)    return `${s}s`;
+  if (s < 3600)  return `${Math.round(s/60)}m`;
+  if (s < 86400) return `${Math.round(s/3600)}h`;
+  return `${Math.round(s/86400)}d`;
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 </script>
 </body>
 </html>
