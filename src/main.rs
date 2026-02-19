@@ -271,6 +271,7 @@ async fn main() -> anyhow::Result<()> {
                     "http://127.0.0.1:3000".parse().unwrap(),
                 ])
                 .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::PUT, axum::http::Method::DELETE])
+                .max_age(std::time::Duration::from_secs(600))
                 .allow_headers([
                     axum::http::header::AUTHORIZATION,
                     axum::http::header::CONTENT_TYPE,
