@@ -199,6 +199,8 @@ pub async fn list_user_locks(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::AuthService;
+    use crate::config::Config;
     use tempfile::NamedTempFile;
     use uuid::Uuid;
 
