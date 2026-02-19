@@ -199,9 +199,11 @@ async fn main() -> anyhow::Result<()> {
     let config = Config::from_env()?;
     info!("Starting octostore-lock on {}", config.bind_addr);
 
-    // Initialize auth service (connection opened separately; will be unified in #19 final step)
-    let auth_db: DbConn = Arc::new(Mutex::new(rusqlite::Connection::open(&config.database_url)?));
-    let auth_service = AuthService::new(config.clone(), auth_db)?;
+    // Open one SQLite connection shared by both AuthService and LockStore (#19)
+    let db: DbConn = Arc::new(Mutex::new(rusqlite::Connection::open(&config.database_url)?));
+
+    // Initialize auth service
+    let auth_service = AuthService::new(config.clone(), db.clone())?;
 
     // Seed static tokens (no-op when GitHub OAuth is enabled)
     if !config.is_github_enabled() {
@@ -216,9 +218,8 @@ async fn main() -> anyhow::Result<()> {
     let initial_fencing_token = auth_service.load_fencing_counter()?;
     info!("Loaded fencing counter: {}", initial_fencing_token);
 
-    // Initialize lock store (connection opened separately; will be unified in #19 final step)
-    let lock_db: DbConn = Arc::new(Mutex::new(rusqlite::Connection::open(&config.database_url)?));
-    let lock_store = LockStore::new(lock_db, initial_fencing_token)?;
+    // Initialize lock store — reuses the same shared DbConn as AuthService
+    let lock_store = LockStore::new(db, initial_fencing_token)?;
     
     // Start background expiry task
     let expiry_store = lock_store.clone();
@@ -449,14 +450,11 @@ mod tests {
             static_tokens_file: None,
         };
 
-        let auth_db: DbConn = Arc::new(Mutex::new(
+        let db: DbConn = Arc::new(Mutex::new(
             rusqlite::Connection::open(&config.database_url).unwrap(),
         ));
-        let auth_service = AuthService::new(config.clone(), auth_db).unwrap();
-        let lock_db: DbConn = Arc::new(Mutex::new(
-            rusqlite::Connection::open(&config.database_url).unwrap(),
-        ));
-        let lock_store = LockStore::new(lock_db, 0).unwrap();
+        let auth_service = AuthService::new(config.clone(), db.clone()).unwrap();
+        let lock_store = LockStore::new(db, 0).unwrap();
 
         let lock_handlers = LockHandlers::new(lock_store.clone());
         let metrics = Metrics::new();

@@ -252,15 +252,13 @@ mod tests {
             admin_username: None,
         };
 
-        let auth_db: crate::store::DbConn = std::sync::Arc::new(std::sync::Mutex::new(
+        // Share one DbConn between both services (#19)
+        let db: crate::store::DbConn = std::sync::Arc::new(std::sync::Mutex::new(
             Connection::open(&config.database_url).unwrap(),
         ));
-        let auth_service = AuthService::new(config.clone(), auth_db).unwrap();
+        let auth_service = AuthService::new(config.clone(), db.clone()).unwrap();
         auth_service.seed_static_tokens();
-        let lock_db: crate::store::DbConn = std::sync::Arc::new(std::sync::Mutex::new(
-            Connection::open(&config.database_url).unwrap(),
-        ));
-        let lock_store = LockStore::new(lock_db, 0).unwrap();
+        let lock_store = LockStore::new(db, 0).unwrap();
         let lock_handlers = LockHandlers::new(lock_store.clone());
         
         let app_state = crate::app::AppState {
