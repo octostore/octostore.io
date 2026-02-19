@@ -475,8 +475,12 @@ mod tests {
                 .unwrap(),
         ).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let res: Value = serde_json::from_slice(&body).unwrap();
+        // user1 should have acquired the lock
+        assert!(res["lease_id"].is_string(), "user1 should acquire the lock");
 
-        // user2 tries to acquire the same lock → 409 Conflict
+        // user2 tries to acquire the same lock → 200 with "held" body (not lease_id)
         let response = app.clone().oneshot(
             Request::builder()
                 .uri("/locks/contested-lock/acquire")
@@ -486,6 +490,11 @@ mod tests {
                 .body(Body::from(json!({"ttl_seconds": 60}).to_string()))
                 .unwrap(),
         ).await.unwrap();
-        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let res: Value = serde_json::from_slice(&body).unwrap();
+        // The held response has holder_id but no lease_id
+        assert!(res["holder_id"].is_string(), "held response should have holder_id");
+        assert!(res["lease_id"].is_null(), "held response should not have lease_id");
     }
 }
