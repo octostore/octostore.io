@@ -208,9 +208,8 @@ mod tests {
     fn create_test_handlers() -> (LockHandlers, NamedTempFile) {
         let temp_file = NamedTempFile::new().unwrap();
         let db_path = temp_file.path().to_str().unwrap().to_string();
-        let db: crate::store::DbConn = std::sync::Arc::new(std::sync::Mutex::new(
-            rusqlite::Connection::open(&db_path).unwrap(),
-        ));
+        let db: crate::store::DbConn =
+            std::sync::Arc::new(std::sync::Mutex::new(Connection::open(&db_path).unwrap()));
         let store = LockStore::new(db, 1).unwrap();
         (LockHandlers::new(store), temp_file)
     }
@@ -253,10 +252,13 @@ mod tests {
             admin_username: None,
         };
 
-        let auth_service = AuthService::new(config.clone()).unwrap();
+        let auth_db: crate::store::DbConn = std::sync::Arc::new(std::sync::Mutex::new(
+            Connection::open(&config.database_url).unwrap(),
+        ));
+        let auth_service = AuthService::new(config.clone(), auth_db).unwrap();
         auth_service.seed_static_tokens();
         let lock_db: crate::store::DbConn = std::sync::Arc::new(std::sync::Mutex::new(
-            rusqlite::Connection::open(&config.database_url).unwrap(),
+            Connection::open(&config.database_url).unwrap(),
         ));
         let lock_store = LockStore::new(lock_db, 0).unwrap();
         let lock_handlers = LockHandlers::new(lock_store.clone());

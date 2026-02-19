@@ -62,7 +62,7 @@ fn parse_token_list(raw: &str) -> Vec<(String, String)> {
 
 #[derive(Clone)]
 pub struct AuthService {
-    pub db: std::sync::Arc<Mutex<Connection>>,
+    pub db: crate::store::DbConn,
     http_client: Client,
     config: Config,
     /// Cache: token → user_id (avoids SQLite mutex on every request)
@@ -88,11 +88,12 @@ pub struct RegisterResponse {
 }
 
 impl AuthService {
-    pub fn new(config: Config) -> Result<Self> {
-        let conn = Connection::open(&config.database_url)?;
+    pub fn new(config: Config, db: crate::store::DbConn) -> Result<Self> {
+        {
+            let conn = db.lock().unwrap();
 
-        conn.execute(
-            r#"
+            conn.execute(
+                r#"
             CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
                 github_id INTEGER NOT NULL UNIQUE,
@@ -101,29 +102,31 @@ impl AuthService {
                 created_at TEXT NOT NULL
             )
             "#,
-            [],
-        )?;
+                [],
+            )?;
 
-        conn.execute(
-            r#"
+            conn.execute(
+                r#"
             CREATE TABLE IF NOT EXISTS fencing_counter (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 counter INTEGER NOT NULL DEFAULT 0
             )
             "#,
-            [],
-        )?;
+                [],
+            )?;
 
-        conn.execute(
-            "INSERT OR IGNORE INTO fencing_counter (id, counter) VALUES (1, 0)",
-            [],
-        )?;
+            conn.execute(
+                "INSERT OR IGNORE INTO fencing_counter (id, counter) VALUES (1, 0)",
+                [],
+            )?;
 
-        info!("Database initialized at: {}", config.database_url);
+            info!("Database initialized at: {}", config.database_url);
+        }
 
         // Pre-load existing tokens into cache
         let token_cache = DashMap::new();
         {
+            let conn = db.lock().unwrap();
             let mut stmt = conn.prepare("SELECT token, id FROM users")?;
             let rows = stmt.query_map([], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -139,7 +142,7 @@ impl AuthService {
         }
 
         Ok(Self {
-            db: std::sync::Arc::new(Mutex::new(conn)),
+            db,
             http_client: Client::new(),
             config,
             token_cache: std::sync::Arc::new(token_cache),
@@ -585,7 +588,9 @@ mod tests {
     }
 
     fn make_service(config: Config) -> AuthService {
-        AuthService::new(config).unwrap()
+        let conn = Connection::open(&config.database_url).unwrap();
+        let db: crate::store::DbConn = std::sync::Arc::new(std::sync::Mutex::new(conn));
+        AuthService::new(config, db).unwrap()
     }
 
     // -- parse_token_list ---------------------------------------------------
@@ -748,7 +753,9 @@ mod tests {
     #[test]
     fn test_auth_service_new_memory() {
         let cfg = local_config();
-        let svc = AuthService::new(cfg);
+        let conn = Connection::open(&cfg.database_url).unwrap();
+        let db: crate::store::DbConn = std::sync::Arc::new(std::sync::Mutex::new(conn));
+        let svc = AuthService::new(cfg, db);
         assert!(svc.is_ok());
     }
 
