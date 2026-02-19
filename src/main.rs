@@ -199,8 +199,9 @@ async fn main() -> anyhow::Result<()> {
     let config = Config::from_env()?;
     info!("Starting octostore-lock on {}", config.bind_addr);
 
-    // Initialize auth service
-    let auth_service = AuthService::new(config.clone())?;
+    // Initialize auth service (connection opened separately; will be unified in #19 final step)
+    let auth_db: DbConn = Arc::new(Mutex::new(rusqlite::Connection::open(&config.database_url)?));
+    let auth_service = AuthService::new(config.clone(), auth_db)?;
 
     // Seed static tokens (no-op when GitHub OAuth is enabled)
     if !config.is_github_enabled() {
@@ -448,7 +449,10 @@ mod tests {
             static_tokens_file: None,
         };
 
-        let auth_service = AuthService::new(config.clone()).unwrap();
+        let auth_db: DbConn = Arc::new(Mutex::new(
+            rusqlite::Connection::open(&config.database_url).unwrap(),
+        ));
+        let auth_service = AuthService::new(config.clone(), auth_db).unwrap();
         let lock_db: DbConn = Arc::new(Mutex::new(
             rusqlite::Connection::open(&config.database_url).unwrap(),
         ));
