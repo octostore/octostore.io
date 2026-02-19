@@ -71,7 +71,11 @@ fn require_admin(
     let user_id = state.auth_service.authenticate(headers)?;
 
     match state.auth_service.get_user_by_id(&user_id.to_string()) {
-        Ok(Some(username)) if username == "aronchick" => Ok(()),
+        Ok(Some(ref username))
+            if state.config.admin_username.as_deref() == Some(username.as_str()) =>
+        {
+            Ok(())
+        }
         _ => Err(crate::error::AppError::Forbidden(
             "Admin access required".to_string(),
         )),
