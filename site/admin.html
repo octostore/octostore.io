@@ -649,7 +649,7 @@
             async loadData() {
                 try {
                     // Load admin status (current stats)
-                    const statusResponse = await fetch('/admin/status', {
+                    const statusResponse = await fetch('https://api.octostore.io/admin/status', {
                         headers: {
                             'Authorization': this.token.startsWith('Bearer ') ? this.token : `Bearer ${this.token}`,
                             'X-Admin-Key': this.token
