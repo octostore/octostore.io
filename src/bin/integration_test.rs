@@ -5,7 +5,6 @@ use std::{process, time::Instant};
 use uuid::Uuid;
 
 #[allow(dead_code)]
-#[allow(dead_code)]
 #[derive(Debug)]
 struct TestResult {
     name: String,
@@ -139,8 +138,8 @@ impl TestRunner {
 }
 
 #[tokio::main]
+#[allow(unused_assignments)]
 async fn main() {
-    #[allow(unused_assignments)]
     let matches = Command::new("octostore-test")
         .about("OctoStore Integration Tests")
         .arg(Arg::new("url")
@@ -175,7 +174,6 @@ async fn main() {
     runner.add_cleanup_lock(lock_name2.clone());
 
     let mut lease_id1: Option<String> = None;
-    #[allow(unused_assignments)]
     let mut fencing_token1: Option<u64> = None;
     let mut lease_id2: Option<String> = None;
 
