@@ -79,6 +79,7 @@ jobs:
     needs: release
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - name: Set up SSH
         run: |
           mkdir -p ~/.ssh
@@ -107,7 +108,7 @@ jobs:
 
             echo "=== Stop → swap → start ==="
             sudo systemctl stop octostore
-            mv /tmp/octostore-new /opt/octostore-lock/octostore
+            mv /tmp/octostore-new /mnt/data/openclaw-repos/octostore-lock/target/release/octostore-lock
             sudo systemctl start octostore
 
             echo "=== Verifying ==="
