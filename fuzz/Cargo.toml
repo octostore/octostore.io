@@ -13,6 +13,7 @@ urlencoding = "2.1"
 base64 = "0.21"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+axum = { version = "0.7", default-features = false }
 
 [dependencies.octostore]
 path = ".."
