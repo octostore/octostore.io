@@ -10,6 +10,10 @@ pub struct Config {
     pub github_client_secret: Option<String>,
     pub github_redirect_uri: String,
     pub admin_key: Option<String>,
+    /// Username that is granted admin access via OAuth bearer token.
+    /// Read from `ADMIN_USERNAME` env var. Falls back to no OAuth-based admin
+    /// if not set.
+    pub admin_username: Option<String>,
     /// Comma-separated static tokens for local-auth mode.
     /// Format: `user1:token1,user2:token2`  or bare `token` (username = token value).
     /// Tokens are seeded into the DB on startup so the normal Bearer-token path
@@ -30,6 +34,7 @@ impl Config {
             github_redirect_uri: env::var("GITHUB_REDIRECT_URI")
                 .unwrap_or_else(|_| "http://localhost:3000/auth/github/callback".to_string()),
             admin_key: env::var("ADMIN_KEY").ok(),
+            admin_username: env::var("ADMIN_USERNAME").ok(),
             static_tokens: env::var("STATIC_TOKENS").ok(),
             static_tokens_file: env::var("STATIC_TOKENS_FILE").ok(),
         })

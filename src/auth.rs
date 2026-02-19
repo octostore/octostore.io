@@ -570,6 +570,7 @@ mod tests {
             github_client_secret: None,
             github_redirect_uri: "http://localhost:3000/callback".to_string(),
             admin_key: Some("test_admin_key".to_string()),
+            admin_username: None,
             static_tokens: None,
             static_tokens_file: None,
         }
