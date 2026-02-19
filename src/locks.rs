@@ -1,5 +1,4 @@
 use crate::{
-    auth::AuthService,
     error::{AppError, Result},
     models::{
         validate_lock_name, validate_metadata, validate_ttl, AcquireLockRequest,
@@ -200,29 +199,13 @@ pub async fn list_user_locks(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Config;
     use tempfile::NamedTempFile;
     use uuid::Uuid;
 
     fn create_test_handlers() -> (LockHandlers, NamedTempFile) {
         let temp_file = NamedTempFile::new().unwrap();
         let db_path = temp_file.path().to_str().unwrap().to_string();
-
-        let config = Config {
-            bind_addr: "127.0.0.1:3000".to_string(),
-            database_url: db_path.clone(),
-            github_client_id: Some("test_client_id".to_string()),
-            github_client_secret: Some("test_client_secret".to_string()),
-            github_redirect_uri: "http://localhost:3000/callback".to_string(),
-            admin_key: Some("test_admin_key".to_string()),
-            admin_username: None,
-            static_tokens: None,
-            static_tokens_file: None,
-        };
-
-        let auth_service = AuthService::new(config).unwrap();
         let store = LockStore::new(&db_path, 1).unwrap();
-
         (LockHandlers::new(store), temp_file)
     }
 
