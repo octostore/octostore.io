@@ -14,13 +14,13 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            name: octostore-test-linux-amd64
+            name: octostore-linux-amd64
           - target: x86_64-apple-darwin
             os: macos-latest
-            name: octostore-test-macos-amd64
+            name: octostore-macos-amd64
           - target: aarch64-apple-darwin
             os: macos-latest
-            name: octostore-test-macos-arm64
+            name: octostore-macos-arm64
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -28,12 +28,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
 
       - name: Build
-        run: cargo build --release --bin octostore-test --target ${{ matrix.target }}
+        run: cargo build --release --bin octostore --target ${{ matrix.target }}
 
       - name: Rename binary
-        run: cp target/${{ matrix.target }}/release/octostore-test ${{ matrix.name }}
+        run: cp target/${{ matrix.target }}/release/octostore ${{ matrix.name }}
 
       - uses: actions/upload-artifact@v4
         with:
@@ -48,8 +49,21 @@ jobs:
         with:
           merge-multiple: true
 
-      - name: Create Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: octostore-test-*
+          files: octostore-*
           generate_release_notes: true
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Publish to crates.io
+        run: cargo publish --no-verify
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
