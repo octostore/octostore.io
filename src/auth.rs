@@ -13,9 +13,9 @@ use base64::Engine;
 use chrono::Utc;
 use rand::Rng;
 use reqwest::Client;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, sync::Mutex};
+use std::{collections::HashMap};
 use dashmap::DashMap;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -72,6 +72,7 @@ pub struct AuthService {
 #[derive(Deserialize)]
 pub struct GitHubCallbackQuery {
     code: String,
+    #[allow(dead_code)]
     state: Option<String>,
 }
 
