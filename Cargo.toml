@@ -10,7 +10,7 @@ documentation = "https://docs.rs/octostore"
 readme = "README.md"
 keywords = ["distributed", "locking", "mutex", "coordination", "http"]
 categories = ["web-programming::http-server", "database"]
-exclude = ["site/*", "benches/*", "fuzz/*", ".github/*", "openapi.yaml"]
+exclude = ["site/*", "benches/*", "fuzz/*", ".github/*"]
 
 [lib]
 name = "octostore"
