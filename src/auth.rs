@@ -563,6 +563,7 @@ pub async fn register_local(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rusqlite::Connection;
     use crate::config::Config;
     use tempfile::NamedTempFile;
 
