@@ -66,7 +66,7 @@ jobs:
       - name: Patch Cargo.toml version from tag
         run: |
           VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#v}"   # strip leading 'v'
+          VERSION="${VERSION#v}"
           sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
           echo "Publishing version: $VERSION"
 
@@ -79,6 +79,15 @@ jobs:
     needs: release
     runs-on: ubuntu-latest
     steps:
+      - name: Refuse pre-release tags
+        run: |
+          TAG="${{ github.ref_name }}"
+          if [[ "$TAG" =~ -(dev|alpha|beta|rc)([.0-9]*)$ ]]; then
+            echo "ERROR: refusing to deploy pre-release tag '$TAG' to production."
+            exit 1
+          fi
+          echo "Tag '$TAG' is a clean release — proceeding."
+
       - uses: actions/checkout@v4
       - name: Set up SSH
         run: |
@@ -92,7 +101,7 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes daaronch@77.42.29.236 bash -s <<EOF
-            set -e
+            set -euo pipefail
             cd /opt/octostore-lock
 
             echo "=== Pulling latest site files (${TAG}) ==="
@@ -106,13 +115,32 @@ jobs:
               -o /tmp/octostore-new
             chmod +x /tmp/octostore-new
 
+            echo "=== Verifying binary version ==="
+            BINARY_VERSION=\$(/tmp/octostore-new --version | awk '{print \$2}')
+            EXPECTED_VERSION="${TAG#v}"
+            if [[ "\$BINARY_VERSION" != "\$EXPECTED_VERSION" ]]; then
+              echo "ERROR: binary reports version '\$BINARY_VERSION', expected '\$EXPECTED_VERSION'"
+              rm /tmp/octostore-new
+              exit 1
+            fi
+            echo "Binary version verified: \$BINARY_VERSION"
+
             echo "=== Stop → swap → start ==="
             sudo systemctl stop octostore
-            mv /tmp/octostore-new /mnt/data/openclaw-repos/octostore-lock/target/release/octostore-lock
+            sudo fuser -k 3030/tcp 2>/dev/null || true
+            sleep 1
+            rm -f /opt/octostore-lock/octostore
+            mv /tmp/octostore-new /opt/octostore-lock/octostore
             sudo systemctl start octostore
 
-            echo "=== Verifying ==="
+            echo "=== Verifying deployment ==="
             sleep 3
             sudo systemctl is-active octostore
-            echo "Deploy complete: ${TAG}"
+            LIVE_VERSION=\$(curl -sf https://api.octostore.io/openapi.yaml | grep '  version:' | awk '{print \$2}')
+            echo "Live API version: \$LIVE_VERSION"
+            if [[ "\$LIVE_VERSION" != "\$EXPECTED_VERSION" ]]; then
+              echo "ERROR: live version '\$LIVE_VERSION' != expected '\$EXPECTED_VERSION'"
+              exit 1
+            fi
+            echo "Deploy complete: ${TAG} ✓"
           EOF
