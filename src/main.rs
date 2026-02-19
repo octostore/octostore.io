@@ -45,7 +45,7 @@ fn versioned_openapi_spec() -> &'static str {
 fn require_admin(
     headers: &axum::http::HeaderMap,
     state: &AppState,
-) -> std::result::Result<(), axum::response::Response> {
+) -> crate::error::Result<()> {
     let provided_key = headers
         .get("x-admin-key")
         .or_else(|| headers.get("x-octostore-admin-key"))
@@ -68,18 +68,13 @@ fn require_admin(
     }
 
     // Fall back to OAuth-based admin check
-    let user_id = state.auth_service.authenticate(headers)
-        .map_err(|_| axum::response::Response::builder()
-            .status(401)
-            .body("Unauthorized: Provide X-Admin-Key header or valid Bearer token".into())
-            .unwrap())?;
+    let user_id = state.auth_service.authenticate(headers)?;
 
     match state.auth_service.get_user_by_id(&user_id.to_string()) {
         Ok(Some(username)) if username == "aronchick" => Ok(()),
-        _ => Err(axum::response::Response::builder()
-            .status(403)
-            .body("Forbidden: Admin access required".into())
-            .unwrap()),
+        _ => Err(crate::error::AppError::Forbidden(
+            "Admin access required".to_string(),
+        )),
     }
 }
 
@@ -144,7 +139,7 @@ async fn metrics_middleware(
 async fn metrics_endpoint(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
-) -> Result<axum::Json<serde_json::Value>, axum::response::Response> {
+) -> crate::error::Result<axum::Json<serde_json::Value>> {
     require_admin(&headers, &state)?;
 
     // Get metrics snapshot
@@ -168,7 +163,7 @@ async fn timeseries_endpoint(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
-) -> Result<axum::Json<serde_json::Value>, axum::response::Response> {
+) -> crate::error::Result<axum::Json<serde_json::Value>> {
     require_admin(&headers, &state)?;
 
     // Get window parameter (default to "1h")
@@ -333,7 +328,7 @@ async fn status_check(State(state): State<AppState>) -> Json<serde_json::Value> 
 async fn admin_status(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
-) -> Result<axum::Json<serde_json::Value>, axum::response::Response> {
+) -> crate::error::Result<axum::Json<serde_json::Value>> {
     require_admin(&headers, &state)?;
 
     // Get all active locks
