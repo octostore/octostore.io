@@ -1,11 +1,14 @@
 openapi: 3.0.3
 info:
   title: OctoStore API
-  description: |
-    Distributed infrastructure services. That's it.
-    
+  description: 'Distributed infrastructure services. That''s it.
+
+
     Simple HTTP services for distributed systems with GitHub authentication.
-    Provides distributed locking, rate limiting, feature flags, and config storage.
+
+    Provides distributed locking.
+
+    '
   version: 0.0.0-dev
   contact:
     name: OctoStore
@@ -13,19 +16,17 @@ info:
   license:
     name: MIT
 servers:
-  - url: https://api.octostore.io
-    description: Production server
-  - url: http://localhost:3000
-    description: Development server
-
+- url: https://api.octostore.io
+  description: Production server
+- url: http://localhost:3000
+  description: Development server
 security:
-  - bearerAuth: []
-
+- bearerAuth: []
 paths:
   /auth/github:
     get:
       tags:
-        - Authentication
+      - Authentication
       summary: Initiate GitHub OAuth flow
       description: Redirects to GitHub OAuth authorization page
       security: []
@@ -37,27 +38,26 @@ paths:
               schema:
                 type: string
                 example: https://github.com/login/oauth/authorize?client_id=...
-
   /auth/github/callback:
     get:
       tags:
-        - Authentication
+      - Authentication
       summary: GitHub OAuth callback
       description: Internal callback endpoint for GitHub OAuth flow
       security: []
       parameters:
-        - name: code
-          in: query
-          required: true
-          schema:
-            type: string
-          description: OAuth authorization code from GitHub
-        - name: state
-          in: query
-          required: false
-          schema:
-            type: string
-          description: OAuth state parameter
+      - name: code
+        in: query
+        required: true
+        schema:
+          type: string
+        description: OAuth authorization code from GitHub
+      - name: state
+        in: query
+        required: false
+        schema:
+          type: string
+        description: OAuth state parameter
       responses:
         '200':
           description: Authentication successful
@@ -79,15 +79,14 @@ paths:
                         type: string
                         description: GitHub avatar URL
                 required:
-                  - token
-                  - user
+                - token
+                - user
         '401':
           $ref: '#/components/responses/Unauthorized'
-
   /auth/token/rotate:
     post:
       tags:
-        - Authentication
+      - Authentication
       summary: Rotate bearer token
       description: Generate a new bearer token, invalidating the current one
       responses:
@@ -102,20 +101,21 @@ paths:
                     type: string
                     description: New bearer token
                 required:
-                  - token
+                - token
         '401':
           $ref: '#/components/responses/Unauthorized'
-
   /locks/{name}/acquire:
     post:
       tags:
-        - Locks
+      - Locks
       summary: Acquire a lock
-      description: |
-        Attempt to acquire a distributed lock with the given name.
+      description: 'Attempt to acquire a distributed lock with the given name.
+
         Returns the lock status and lease information if successful.
+
+        '
       parameters:
-        - $ref: '#/components/parameters/LockName'
+      - $ref: '#/components/parameters/LockName'
       requestBody:
         required: true
         content:
@@ -130,7 +130,7 @@ paths:
                   description: Lock time-to-live in seconds (max 1 hour)
                   example: 60
               required:
-                - ttl_seconds
+              - ttl_seconds
       responses:
         '200':
           description: Lock acquired or already held by caller
@@ -148,15 +148,14 @@ paths:
                 $ref: '#/components/schemas/LockConflict'
         '422':
           $ref: '#/components/responses/ValidationError'
-
   /locks/{name}/release:
     post:
       tags:
-        - Locks
+      - Locks
       summary: Release a lock
       description: Release a previously acquired lock using its lease ID
       parameters:
-        - $ref: '#/components/parameters/LockName'
+      - $ref: '#/components/parameters/LockName'
       requestBody:
         required: true
         content:
@@ -168,9 +167,9 @@ paths:
                   type: string
                   format: uuid
                   description: Lease ID returned when lock was acquired
-                  example: "550e8400-e29b-41d4-a716-446655440000"
+                  example: 550e8400-e29b-41d4-a716-446655440000
               required:
-                - lease_id
+              - lease_id
       responses:
         '200':
           description: Lock released successfully
@@ -181,25 +180,25 @@ paths:
                 properties:
                   status:
                     type: string
-                    enum: [released]
+                    enum:
+                    - released
                   message:
                     type: string
-                    example: "Lock released"
+                    example: Lock released
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/LockNotFound'
         '422':
           $ref: '#/components/responses/ValidationError'
-
   /locks/{name}/renew:
     post:
       tags:
-        - Locks
+      - Locks
       summary: Renew a lock's TTL
       description: Extend the time-to-live of an existing lock
       parameters:
-        - $ref: '#/components/parameters/LockName'
+      - $ref: '#/components/parameters/LockName'
       requestBody:
         required: true
         content:
@@ -211,7 +210,7 @@ paths:
                   type: string
                   format: uuid
                   description: Lease ID of the lock to renew
-                  example: "550e8400-e29b-41d4-a716-446655440000"
+                  example: 550e8400-e29b-41d4-a716-446655440000
                 ttl_seconds:
                   type: integer
                   minimum: 1
@@ -219,8 +218,8 @@ paths:
                   description: New TTL in seconds (max 1 hour)
                   example: 300
               required:
-                - lease_id
-                - ttl_seconds
+              - lease_id
+              - ttl_seconds
       responses:
         '200':
           description: Lock renewed successfully
@@ -234,15 +233,14 @@ paths:
           $ref: '#/components/responses/LockNotFound'
         '422':
           $ref: '#/components/responses/ValidationError'
-
   /locks/{name}:
     get:
       tags:
-        - Locks
+      - Locks
       summary: Get lock status
       description: Check the current status of a specific lock
       parameters:
-        - $ref: '#/components/parameters/LockName'
+      - $ref: '#/components/parameters/LockName'
       responses:
         '200':
           description: Lock status retrieved
@@ -250,15 +248,14 @@ paths:
             application/json:
               schema:
                 oneOf:
-                  - $ref: '#/components/schemas/LockResponse'
-                  - $ref: '#/components/schemas/LockNotHeld'
+                - $ref: '#/components/schemas/LockResponse'
+                - $ref: '#/components/schemas/LockNotHeld'
         '401':
           $ref: '#/components/responses/Unauthorized'
-
   /locks:
     get:
       tags:
-        - Locks
+      - Locks
       summary: List caller's active locks
       description: Get a list of all locks currently held by the authenticated user
       responses:
@@ -279,11 +276,10 @@ paths:
                     example: 3
         '401':
           $ref: '#/components/responses/Unauthorized'
-
   /health:
     get:
       tags:
-        - System
+      - System
       summary: Health check
       description: Simple health check endpoint
       security: []
@@ -294,528 +290,13 @@ paths:
             text/plain:
               schema:
                 type: string
-                example: "OK"
-
-  /limits/{name}/check:
-    post:
-      tags:
-        - Rate Limits
-      summary: Check rate limit
-      description: Check if an action is allowed and consume a request if so
-      parameters:
-        - name: name
-          in: path
-          required: true
-          schema:
-            type: string
-            minLength: 1
-            maxLength: 100
-          description: Rate limit name
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                max_requests:
-                  type: integer
-                  minimum: 1
-                  maximum: 10000
-                  description: Maximum requests allowed in the window
-                window_seconds:
-                  type: integer
-                  minimum: 1
-                  maximum: 86400
-                  description: Window size in seconds (max 24 hours)
-              required:
-                - max_requests
-                - window_seconds
-      responses:
-        '200':
-          description: Rate limit check result
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  allowed:
-                    type: boolean
-                    description: Whether the request is allowed
-                  remaining:
-                    type: integer
-                    description: Remaining requests in current window
-                  reset_at:
-                    type: string
-                    format: date-time
-                    description: When the rate limit window resets
-                  retry_after_seconds:
-                    type: integer
-                    description: Seconds to wait before retrying (only present if allowed=false)
-                required:
-                  - allowed
-                  - remaining
-                  - reset_at
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-
-  /limits/{name}:
-    get:
-      tags:
-        - Rate Limits
-      summary: Get rate limit status
-      description: Get current rate limit status without consuming a request
-      parameters:
-        - name: name
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Rate limit name
-      responses:
-        '200':
-          description: Rate limit status
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  allowed:
-                    type: boolean
-                  remaining:
-                    type: integer
-                  reset_at:
-                    type: string
-                    format: date-time
-                  retry_after_seconds:
-                    type: integer
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          description: Rate limit not found
-    delete:
-      tags:
-        - Rate Limits
-      summary: Reset rate limit
-      description: Reset a rate limit counter
-      parameters:
-        - name: name
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Rate limit name
-      responses:
-        '200':
-          description: Rate limit reset
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  reset:
-                    type: boolean
-                    example: true
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          description: Rate limit not found
-
-  /limits:
-    get:
-      tags:
-        - Rate Limits
-      summary: List rate limits
-      description: List all active rate limits for the user
-      responses:
-        '200':
-          description: List of user rate limits
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  limits:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        name:
-                          type: string
-                        max_requests:
-                          type: integer
-                        window_seconds:
-                          type: integer
-                        current_count:
-                          type: integer
-                        remaining:
-                          type: integer
-                        allowed:
-                          type: boolean
-                        reset_at:
-                          type: string
-                          format: date-time
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-
-  /flags/{name}:
-    put:
-      tags:
-        - Feature Flags
-      summary: Set feature flag
-      description: Create or update a feature flag
-      parameters:
-        - name: name
-          in: path
-          required: true
-          schema:
-            type: string
-            pattern: '^[a-zA-Z0-9_-]+$'
-            minLength: 1
-            maxLength: 100
-          description: Flag name (alphanumeric, underscores, and hyphens only)
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                enabled:
-                  type: boolean
-                  description: Whether the flag is enabled
-                percentage:
-                  type: integer
-                  minimum: 0
-                  maximum: 100
-                  description: Percentage rollout (optional)
-              required:
-                - enabled
-      responses:
-        '200':
-          description: Feature flag set
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  name:
-                    type: string
-                  enabled:
-                    type: boolean
-                  percentage:
-                    type: integer
-                  created_at:
-                    type: string
-                    format: date-time
-                  updated_at:
-                    type: string
-                    format: date-time
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-    get:
-      tags:
-        - Feature Flags
-      summary: Get feature flag
-      description: Get feature flag evaluation result
-      parameters:
-        - name: name
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Flag name
-      responses:
-        '200':
-          description: Feature flag evaluation
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  name:
-                    type: string
-                  enabled:
-                    type: boolean
-                    description: Evaluated flag result (considers percentage rollout)
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-    delete:
-      tags:
-        - Feature Flags
-      summary: Delete feature flag
-      description: Delete a feature flag
-      parameters:
-        - name: name
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Flag name
-      responses:
-        '200':
-          description: Feature flag deleted
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  deleted:
-                    type: boolean
-                    example: true
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          description: Feature flag not found
-
-  /flags:
-    get:
-      tags:
-        - Feature Flags
-      summary: List feature flags
-      description: List all feature flags for the user
-      responses:
-        '200':
-          description: List of user feature flags
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  flags:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        name:
-                          type: string
-                        enabled:
-                          type: boolean
-                        percentage:
-                          type: integer
-                        created_at:
-                          type: string
-                          format: date-time
-                        updated_at:
-                          type: string
-                          format: date-time
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-
-  /config/{key}:
-    put:
-      tags:
-        - Config Store
-      summary: Set config value
-      description: Store a configuration value with optional description
-      parameters:
-        - name: key
-          in: path
-          required: true
-          schema:
-            type: string
-            pattern: '^[a-zA-Z0-9._-]+$'
-            minLength: 1
-            maxLength: 100
-          description: Config key (alphanumeric, dots, underscores, and hyphens)
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                value:
-                  description: Arbitrary JSON value to store
-                description:
-                  type: string
-                  maxLength: 500
-                  description: Optional description
-              required:
-                - value
-      responses:
-        '200':
-          description: Config value set
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  key:
-                    type: string
-                  value:
-                    description: The stored JSON value
-                  description:
-                    type: string
-                  version:
-                    type: integer
-                  created_at:
-                    type: string
-                    format: date-time
-                  updated_at:
-                    type: string
-                    format: date-time
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-    get:
-      tags:
-        - Config Store
-      summary: Get config value
-      description: Get current config value or specific version
-      parameters:
-        - name: key
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Config key
-        - name: version
-          in: query
-          required: false
-          schema:
-            type: integer
-          description: Specific version to retrieve
-      responses:
-        '200':
-          description: Config value
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  key:
-                    type: string
-                  value:
-                    description: The stored JSON value
-                  description:
-                    type: string
-                  version:
-                    type: integer
-                  created_at:
-                    type: string
-                    format: date-time
-                  updated_at:
-                    type: string
-                    format: date-time
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          description: Config not found
-    delete:
-      tags:
-        - Config Store
-      summary: Delete config value
-      description: Delete a configuration key and all its history
-      parameters:
-        - name: key
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Config key
-      responses:
-        '200':
-          description: Config value deleted
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  deleted:
-                    type: boolean
-                    example: true
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          description: Config not found
-
-  /config/{key}/history:
-    get:
-      tags:
-        - Config Store
-      summary: Get config history
-      description: Get version history for a config key
-      parameters:
-        - name: key
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Config key
-      responses:
-        '200':
-          description: Config version history
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  versions:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        version:
-                          type: integer
-                        value:
-                          description: The JSON value
-                        description:
-                          type: string
-                        created_at:
-                          type: string
-                          format: date-time
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          description: Config not found
-
-  /config:
-    get:
-      tags:
-        - Config Store
-      summary: List config keys
-      description: List all config keys for the user
-      responses:
-        '200':
-          description: List of user config keys
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  configs:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        key:
-                          type: string
-                        description:
-                          type: string
-                        version:
-                          type: integer
-                        created_at:
-                          type: string
-                          format: date-time
-                        updated_at:
-                          type: string
-                          format: date-time
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-
+                example: OK
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       description: Bearer token obtained through GitHub OAuth
-
   parameters:
     LockName:
       name: name
@@ -823,19 +304,20 @@ components:
       required: true
       schema:
         type: string
-        pattern: '^[a-zA-Z0-9_-]+$'
+        pattern: ^[a-zA-Z0-9_-]+$
         minLength: 1
         maxLength: 128
       description: Lock name (alphanumeric, underscores, and hyphens only)
-      example: "my-resource-lock"
-
+      example: my-resource-lock
   schemas:
     LockResponse:
       type: object
       properties:
         status:
           type: string
-          enum: [acquired, held]
+          enum:
+          - acquired
+          - held
           description: Lock status
         name:
           type: string
@@ -855,26 +337,25 @@ components:
           type: string
           description: GitHub username of the lock holder
       required:
-        - status
-        - name
-        - lease_id
-        - fencing_token
-        - expires_at
-        - holder
+      - status
+      - name
+      - lease_id
+      - fencing_token
+      - expires_at
+      - holder
       example:
-        status: "acquired"
-        name: "my-resource"
-        lease_id: "550e8400-e29b-41d4-a716-446655440000"
+        status: acquired
+        name: my-resource
+        lease_id: 550e8400-e29b-41d4-a716-446655440000
         fencing_token: 42
-        expires_at: "2024-01-01T12:00:00Z"
-        holder: "username"
-
+        expires_at: '2024-01-01T12:00:00Z'
+        holder: username
     LockConflict:
       type: object
       properties:
         error:
           type: string
-          example: "Lock already held"
+          example: Lock already held
         lock:
           type: object
           properties:
@@ -887,24 +368,23 @@ components:
               type: string
               format: date-time
       required:
-        - error
-        - lock
-
+      - error
+      - lock
     LockNotHeld:
       type: object
       properties:
         status:
           type: string
-          enum: [available]
+          enum:
+          - available
         name:
           type: string
         message:
           type: string
-          example: "Lock not currently held"
+          example: Lock not currently held
       required:
-        - status
-        - name
-
+      - status
+      - name
     LockInfo:
       type: object
       properties:
@@ -923,11 +403,10 @@ components:
           format: date-time
           description: Lock expiration time
       required:
-        - name
-        - lease_id
-        - fencing_token
-        - expires_at
-
+      - name
+      - lease_id
+      - fencing_token
+      - expires_at
     Error:
       type: object
       properties:
@@ -938,8 +417,7 @@ components:
           type: string
           description: Additional error details (optional)
       required:
-        - error
-
+      - error
   responses:
     Unauthorized:
       description: Invalid or missing authentication token
@@ -948,8 +426,7 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
           example:
-            error: "Invalid or missing authorization header"
-
+            error: Invalid or missing authorization header
     LockNotFound:
       description: Lock not found or not owned by caller
       content:
@@ -957,8 +434,7 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
           example:
-            error: "Lock not found or not owned by caller"
-
+            error: Lock not found or not owned by caller
     ValidationError:
       description: Request validation failed
       content:
@@ -969,22 +445,15 @@ components:
             invalid_ttl:
               summary: Invalid TTL
               value:
-                error: "TTL must be between 1 and 3600 seconds"
+                error: TTL must be between 1 and 3600 seconds
             invalid_uuid:
               summary: Invalid lease ID
               value:
-                error: "Invalid lease_id format"
-
+                error: Invalid lease_id format
 tags:
-  - name: Authentication
-    description: GitHub OAuth and token management
-  - name: Locks
-    description: Distributed lock operations
-  - name: Rate Limits
-    description: Rate limiting with sliding windows
-  - name: Feature Flags
-    description: Feature flag management with percentage rollouts
-  - name: Config Store
-    description: Configuration storage with versioning
-  - name: System
-    description: System health and status
+- name: Authentication
+  description: GitHub OAuth and token management
+- name: Locks
+  description: Distributed lock operations
+- name: System
+  description: System health and status
