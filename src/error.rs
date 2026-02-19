@@ -11,6 +11,7 @@ use thiserror::Error;
 /// Each variant maps to a specific HTTP status code and produces a consistent
 /// JSON error response with `error` and `details` fields.
 #[derive(Error, Debug)]
+#[allow(dead_code)]
 pub enum AppError {
     #[error("Authentication failed")]
     Unauthorized,
