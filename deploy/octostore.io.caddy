@@ -1,0 +1,24 @@
+api.octostore.io {
+    tls internal
+    reverse_proxy localhost:3030
+    header /admin/* Cache-Control "no-store, no-cache, must-revalidate"
+}
+
+octostore.io, www.octostore.io {
+    tls internal
+    root * /opt/octostore-lock/site
+
+    # No caching for HTML pages (prevents stale CF / browser cache of auth forms)
+    @html path_regexp html_files \.html$
+    header @html Cache-Control "no-store, no-cache, must-revalidate"
+
+    # No caching for docs dir
+    @docs path /docs/*
+    header @docs Cache-Control "no-store, no-cache, must-revalidate"
+
+    # Redirect /docs (no slash) → /docs/
+    @docs_noslash path /docs
+    redir @docs_noslash /docs/ 301
+
+    file_server
+}
