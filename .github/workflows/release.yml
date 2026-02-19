@@ -63,6 +63,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
+      - name: Patch Cargo.toml version from tag
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"   # strip leading 'v'
+          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+          echo "Publishing version: $VERSION"
+
       - name: Publish to crates.io
         run: cargo publish --no-verify
         env:
@@ -90,7 +97,7 @@ jobs:
             echo "=== Pulling latest site files (${TAG}) ==="
             git fetch origin main
             git checkout main
-            git pull origin main
+            git reset --hard origin/main
 
             echo "=== Downloading binary from release ==="
             curl -fsSL \
