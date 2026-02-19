@@ -194,7 +194,7 @@
     /* ── KPI CARDS ───────────────────────────────────────── */
     .kpi-grid {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(3, 1fr);
       gap: 1rem;
       margin-bottom: 2rem;
     }
@@ -376,7 +376,7 @@
     }
 
     @media (max-width: 900px) {
-      .kpi-grid { grid-template-columns: 1fr 1fr; }
+      .kpi-grid { grid-template-columns: 1fr 1fr 1fr; }
       .charts-grid, .tables-grid { grid-template-columns: 1fr; }
     }
   </style>
@@ -441,10 +441,22 @@
         <div class="kpi-sub">registered</div>
       </div>
       <div class="kpi" style="--kpi-color: var(--amber)">
+        <div class="kpi-icon">⬆️</div>
+        <div class="kpi-label">Total Acquires</div>
+        <div class="kpi-value" id="kAcquires">—</div>
+        <div class="kpi-sub">lock acquisitions</div>
+      </div>
+      <div class="kpi" style="--kpi-color: var(--green)">
+        <div class="kpi-icon">⬇️</div>
+        <div class="kpi-label">Total Releases</div>
+        <div class="kpi-value" id="kReleases">—</div>
+        <div class="kpi-sub">clean releases</div>
+      </div>
+      <div class="kpi" style="--kpi-color: #f43f5e">
         <div class="kpi-icon">⚡</div>
-        <div class="kpi-label">Total Operations</div>
+        <div class="kpi-label">Ops / sec</div>
         <div class="kpi-value" id="kOps">—</div>
-        <div class="kpi-sub" id="kOpsSub"></div>
+        <div class="kpi-sub">lifetime average</div>
       </div>
     </div>
 
@@ -584,9 +596,11 @@ function render(d) {
   // KPIs
   document.getElementById('kLocks').textContent = d.active_locks;
   document.getElementById('kUsers').textContent = d.total_users;
-  document.getElementById('kOps').textContent = (d.total_acquires + d.total_releases).toLocaleString();
-  document.getElementById('kOpsSub').textContent =
-    `${d.total_acquires.toLocaleString()} acq · ${d.total_releases.toLocaleString()} rel`;
+  document.getElementById('kAcquires').textContent = d.total_acquires.toLocaleString();
+  document.getElementById('kReleases').textContent = d.total_releases.toLocaleString();
+  const opsPerSecLifetime = d.uptime_seconds > 0
+    ? (d.total_acquires / d.uptime_seconds).toFixed(3) : '0.000';
+  document.getElementById('kOps').textContent = opsPerSecLifetime;
 
   // Ops/sec (derivative)
   let opsPerSec = 0;
