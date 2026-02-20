@@ -478,6 +478,14 @@ impl LockStore {
         self.fencing_counter.load(Ordering::SeqCst)
     }
 
+    pub fn list_locks(&self, prefix: Option<&str>) -> Vec<Lock> {
+        self.locks
+            .iter()
+            .filter(|e| prefix.map_or(true, |p| e.key().starts_with(p)))
+            .map(|e| e.value().clone())
+            .collect()
+    }
+
     pub fn get_all_active_locks(&self) -> Vec<Lock> {
         self.locks
             .iter()
