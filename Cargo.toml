@@ -51,6 +51,8 @@ clap = { version = "4.0", features = ["derive"] }
 sha2 = "0.10"
 futures = "0.3"
 tokio-stream = { version = "0.1", features = ["sync"] }
+hmac = "0.12"
+hex = "0.4"
 
 [[bench]]
 name = "lock_benchmarks"
