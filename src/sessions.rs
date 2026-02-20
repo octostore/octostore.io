@@ -555,6 +555,8 @@ mod tests {
                 300,
                 None,
                 Some(session.id),
+                false,
+                0,
             )
             .unwrap();
 
