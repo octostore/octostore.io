@@ -7,5 +7,6 @@ pub mod metrics;
 pub mod models;
 pub mod sessions;
 pub mod store;
+pub mod webhooks;
 
 pub use app::AppState;
