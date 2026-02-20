@@ -276,6 +276,107 @@ paths:
                     example: 3
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /sessions:
+    post:
+      tags:
+      - Sessions
+      summary: Create a new session
+      description: 'Create a session with a keepalive TTL. Locks acquired with this
+        session_id will be automatically released when the session expires.
+
+        '
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ttl_seconds:
+                  type: integer
+                  minimum: 10
+                  maximum: 300
+                  description: Session TTL in seconds (default 60, min 10, max 300)
+                  example: 60
+      responses:
+        '201':
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateSessionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /sessions/{id}/keepalive:
+    post:
+      tags:
+      - Sessions
+      summary: Extend session expiry
+      description: Send a keepalive to extend the session TTL by its original duration
+      parameters:
+      - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Session extended
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeepAliveResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          description: Session expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /sessions/{id}:
+    get:
+      tags:
+      - Sessions
+      summary: Get session status
+      description: Returns session details including the number of locks held
+      parameters:
+      - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Session status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionStatusResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags:
+      - Sessions
+      summary: Terminate a session
+      description: Explicitly close a session and release all associated locks
+      parameters:
+      - $ref: '#/components/parameters/SessionId'
+      responses:
+        '204':
+          description: Session terminated
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /health:
     get:
       tags:
@@ -298,6 +399,15 @@ components:
       scheme: bearer
       description: Bearer token obtained through GitHub OAuth
   parameters:
+    SessionId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Session UUID
+      example: 550e8400-e29b-41d4-a716-446655440000
     LockName:
       name: name
       in: path
@@ -407,6 +517,60 @@ components:
       - lease_id
       - fencing_token
       - expires_at
+    CreateSessionResponse:
+      type: object
+      properties:
+        session_id:
+          type: string
+          format: uuid
+          description: Unique session identifier
+        expires_at:
+          type: string
+          format: date-time
+          description: Session expiration time
+        keepalive_interval_secs:
+          type: integer
+          description: Recommended keepalive interval (ttl / 2)
+      required:
+      - session_id
+      - expires_at
+      - keepalive_interval_secs
+    KeepAliveResponse:
+      type: object
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        expires_at:
+          type: string
+          format: date-time
+      required:
+      - session_id
+      - expires_at
+    SessionStatusResponse:
+      type: object
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        expires_at:
+          type: string
+          format: date-time
+        lock_count:
+          type: integer
+          description: Number of locks held by this session
+        active:
+          type: boolean
+          description: Whether the session is still active
+      required:
+      - session_id
+      - user_id
+      - expires_at
+      - lock_count
+      - active
     Error:
       type: object
       properties:
@@ -453,6 +617,8 @@ components:
 tags:
 - name: Authentication
   description: GitHub OAuth and token management
+- name: Sessions
+  description: Session management with keepalive
 - name: Locks
   description: Distributed lock operations
 - name: System
