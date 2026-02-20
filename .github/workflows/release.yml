@@ -99,4 +99,4 @@ jobs:
         run: |
           ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes \
             daaronch@${{ secrets.DEPLOY_HOST }} \
-            /opt/octostore-lock/deploy/deploy.sh ${{ github.ref_name }}
+            bash /opt/octostore-lock/deploy/deploy.sh ${{ github.ref_name }}
