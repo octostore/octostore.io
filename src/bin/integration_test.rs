@@ -59,6 +59,7 @@ impl TestRunner {
                 }
                 req
             }
+            "DELETE" => self.client.delete(&url),
             _ => return Err(format!("Unsupported method: {}", method)),
         };
 
@@ -725,6 +726,104 @@ async fn main() {
     }
     
     runner.add_test_result("SSE Watch API".to_string(), success, start.elapsed().as_millis(), error_msg);
+
+    // Test 18: Session lifecycle — create → acquire lock with session → keepalive → verify lock held → expire → verify lock released
+    let start = Instant::now();
+    let session_lock_name = runner.generate_lock_name();
+    runner.add_cleanup_lock(session_lock_name.clone());
+
+    let mut success = false;
+    let mut error_msg = None;
+
+    // Step 1: Create session with short TTL (10s min)
+    match runner.make_request_json("POST", "/sessions", Some(json!({"ttl_seconds": 10}))).await {
+        Ok((status, response)) => {
+            if status == 201 {
+                if let Some(session_id) = response.get("session_id").and_then(|s| s.as_str()) {
+                    let session_id = session_id.to_string();
+
+                    // Step 2: Acquire lock with session_id
+                    match runner.make_request_json("POST", &format!("/locks/{}/acquire", session_lock_name),
+                            Some(json!({"ttl_seconds": 300, "session_id": session_id}))).await {
+                        Ok((status, response)) => {
+                            if status == 200 && response.get("status").and_then(|s| s.as_str()) == Some("acquired") {
+
+                                // Step 3: Keepalive
+                                match runner.make_request_json("POST", &format!("/sessions/{}/keepalive", session_id), None).await {
+                                    Ok((ka_status, ka_response)) => {
+                                        if ka_status == 200 && ka_response.get("session_id").is_some() {
+
+                                            // Step 4: Verify lock is still held
+                                            match runner.make_request_json("GET", &format!("/locks/{}", session_lock_name), None).await {
+                                                Ok((ls_status, ls_response)) => {
+                                                    if ls_status == 200 && ls_response.get("status").and_then(|s| s.as_str()) == Some("held") {
+
+                                                        // Step 5: Get session status (should show lock_count=1)
+                                                        match runner.make_request_json("GET", &format!("/sessions/{}", session_id), None).await {
+                                                            Ok((ss_status, ss_response)) => {
+                                                                if ss_status == 200 {
+                                                                    let lock_count = ss_response.get("lock_count").and_then(|v| v.as_u64()).unwrap_or(0);
+                                                                    let active = ss_response.get("active").and_then(|v| v.as_bool()).unwrap_or(false);
+                                                                    if lock_count >= 1 && active {
+
+                                                                        // Step 6: Let session expire — sleep > TTL
+                                                                        // The session TTL is 10s, we kept it alive once resetting it.
+                                                                        // Wait 16s for expiry + background task (5s interval)
+                                                                        tokio::time::sleep(std::time::Duration::from_secs(16)).await;
+
+                                                                        // Step 7: Verify lock was released by session expiry
+                                                                        match runner.make_request_json("GET", &format!("/locks/{}", session_lock_name), None).await {
+                                                                            Ok((final_status, final_response)) => {
+                                                                                if final_status == 200 {
+                                                                                    if final_response.get("status").and_then(|s| s.as_str()) == Some("free") {
+                                                                                        success = true;
+                                                                                    } else {
+                                                                                        error_msg = Some(format!("Lock should be free after session expiry, got: {:?}", final_response.get("status")));
+                                                                                    }
+                                                                                } else {
+                                                                                    error_msg = Some(format!("Final lock status check failed with {}", final_status));
+                                                                                }
+                                                                            }
+                                                                            Err(e) => error_msg = Some(format!("Final lock status check failed: {}", e)),
+                                                                        }
+                                                                    } else {
+                                                                        error_msg = Some(format!("Session status unexpected: lock_count={}, active={}", lock_count, active));
+                                                                    }
+                                                                } else {
+                                                                    error_msg = Some(format!("Session status failed with {}", ss_status));
+                                                                }
+                                                            }
+                                                            Err(e) => error_msg = Some(format!("Session status failed: {}", e)),
+                                                        }
+                                                    } else {
+                                                        error_msg = Some(format!("Lock should be held, got status {}: {:?}", ls_status, ls_response.get("status")));
+                                                    }
+                                                }
+                                                Err(e) => error_msg = Some(format!("Lock status check failed: {}", e)),
+                                            }
+                                        } else {
+                                            error_msg = Some(format!("Keepalive failed with status {}", ka_status));
+                                        }
+                                    }
+                                    Err(e) => error_msg = Some(format!("Keepalive failed: {}", e)),
+                                }
+                            } else {
+                                error_msg = Some(format!("Acquire with session failed: status={}, response={:?}", status, response));
+                            }
+                        }
+                        Err(e) => error_msg = Some(format!("Acquire with session failed: {}", e)),
+                    }
+                } else {
+                    error_msg = Some("Missing session_id in create response".to_string());
+                }
+            } else {
+                error_msg = Some(format!("Create session failed with status {}", status));
+            }
+        }
+        Err(e) => error_msg = Some(format!("Create session failed: {}", e)),
+    }
+
+    runner.add_test_result("Session Lifecycle".to_string(), success, start.elapsed().as_millis(), error_msg);
 
     // Cleanup
     runner.cleanup().await;
