@@ -43,6 +43,12 @@ pub enum AppError {
     #[error("Invalid input: {0}")]
     InvalidInput(String),
     
+    #[error("Session not found")]
+    SessionNotFound,
+
+    #[error("Session expired")]
+    SessionExpired,
+
     #[error("Resource not found: {0}")]
     NotFound(String),
     
@@ -78,6 +84,8 @@ impl IntoResponse for AppError {
             AppError::InvalidTtl { .. } => (StatusCode::BAD_REQUEST, "Invalid TTL"),
             AppError::InvalidLockName { .. } => (StatusCode::BAD_REQUEST, "Invalid lock name"),
             AppError::InvalidInput(_) => (StatusCode::BAD_REQUEST, "Invalid input"),
+            AppError::SessionNotFound => (StatusCode::NOT_FOUND, "Session not found"),
+            AppError::SessionExpired => (StatusCode::GONE, "Session expired"),
             AppError::NotFound(_) => (StatusCode::NOT_FOUND, "Resource not found"),
             AppError::Conflict(_) => (StatusCode::CONFLICT, "Conflict"),
             AppError::Database(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Database error"),
