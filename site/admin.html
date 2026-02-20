@@ -447,13 +447,22 @@
     <script>
         class AdminDashboard {
             constructor() {
-                // Support first-time key via URL hash: admin.html#YOUR_KEY
-                const hashKey = window.location.hash.slice(1);
-                if (hashKey) {
-                    localStorage.setItem('adminToken', hashKey);
-                    history.replaceState(null, '', window.location.pathname);
+                // 1. Prefer GitHub OAuth token (set by dashboard.html after login)
+                let githubAuth = null;
+                try { githubAuth = JSON.parse(localStorage.getItem('octostore_auth')); } catch (_) {}
+                if (githubAuth && githubAuth.token) {
+                    this.token = githubAuth.token;
+                    this.usingGithubToken = true;
+                } else {
+                    // 2. Fall back to legacy adminToken (URL hash or stored)
+                    const hashKey = window.location.hash.slice(1);
+                    if (hashKey) {
+                        localStorage.setItem('adminToken', hashKey);
+                        history.replaceState(null, '', window.location.pathname);
+                    }
+                    this.token = localStorage.getItem('adminToken') || '';
+                    this.usingGithubToken = false;
                 }
-                this.token = localStorage.getItem('adminToken') || '';
                 this.currentWindow = '1h';
                 this.charts = {};
                 this.refreshInterval = null;
@@ -461,6 +470,12 @@
                 this.initializeEventListeners();
                 
                 this.initializeDashboard(); // no prompt — key managed via ⚙️ or URL hash
+                if (this.usingGithubToken) {
+                    const s = document.getElementById('authStatus');
+                    if (s) { s.textContent = 'Authenticated via GitHub'; s.style.color = '#10b981'; }
+                    const btn = document.getElementById('resetKeyBtn');
+                    if (btn) btn.style.display = 'none'; // hide gear — not needed
+                }
             }
             
             promptKey() {
