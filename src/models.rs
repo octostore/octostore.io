@@ -25,6 +25,8 @@ pub struct Lock {
     pub acquired_at: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<Uuid>,
+    pub ephemeral: bool,
+    pub lock_delay_seconds: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,6 +52,8 @@ pub struct AcquireLockRequest {
     pub ttl_seconds: Option<u32>,
     pub metadata: Option<String>,
     pub session_id: Option<Uuid>,
+    pub ephemeral: Option<bool>,
+    pub lock_delay_seconds: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -67,6 +71,11 @@ pub enum AcquireLockResponse {
         holder_id: uuid::Uuid,
         expires_at: DateTime<Utc>,
         metadata: Option<String>,
+    },
+    #[serde(rename = "delayed")]
+    Delayed {
+        available_at: DateTime<Utc>,
+        lock_delay_seconds: u32,
     },
 }
 
@@ -255,6 +264,8 @@ mod tests {
             metadata: None,
             acquired_at: now - Duration::minutes(5),
             session_id: None,
+            ephemeral: false,
+            lock_delay_seconds: 0,
         };
         assert!(expired_lock.is_expired());
 
@@ -268,6 +279,8 @@ mod tests {
             metadata: Some("test metadata".to_string()),
             acquired_at: now,
             session_id: None,
+            ephemeral: false,
+            lock_delay_seconds: 0,
         };
         assert!(!active_lock.is_expired());
 
@@ -281,6 +294,8 @@ mod tests {
             metadata: None,
             acquired_at: now - Duration::minutes(1),
             session_id: None,
+            ephemeral: false,
+            lock_delay_seconds: 0,
         };
         // This might be flaky due to timing, but should generally be expired
         // since some time has passed since we created 'now'
