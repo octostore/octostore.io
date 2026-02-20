@@ -188,6 +188,66 @@ impl Lock {
     }
 }
 
+// ── Webhook models ──────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Webhook {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub url: String,
+    pub secret: Option<String>,
+    pub events: Vec<String>,
+    pub lock_pattern: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub active: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateWebhookRequest {
+    pub url: String,
+    pub secret: Option<String>,
+    pub events: Option<Vec<String>>,
+    pub lock_pattern: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WebhookResponse {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub url: String,
+    pub secret: Option<String>,
+    pub events: Vec<String>,
+    pub lock_pattern: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub active: bool,
+}
+
+impl From<Webhook> for WebhookResponse {
+    fn from(wh: Webhook) -> Self {
+        Self {
+            id: wh.id,
+            user_id: wh.user_id,
+            url: wh.url,
+            secret: wh.secret.map(|_| "****".to_string()),
+            events: wh.events,
+            lock_pattern: wh.lock_pattern,
+            created_at: wh.created_at,
+            active: wh.active,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct WebhookDelivery {
+    pub webhook_id: Uuid,
+    pub lock_name: String,
+    pub event_type: String,
+    pub payload: String,
+    pub response_status: Option<u16>,
+    pub delivered_at: DateTime<Utc>,
+    pub success: bool,
+}
+
 /// Validates a lock name against length and character constraints.
 ///
 /// Names must be 1–128 characters, containing only alphanumeric characters,
