@@ -7,6 +7,7 @@ mod metrics;
 mod models;
 mod sessions;
 mod store;
+mod webhooks;
 
 use app::AppState;
 use auth::{github_auth, github_callback, rotate_token, register_local, AuthService};
@@ -22,6 +23,7 @@ use config::Config;
 use locks::{acquire_lock, get_lock_status, list_user_locks, release_lock, renew_lock, watch_lock, LockHandlers};
 use metrics::{endpoint_from_path, Metrics};
 use sessions::SessionStore;
+use webhooks::{WebhookStore, create_webhook_handler, list_webhooks, delete_webhook_handler};
 
 use std::sync::{Arc, Mutex};
 use store::{DbConn, LockStore};
@@ -230,7 +232,11 @@ async fn main() -> anyhow::Result<()> {
     let lock_store = LockStore::new(db.clone(), initial_fencing_token)?;
 
     // Initialize session store — reuses the same shared DbConn
-    let session_store = SessionStore::new(db)?;
+    let session_store = SessionStore::new(db.clone())?;
+
+    // Initialize webhook store — reuses the same shared DbConn
+    let webhook_store = WebhookStore::new(db)?;
+    lock_store.set_webhook_store(webhook_store.clone());
 
     // Start background expiry tasks
     let expiry_store = lock_store.clone();
@@ -248,6 +254,7 @@ async fn main() -> anyhow::Result<()> {
         config: config.clone(),
         metrics: metrics.clone(),
         session_store: session_store.clone(),
+        webhook_store: webhook_store.clone(),
     };
 
     // Build router: GitHub auth routes are only registered when OAuth credentials
@@ -276,6 +283,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/locks/:name/watch", get(watch_lock))
         .route("/locks/:name", get(get_lock_status))
         .route("/locks", get(list_user_locks))
+        // Webhook routes
+        .route("/webhooks", post(create_webhook_handler).get(list_webhooks))
+        .route("/webhooks/:id", axum::routing::delete(delete_webhook_handler))
         // Documentation routes
         .route("/", get(api_docs))
         .route("/openapi.yaml", get(openapi_spec))
@@ -475,7 +485,8 @@ mod tests {
         ));
         let auth_service = AuthService::new(config.clone(), db.clone()).unwrap();
         let lock_store = LockStore::new(db.clone(), 0).unwrap();
-        let session_store = SessionStore::new(db).unwrap();
+        let session_store = SessionStore::new(db.clone()).unwrap();
+        let webhook_store = WebhookStore::new(db).unwrap();
 
         let lock_handlers = LockHandlers::new(lock_store.clone());
         let metrics = Metrics::new();
@@ -486,6 +497,7 @@ mod tests {
             config: config.clone(),
             metrics,
             session_store,
+            webhook_store,
         };
 
         let auth_router = if config.is_github_enabled() {
