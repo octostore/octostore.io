@@ -8,7 +8,7 @@ use rusqlite::{params, Connection};
 use std::{
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
     },
     time::Duration,
 };
@@ -35,6 +35,8 @@ pub struct LockStore {
     watch_channels: Arc<DashMap<String, broadcast::Sender<LockEvent>>>,
     /// Tracks locks in their grace/cooldown period after release or expiry.
     cooling_locks: Arc<DashMap<String, (DateTime<Utc>, u32)>>,
+    /// Webhook store for dispatching lock events (set after construction).
+    webhook_store: Arc<OnceLock<crate::webhooks::WebhookStore>>,
 }
 
 impl LockStore {
@@ -90,6 +92,7 @@ impl LockStore {
             db,
             watch_channels: Arc::new(DashMap::new()),
             cooling_locks: Arc::new(DashMap::new()),
+            webhook_store: Arc::new(OnceLock::new()),
         };
         
         // Load existing unexpired locks from database
@@ -258,8 +261,17 @@ impl LockStore {
         }
     }
 
-    /// Broadcasts a lock event to all active watchers for that lock.
+    /// Sets the webhook store for dispatching lock events to registered webhooks.
+    pub fn set_webhook_store(&self, ws: crate::webhooks::WebhookStore) {
+        let _ = self.webhook_store.set(ws);
+    }
+
+    /// Broadcasts a lock event to all active watchers and dispatches to webhooks.
     fn broadcast_event(&self, event: LockEvent) {
+        // Fire-and-forget webhook dispatch (before send consumes the event)
+        if let Some(ws) = self.webhook_store.get() {
+            ws.dispatch(&event);
+        }
         if let Some(sender) = self.watch_channels.get(&event.lock_name) {
             // We ignore send errors as they just mean no receivers are currently active
             let _ = sender.send(event);
