@@ -460,6 +460,7 @@
                 <a href="/" style="color: #a1a1aa; text-decoration: none; font-weight: 500; padding: 8px 16px; border-radius: 6px; transition: all 0.2s;">Home</a>
                 <a href="/dashboard.html" style="color: #e5e5e5; text-decoration: none; font-weight: 500; padding: 8px 16px; border-radius: 6px; background: rgba(255, 255, 255, 0.05);">Dashboard</a>
                 <a href="/docs" style="color: #a1a1aa; text-decoration: none; font-weight: 500; padding: 8px 16px; border-radius: 6px; transition: all 0.2s;">API Docs</a>
+                <a id="admin-link" href="/admin.html" style="display:none;color:#a1a1aa;text-decoration:none;font-weight:500;padding:8px 16px;border-radius:6px;transition:all 0.2s;">Admin</a>
                 <button onclick="signOut()" style="background:none;border:1px solid rgba(255,255,255,0.15);border-radius:6px;padding:8px 16px;color:#a1a1aa;cursor:pointer;font-size:14px;font-weight:500;">Sign out</button>
             </nav>
             <div class="user-section">
@@ -685,6 +686,11 @@
         }
 
         function updateUserInfo(username, userId, token) {
+            // Show admin link only for the site owner
+            if (username === 'aronchick') {
+                const adminLink = document.getElementById('admin-link');
+                if (adminLink) adminLink.style.display = '';
+            }
             userNameEl.textContent = username;
             userIdEl.textContent = `ID: ${userId}`;
             userAvatarEl.src = `https://github.com/${username}.png`;
