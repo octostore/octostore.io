@@ -121,6 +121,13 @@ pub struct UserLockInfo {
 }
 
 #[derive(Debug, Serialize)]
+pub struct ListLocksResponse {
+    pub locks: Vec<LockStatusResponse>,
+    pub total: usize,
+    pub prefix: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct AuthTokenResponse {
     pub token: String,
     pub user_id: Uuid,
@@ -248,11 +255,13 @@ pub struct WebhookDelivery {
     pub success: bool,
 }
 
-/// Validates a lock name against length and character constraints.
+/// Validates a lock name against length, character and path constraints.
 ///
-/// Names must be 1–128 characters, containing only alphanumeric characters,
-/// hyphens, and dots. This keeps lock names safe for use as database keys
-/// and URL path segments.
+/// Names must be 1–256 characters using alphanumeric characters, hyphens,
+/// underscores, dots, and forward slashes (`/`) as path separators.
+/// Each path component may be at most 64 characters.
+/// Leading/trailing slashes, consecutive slashes, and `..` segments are
+/// rejected.
 pub fn validate_lock_name(name: &str) -> Result<()> {
     if name.is_empty() {
         return Err(AppError::InvalidLockName {
@@ -260,17 +269,46 @@ pub fn validate_lock_name(name: &str) -> Result<()> {
         });
     }
 
-    if name.len() > 128 {
+    if name.len() > 256 {
         return Err(AppError::InvalidLockName {
-            reason: "Lock name cannot exceed 128 characters".to_string(),
+            reason: "Lock name cannot exceed 256 characters".to_string(),
         });
     }
 
-    if !name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '.') {
+    if name.starts_with('/') || name.ends_with('/') {
         return Err(AppError::InvalidLockName {
-            reason: "Lock name can only contain alphanumeric characters, hyphens, and dots"
+            reason: "Lock name cannot start or end with '/'".to_string(),
+        });
+    }
+
+    if name.contains("//") {
+        return Err(AppError::InvalidLockName {
+            reason: "Lock name cannot contain consecutive slashes".to_string(),
+        });
+    }
+
+    if name.split('/').any(|c| c == "..") {
+        return Err(AppError::InvalidLockName {
+            reason: "Lock name cannot contain '..' path segments".to_string(),
+        });
+    }
+
+    if !name
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '/')
+    {
+        return Err(AppError::InvalidLockName {
+            reason: "Lock name can only contain alphanumeric characters, hyphens, underscores, dots, and slashes"
                 .to_string(),
         });
+    }
+
+    for component in name.split('/') {
+        if component.len() > 64 {
+            return Err(AppError::InvalidLockName {
+                reason: "Lock name path components cannot exceed 64 characters".to_string(),
+            });
+        }
     }
 
     Ok(())
@@ -372,6 +410,13 @@ mod tests {
         assert!(validate_lock_name("123").is_ok());
         assert!(validate_lock_name("test-lock-with-dashes").is_ok());
         assert!(validate_lock_name("test.lock.with.dots").is_ok());
+        assert!(validate_lock_name("valid_name").is_ok());
+
+        // Valid hierarchical lock names
+        assert!(validate_lock_name("db/primary").is_ok());
+        assert!(validate_lock_name("payments/stripe/webhook").is_ok());
+        assert!(validate_lock_name("service/component/sub").is_ok());
+        assert!(validate_lock_name("a/b/c/d").is_ok());
 
         // Invalid lock names - empty
         assert!(matches!(
@@ -380,10 +425,10 @@ mod tests {
         ));
 
         // Invalid lock names - too long
-        let long_name = "a".repeat(129);
+        let long_name = "a".repeat(257);
         assert!(matches!(
             validate_lock_name(&long_name).unwrap_err(),
-            AppError::InvalidLockName { reason } if reason == "Lock name cannot exceed 128 characters"
+            AppError::InvalidLockName { reason } if reason == "Lock name cannot exceed 256 characters"
         ));
 
         // Invalid lock names - invalid characters
@@ -392,15 +437,36 @@ mod tests {
             AppError::InvalidLockName { .. }
         ));
         assert!(matches!(
-            validate_lock_name("invalid_name").unwrap_err(),
-            AppError::InvalidLockName { .. }
-        ));
-        assert!(matches!(
             validate_lock_name("invalid@name").unwrap_err(),
             AppError::InvalidLockName { .. }
         ));
+
+        // Invalid lock names - path traversal and slash rules
         assert!(matches!(
-            validate_lock_name("invalid/name").unwrap_err(),
+            validate_lock_name("/leading-slash").unwrap_err(),
+            AppError::InvalidLockName { .. }
+        ));
+        assert!(matches!(
+            validate_lock_name("trailing-slash/").unwrap_err(),
+            AppError::InvalidLockName { .. }
+        ));
+        assert!(matches!(
+            validate_lock_name("double//slash").unwrap_err(),
+            AppError::InvalidLockName { .. }
+        ));
+        assert!(matches!(
+            validate_lock_name("path/../traversal").unwrap_err(),
+            AppError::InvalidLockName { .. }
+        ));
+        assert!(matches!(
+            validate_lock_name("..").unwrap_err(),
+            AppError::InvalidLockName { .. }
+        ));
+
+        // Invalid lock names - component too long
+        let long_component = "a".repeat(65);
+        assert!(matches!(
+            validate_lock_name(&long_component).unwrap_err(),
             AppError::InvalidLockName { .. }
         ));
     }
@@ -472,8 +538,11 @@ mod tests {
 
     #[test]
     fn test_boundary_values() {
-        assert!(validate_lock_name(&"a".repeat(128)).is_ok(), "128-char name should be valid");
-        assert!(validate_lock_name(&"a".repeat(129)).is_err(), "129-char name should be rejected");
+        assert!(validate_lock_name(&"a".repeat(64)).is_ok(), "64-char component should be valid");
+        assert!(validate_lock_name(&"a".repeat(65)).is_err(), "65-char component should be rejected");
+        assert!(validate_lock_name(&"a".repeat(256)).is_err(), "256-char single component should be rejected (>64)");
+        let name_256 = format!("{}/{}", "a".repeat(64), "b".repeat(64));
+        assert!(validate_lock_name(&name_256).is_ok(), "multi-component name within limits should be valid");
         assert!(validate_ttl(1).is_ok());
         assert!(validate_ttl(3600).is_ok());
         assert!(validate_ttl(3601).is_err());
