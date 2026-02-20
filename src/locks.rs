@@ -3,7 +3,7 @@ use crate::{
     models::{
         validate_lock_name, validate_metadata, validate_ttl, AcquireLockRequest,
         AcquireLockResponse, LockStatusResponse, ReleaseLockRequest, RenewLockRequest,
-        RenewLockResponse, UserLockInfo, UserLocksResponse, LockEvent,
+        RenewLockResponse, UserLockInfo, UserLocksResponse,
     },
     store::LockStore,
 };
@@ -45,7 +45,21 @@ pub async fn acquire_lock(
 
     // Validate metadata
     validate_metadata(&req.metadata)?;
-    
+
+    // Validate session if provided
+    if let Some(session_id) = req.session_id {
+        let session = state
+            .session_store
+            .get_session(session_id)
+            .ok_or(crate::error::AppError::SessionNotFound)?;
+        if session.user_id != user_id {
+            return Err(crate::error::AppError::SessionNotFound);
+        }
+        if session.is_expired() {
+            return Err(crate::error::AppError::SessionExpired);
+        }
+    }
+
     // Check user lock limit (max 100)
     let current_lock_count = state.lock_handlers.store.count_user_locks(user_id);
     if current_lock_count >= 100 {
@@ -63,7 +77,7 @@ pub async fn acquire_lock(
         return Err(AppError::LockLimitExceeded);
     }
     
-    match state.lock_handlers.store.acquire_lock(name.clone(), user_id, ttl_seconds, req.metadata.clone()) {
+    match state.lock_handlers.store.acquire_lock(name.clone(), user_id, ttl_seconds, req.metadata.clone(), req.session_id) {
         Ok((lease_id, fencing_token, expires_at)) => {
             // Only increment counter for new lock acquisitions, not idempotent renewals
             // We can check if this is a new acquisition by seeing if the fencing token changed
@@ -256,7 +270,7 @@ mod tests {
         let cloned = handlers.clone();
         let user_id = Uuid::new_v4();
 
-        handlers.store.acquire_lock("shared-test".into(), user_id, 60, None).unwrap();
+        handlers.store.acquire_lock("shared-test".into(), user_id, 60, None, None).unwrap();
         assert_eq!(cloned.store.count_user_locks(user_id), 1,
             "cloned handlers should see locks created through the original");
     }
@@ -288,14 +302,16 @@ mod tests {
         ));
         let auth_service = AuthService::new(config.clone(), db.clone()).unwrap();
         auth_service.seed_static_tokens();
-        let lock_store = LockStore::new(db, 0).unwrap();
+        let lock_store = LockStore::new(db.clone(), 0).unwrap();
         let lock_handlers = LockHandlers::new(lock_store.clone());
-        
+        let session_store = crate::sessions::SessionStore::new(db).unwrap();
+
         let app_state = crate::app::AppState {
             lock_handlers,
             auth_service,
             config: config.clone(),
             metrics: crate::metrics::Metrics::new(),
+            session_store,
         };
 
         let router = axum::Router::new()
