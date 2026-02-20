@@ -2,18 +2,19 @@ use crate::{
     error::{AppError, Result},
     models::{
         validate_lock_name, validate_metadata, validate_ttl, AcquireLockRequest,
-        AcquireLockResponse, LockStatusResponse, ReleaseLockRequest, RenewLockRequest,
-        RenewLockResponse, UserLockInfo, UserLocksResponse,
+        AcquireLockResponse, ListLocksResponse, LockStatusResponse, ReleaseLockRequest,
+        RenewLockRequest, RenewLockResponse, UserLockInfo, UserLocksResponse,
     },
     store::LockStore,
 };
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::sse::{Event, KeepAlive, Sse},
     Json,
 };
 use futures::stream::{Stream, StreamExt};
+use serde::Deserialize;
 use std::convert::Infallible;
 use tracing::info;
 
@@ -235,6 +236,40 @@ pub async fn watch_lock(
         });
 
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListLocksQuery {
+    pub prefix: Option<String>,
+}
+
+pub async fn list_locks(
+    State(state): State<crate::AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ListLocksQuery>,
+) -> Result<Json<ListLocksResponse>> {
+    let _user_id = state.auth_service.authenticate(&headers)?;
+
+    let locks = state.lock_handlers.store.list_locks(query.prefix.as_deref());
+    let lock_responses: Vec<LockStatusResponse> = locks
+        .into_iter()
+        .filter(|lock| !lock.is_expired())
+        .map(|lock| LockStatusResponse {
+            name: lock.name,
+            status: "held".to_string(),
+            holder_id: Some(lock.holder_id),
+            fencing_token: lock.fencing_token,
+            expires_at: Some(lock.expires_at),
+            metadata: lock.metadata,
+        })
+        .collect();
+    let total = lock_responses.len();
+
+    Ok(Json(ListLocksResponse {
+        locks: lock_responses,
+        total,
+        prefix: query.prefix,
+    }))
 }
 
 pub async fn list_user_locks(
