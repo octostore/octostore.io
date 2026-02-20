@@ -20,7 +20,7 @@ use axum::{
     Json, Router,
 };
 use config::Config;
-use locks::{acquire_lock, get_lock_status, list_user_locks, release_lock, renew_lock, watch_lock, LockHandlers};
+use locks::{acquire_lock, get_lock_status, list_locks, release_lock, renew_lock, watch_lock, LockHandlers};
 use metrics::{endpoint_from_path, Metrics};
 use sessions::SessionStore;
 use webhooks::{WebhookStore, create_webhook_handler, list_webhooks, delete_webhook_handler};
@@ -282,7 +282,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/locks/:name/renew", post(renew_lock))
         .route("/locks/:name/watch", get(watch_lock))
         .route("/locks/:name", get(get_lock_status))
-        .route("/locks", get(list_user_locks))
+        .route("/locks", get(list_locks))
         // Webhook routes
         .route("/webhooks", post(create_webhook_handler).get(list_webhooks))
         .route("/webhooks/:id", axum::routing::delete(delete_webhook_handler))
@@ -517,7 +517,7 @@ mod tests {
             .route("/locks/:name/renew", post(renew_lock))
             .route("/locks/:name/watch", get(watch_lock))
             .route("/locks/:name", get(get_lock_status))
-            .route("/locks", get(list_user_locks))
+            .route("/locks", get(list_locks))
             .route("/openapi.yaml", get(openapi_spec))
             .route("/docs", get(api_docs))
             .route("/health", get(health_check))
