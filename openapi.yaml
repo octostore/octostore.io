@@ -377,6 +377,80 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /webhooks:
+    post:
+      tags:
+      - Webhooks
+      summary: Create a webhook
+      description: |
+        Register a webhook to receive POST callbacks on lock events.
+        URL must use HTTPS. Maximum 10 webhooks per user.
+        If a secret is provided, payloads are signed with HMAC-SHA256
+        and the signature is sent in the X-OctoStore-Signature header.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWebhookRequest'
+      responses:
+        '201':
+          description: Webhook created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookResponse'
+        '400':
+          description: Invalid input (non-HTTPS URL or limit exceeded)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    get:
+      tags:
+      - Webhooks
+      summary: List your webhooks
+      description: Returns all webhooks registered by the authenticated user.
+        Secrets are redacted in the response.
+      responses:
+        '200':
+          description: List of webhooks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WebhookResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /webhooks/{id}:
+    delete:
+      tags:
+      - Webhooks
+      summary: Delete a webhook
+      description: Remove a previously registered webhook
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Webhook UUID
+        example: 550e8400-e29b-41d4-a716-446655440000
+      responses:
+        '204':
+          description: Webhook deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Webhook not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /health:
     get:
       tags:
@@ -571,6 +645,113 @@ components:
       - expires_at
       - lock_count
       - active
+    CreateWebhookRequest:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          description: HTTPS URL to POST event payloads to
+          example: https://example.com/hooks/octostore
+        secret:
+          type: string
+          description: Optional HMAC-SHA256 signing secret
+          example: my-secret-key
+        events:
+          type: array
+          items:
+            type: string
+            enum:
+            - acquired
+            - released
+            - expired
+            - renewed
+            - '*'
+          description: 'Event types to subscribe to (default: ["*"])'
+          example:
+          - acquired
+          - released
+        lock_pattern:
+          type: string
+          description: 'Glob pattern to filter locks (e.g. "service/*"). Omit for
+            all locks.'
+          example: service/*
+      required:
+      - url
+    WebhookResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Webhook identifier
+        user_id:
+          type: string
+          format: uuid
+          description: Owner user ID
+        url:
+          type: string
+          format: uri
+          description: Callback URL
+        secret:
+          type: string
+          nullable: true
+          description: Redacted secret (shown as "****" if set)
+        events:
+          type: array
+          items:
+            type: string
+          description: Subscribed event types
+        lock_pattern:
+          type: string
+          nullable: true
+          description: Lock name glob pattern
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        active:
+          type: boolean
+          description: Whether the webhook is active
+      required:
+      - id
+      - user_id
+      - url
+      - events
+      - created_at
+      - active
+    WebhookPayload:
+      type: object
+      description: Payload POSTed to webhook URLs on lock events
+      properties:
+        event:
+          type: string
+          enum:
+          - acquired
+          - released
+          - expired
+          - renewed
+          description: Lock event type
+        lock:
+          type: string
+          description: Lock name
+        holder_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: UUID of the lock holder (null for release/expiry)
+        fencing_token:
+          type: integer
+          nullable: true
+          description: Fencing token (null for release/expiry)
+        timestamp:
+          type: string
+          format: date-time
+          description: Event timestamp in RFC3339 format
+      required:
+      - event
+      - lock
+      - timestamp
     Error:
       type: object
       properties:
@@ -621,5 +802,7 @@ tags:
   description: Session management with keepalive
 - name: Locks
   description: Distributed lock operations
+- name: Webhooks
+  description: Webhook registration and management for lock event callbacks
 - name: System
   description: System health and status
