@@ -667,6 +667,13 @@
                 if (username) stored.username = username;
                 if (userId)   stored.userId   = userId;
                 localStorage.setItem('octostore_auth', JSON.stringify(stored));
+                // Check if another page requested auth (e.g. admin.html)
+                const postAuthRedirect = localStorage.getItem('post_auth_redirect');
+                if (postAuthRedirect) {
+                    localStorage.removeItem('post_auth_redirect');
+                    window.location.replace(postAuthRedirect);
+                    return stored;
+                }
                 history.replaceState(null, '', '/dashboard.html');
                 return stored;
             }
