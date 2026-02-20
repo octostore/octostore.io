@@ -49,11 +49,21 @@ impl LockStore {
                 fencing_token INTEGER NOT NULL,
                 expires_at TEXT NOT NULL,
                 metadata TEXT,
-                acquired_at TEXT NOT NULL
+                acquired_at TEXT NOT NULL,
+                session_id TEXT
             )
             "#,
                 [],
             )?;
+            // Migration: add session_id column if missing (existing DBs)
+            let has_session_id = conn
+                .prepare("PRAGMA table_info(locks)")?
+                .query_map([], |row| row.get::<_, String>(1))?
+                .filter_map(|r| r.ok())
+                .any(|name| name == "session_id");
+            if !has_session_id {
+                conn.execute("ALTER TABLE locks ADD COLUMN session_id TEXT", [])?;
+            }
         }
 
         info!("Locks table initialized");
@@ -80,15 +90,16 @@ impl LockStore {
         let now = Utc::now();
         
         let mut stmt = db.prepare(
-            "SELECT name, holder_id, lease_id, fencing_token, expires_at, metadata, acquired_at FROM locks"
+            "SELECT name, holder_id, lease_id, fencing_token, expires_at, metadata, acquired_at, session_id FROM locks"
         )?;
-        
+
         let lock_rows = stmt.query_map([], |row| {
             let holder_id_str: String = row.get(1)?;
             let lease_id_str: String = row.get(2)?;
             let expires_at_str: String = row.get(4)?;
             let acquired_at_str: String = row.get(6)?;
-            
+            let session_id_str: Option<String> = row.get(7)?;
+
             // Map parse errors to rusqlite's InvalidColumnType for propagation
             let holder_id = Uuid::parse_str(&holder_id_str)
                 .map_err(|e| rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(e)))?;
@@ -100,7 +111,8 @@ impl LockStore {
             let acquired_at = DateTime::parse_from_rfc3339(&acquired_at_str)
                 .map_err(|e| rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, Box::new(e)))?
                 .with_timezone(&chrono::Utc);
-            
+            let session_id = session_id_str.and_then(|s| Uuid::parse_str(&s).ok());
+
             Ok(Lock {
                 name: row.get(0)?,
                 holder_id,
@@ -109,6 +121,7 @@ impl LockStore {
                 expires_at,
                 metadata: row.get(5)?,
                 acquired_at,
+                session_id,
             })
         })?;
         
@@ -230,6 +243,7 @@ impl LockStore {
         holder_id: Uuid,
         ttl_seconds: u32,
         metadata: Option<String>,
+        session_id: Option<Uuid>,
     ) -> Result<(Uuid, u64, DateTime<Utc>)> {
         let now = Utc::now();
         let expires_at = now + chrono::Duration::seconds(ttl_seconds as i64);
@@ -247,6 +261,7 @@ impl LockStore {
                     expires_at,
                     metadata: metadata.clone(),
                     acquired_at: now,
+                    session_id,
                 };
                 entry.insert(lock.clone());
                 
@@ -278,6 +293,7 @@ impl LockStore {
                         expires_at,
                         metadata: metadata.clone(),
                         acquired_at: now,
+                        session_id,
                     };
                     entry.insert(lock.clone());
                     
@@ -412,7 +428,44 @@ impl LockStore {
             })
             .collect()
     }
-    
+
+    pub fn release_locks_for_session(&self, session_id: Uuid) {
+        let to_remove: Vec<String> = self
+            .locks
+            .iter()
+            .filter(|entry| entry.value().session_id == Some(session_id))
+            .map(|entry| entry.key().clone())
+            .collect();
+
+        for lock_name in to_remove {
+            if let Some((_, _lock)) = self.locks.remove(&lock_name) {
+                debug!(
+                    "Released lock {} (session {} expired)",
+                    lock_name, session_id
+                );
+                self.broadcast_event(LockEvent {
+                    event: LockEventType::Released,
+                    lock_name: lock_name.clone(),
+                    lock: None,
+                    timestamp: Utc::now(),
+                });
+                if let Err(e) = self.delete_lock_from_database(&lock_name) {
+                    warn!(
+                        "Failed to delete session lock {} from database: {}",
+                        lock_name, e
+                    );
+                }
+            }
+        }
+    }
+
+    pub fn count_session_locks(&self, session_id: Uuid) -> usize {
+        self.locks
+            .iter()
+            .filter(|entry| entry.value().session_id == Some(session_id))
+            .count()
+    }
+
     fn save_lock_to_database(&self, lock: &Lock) -> Result<()> {
         let db = self.db.lock().unwrap();
         db.execute(
@@ -474,7 +527,7 @@ mod tests {
         // Create first store and acquire a lock
         {
             let store1 = create_test_store_with_path(&db_path);
-            let result = store1.acquire_lock(lock_name.clone(), holder_id, 300, metadata.clone());
+            let result = store1.acquire_lock(lock_name.clone(), holder_id, 300, metadata.clone(), None);
             assert!(result.is_ok());
             let (_lease_id, fencing_token, _) = result.unwrap();
             assert_eq!(fencing_token, 1);
@@ -514,13 +567,13 @@ mod tests {
             let store1 = create_test_store_with_path(&db_path);
             
             // Acquire first lock (should get fencing token 1)
-            let result1 = store1.acquire_lock("lock-1".to_string(), holder_id1, 300, None);
+            let result1 = store1.acquire_lock("lock-1".to_string(), holder_id1, 300, None, None);
             assert!(result1.is_ok());
             let (_, fencing_token1, _) = result1.unwrap();
             assert_eq!(fencing_token1, 1);
             
             // Acquire second lock (should get fencing token 2)
-            let result2 = store1.acquire_lock("lock-2".to_string(), holder_id2, 300, None);
+            let result2 = store1.acquire_lock("lock-2".to_string(), holder_id2, 300, None, None);
             assert!(result2.is_ok());
             let (_, fencing_token2, _) = result2.unwrap();
             assert_eq!(fencing_token2, 2);
@@ -536,7 +589,7 @@ mod tests {
             assert_eq!(store2.get_fencing_counter(), 3);
             
             // Acquire a new lock - should get fencing token 3
-            let result3 = store2.acquire_lock("lock-3".to_string(), holder_id1, 300, None);
+            let result3 = store2.acquire_lock("lock-3".to_string(), holder_id1, 300, None, None);
             assert!(result3.is_ok());
             let (_, fencing_token3, _) = result3.unwrap();
             assert_eq!(fencing_token3, 3);
@@ -554,7 +607,7 @@ mod tests {
         // Create first store and acquire a lock with very short TTL
         {
             let store1 = create_test_store_with_path(&db_path);
-            let result = store1.acquire_lock(lock_name.clone(), holder_id, 1, None); // 1 second TTL
+            let result = store1.acquire_lock(lock_name.clone(), holder_id, 1, None, None); // 1 second TTL
             assert!(result.is_ok());
             
             // Verify lock is initially present
@@ -574,7 +627,7 @@ mod tests {
             assert!(lock.is_none());
             
             // Should be able to acquire the same lock name (it's free)
-            let result = store2.acquire_lock(lock_name.clone(), holder_id, 300, None);
+            let result = store2.acquire_lock(lock_name.clone(), holder_id, 300, None, None);
             assert!(result.is_ok());
         }
     }
@@ -592,7 +645,7 @@ mod tests {
         // Create first store, acquire and release a lock
         {
             let store1 = create_test_store_with_path(&db_path);
-            let result = store1.acquire_lock(lock_name.clone(), holder_id, 300, None);
+            let result = store1.acquire_lock(lock_name.clone(), holder_id, 300, None, None);
             assert!(result.is_ok());
             let (acquired_lease_id, _, _) = result.unwrap();
             lease_id = acquired_lease_id;
@@ -619,7 +672,7 @@ mod tests {
             assert!(lock.is_none());
             
             // Should be able to acquire the same lock name (it's free)
-            let result = store2.acquire_lock(lock_name.clone(), holder_id, 300, None);
+            let result = store2.acquire_lock(lock_name.clone(), holder_id, 300, None, None);
             assert!(result.is_ok());
         }
     }
@@ -636,7 +689,7 @@ mod tests {
         // Create first store and acquire a lock with metadata
         {
             let store1 = create_test_store_with_path(&db_path);
-            let result = store1.acquire_lock(lock_name.clone(), holder_id, 300, metadata.clone());
+            let result = store1.acquire_lock(lock_name.clone(), holder_id, 300, metadata.clone(), None);
             assert!(result.is_ok());
             
             // Verify metadata is correct in memory
@@ -681,7 +734,8 @@ mod tests {
                     lock_name.to_string(), 
                     *holder_id, 
                     300, 
-                    Some(metadata.to_string())
+                    Some(metadata.to_string()),
+                    None
                 );
                 assert!(result.is_ok());
             }
@@ -731,7 +785,8 @@ mod tests {
                         lock_name.clone(), 
                         holder_id, 
                         60, 
-                        Some(format!("thread-{}", i))
+                        Some(format!("thread-{}", i)),
+                        None
                     );
                     if acquire_result.is_err() {
                         return Err(format!("Failed to acquire lock {}: {:?}", lock_name, acquire_result.err()));
@@ -806,7 +861,8 @@ mod tests {
                         lock_name_clone, 
                         holder_id, 
                         30, 
-                        Some(format!("contender-{}", i))
+                        Some(format!("contender-{}", i)),
+                        None
                     );
                     
                     (holder_id, acquire_result)
@@ -863,7 +919,7 @@ mod tests {
             let user_id = Uuid::new_v4();
 
             let (lease_id, _, _) = store
-                .acquire_lock(lock_name.clone(), user_id, ttl_seconds, metadata)
+                .acquire_lock(lock_name.clone(), user_id, ttl_seconds, metadata, None)
                 .expect("acquire should succeed");
 
             store.release_lock(&lock_name, lease_id, user_id)
@@ -884,7 +940,7 @@ mod tests {
             for i in 0..count {
                 let name = format!("lock-{}", i);
                 let (_, token, _) = store
-                    .acquire_lock(name, user_id, 300, None)
+                    .acquire_lock(name, user_id, 300, None, None)
                     .expect("acquire should succeed");
                 tokens.push(token);
             }
@@ -907,7 +963,7 @@ mod tests {
             prop_assume!(user_a != user_b);
 
             let (lease_id, _, _) = store
-                .acquire_lock(lock_name.clone(), user_a, ttl_seconds, None)
+                .acquire_lock(lock_name.clone(), user_a, ttl_seconds, None, None)
                 .expect("user A acquire should succeed");
 
             // User B tries to release with the correct lease_id but wrong user
@@ -930,14 +986,14 @@ mod tests {
             let user_id = Uuid::new_v4();
 
             let (lease_id_1, token_1, _) = store
-                .acquire_lock(lock_name.clone(), user_id, ttl_seconds, None)
+                .acquire_lock(lock_name.clone(), user_id, ttl_seconds, None, None)
                 .expect("first acquire should succeed");
 
             store.release_lock(&lock_name, lease_id_1, user_id)
                 .expect("release should succeed");
 
             let (_, token_2, _) = store
-                .acquire_lock(lock_name, user_id, ttl_seconds, None)
+                .acquire_lock(lock_name, user_id, ttl_seconds, None, None)
                 .expect("second acquire should succeed");
 
             prop_assert!(token_2 > token_1,
