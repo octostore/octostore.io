@@ -637,14 +637,11 @@
             }
             
             async loadData() {
-                // If no key is set, prompt for it rather than silently failing
+                // If no token, redirect to GitHub login (dashboard.html will store the token)
                 if (!this.token) {
-                    const statusEl = document.getElementById('authStatus');
-                    statusEl.style.color = '#f59e0b';
-                    statusEl.style.fontSize = '14px';
-                    statusEl.textContent = '⚠️ No admin key set — click the ⚙️ gear icon (top right) to enter it.';
-                    const btn = document.getElementById('resetKeyBtn');
-                    if (btn) { btn.style.opacity = '1'; btn.style.color = '#f59e0b'; btn.style.fontSize = '22px'; }
+                    // Store intended destination so we can come back here after login
+                    localStorage.setItem('post_auth_redirect', '/admin.html');
+                    window.location.href = 'https://api.octostore.io/auth/github';
                     return;
                 }
                 try {
