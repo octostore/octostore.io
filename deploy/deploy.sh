@@ -58,7 +58,8 @@ done
 echo "Waiting for API to become ready..."
 LIVE_VERSION=""
 for i in $(seq 1 15); do
-  LIVE_VERSION=$(curl -sf --max-time 3 https://api.octostore.io/openapi.yaml 2>/dev/null | grep '  version:' | awk '{print $2}')
+  LIVE_VERSION=$(curl -sf --max-time 3 https://api.octostore.io/openapi.yaml 2>/dev/null \
+    | grep '  version:' | awk '{print $2}') || true
   if [[ "$LIVE_VERSION" == "$EXPECTED_VERSION" ]]; then break; fi
   echo "  API not ready yet (got: '${LIVE_VERSION:-<empty>}'), retry $i/15..."
   sleep 2
