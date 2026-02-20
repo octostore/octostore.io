@@ -322,7 +322,8 @@ mod tests {
         auth_service.seed_static_tokens();
         let lock_store = LockStore::new(db.clone(), 0).unwrap();
         let lock_handlers = LockHandlers::new(lock_store.clone());
-        let session_store = crate::sessions::SessionStore::new(db).unwrap();
+        let session_store = crate::sessions::SessionStore::new(db.clone()).unwrap();
+        let webhook_store = crate::webhooks::WebhookStore::new(db).unwrap();
 
         let app_state = crate::app::AppState {
             lock_handlers,
@@ -330,6 +331,7 @@ mod tests {
             config: config.clone(),
             metrics: crate::metrics::Metrics::new(),
             session_store,
+            webhook_store,
         };
 
         let router = axum::Router::new()
