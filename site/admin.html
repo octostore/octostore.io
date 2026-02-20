@@ -704,12 +704,15 @@
                     lockCounts[lock.holder_username] = (lockCounts[lock.holder_username] || 0) + 1;
                 });
                 
-                usersList.innerHTML = users.map(user => `
+                const getName = u => (typeof u === 'string') ? u : (u.github_username || u.id || 'unknown');
+                usersList.innerHTML = users.map(user => {
+                    const name = getName(user);
+                    return `
                     <div class="user-item">
-                        <div class="user-name">${user}</div>
-                        <div class="user-locks">${lockCounts[user] || 0} locks</div>
-                    </div>
-                `).join('');
+                        <div class="user-name">${name}</div>
+                        <div class="user-locks">${lockCounts[name] || 0} locks</div>
+                    </div>`;
+                }).join('');
             }
             
             updateCharts(data) {
