@@ -256,24 +256,26 @@ paths:
     get:
       tags:
       - Locks
-      summary: List caller's active locks
-      description: Get a list of all locks currently held by the authenticated user
+      summary: List locks by prefix
+      description: |
+        List all currently-held locks, optionally filtered by a hierarchical
+        name prefix. Lock names use `/` as the path separator
+        (e.g. `service/component/resource`).
+      parameters:
+      - name: prefix
+        in: query
+        required: false
+        schema:
+          type: string
+        description: 'Optional prefix to filter locks (e.g. "service/" or "db/primary")'
+        example: service/
       responses:
         '200':
-          description: List of active locks
+          description: List of matching locks
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  locks:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/LockInfo'
-                  total:
-                    type: integer
-                    description: Total number of active locks
-                    example: 3
+                $ref: '#/components/schemas/ListLocksResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
   /sessions:
@@ -488,11 +490,13 @@ components:
       required: true
       schema:
         type: string
-        pattern: ^[a-zA-Z0-9_-]+$
+        pattern: ^[a-zA-Z0-9._-]+(/[a-zA-Z0-9._-]+)*$
         minLength: 1
-        maxLength: 128
-      description: Lock name (alphanumeric, underscores, and hyphens only)
-      example: my-resource-lock
+        maxLength: 256
+      description: 'Hierarchical lock name using `/` as path separator. Components
+        may contain alphanumeric characters, hyphens, underscores, and dots (max 64
+        chars each).'
+      example: service/component/my-lock
   schemas:
     LockResponse:
       type: object
@@ -591,6 +595,53 @@ components:
       - lease_id
       - fencing_token
       - expires_at
+    ListLocksResponse:
+      type: object
+      properties:
+        locks:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                description: Lock name
+              status:
+                type: string
+                enum:
+                - held
+                description: Lock status (always "held" for active locks)
+              holder_id:
+                type: string
+                format: uuid
+                description: UUID of the lock holder
+              fencing_token:
+                type: integer
+                description: Monotonically increasing fencing token
+              expires_at:
+                type: string
+                format: date-time
+                description: Lock expiration time
+              metadata:
+                type: string
+                nullable: true
+                description: User-defined metadata
+            required:
+            - name
+            - status
+            - fencing_token
+        total:
+          type: integer
+          description: Total number of locks returned
+          example: 5
+        prefix:
+          type: string
+          nullable: true
+          description: The prefix filter that was applied (null if none)
+          example: service/
+      required:
+      - locks
+      - total
     CreateSessionResponse:
       type: object
       properties:
