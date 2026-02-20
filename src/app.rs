@@ -4,6 +4,7 @@ use crate::auth::AuthService;
 use crate::config::Config;
 use crate::locks::LockHandlers;
 use crate::metrics::Metrics;
+use crate::sessions::SessionStore;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -11,4 +12,5 @@ pub struct AppState {
     pub auth_service: AuthService,
     pub config: Config,
     pub metrics: Arc<Metrics>,
+    pub session_store: SessionStore,
 }
