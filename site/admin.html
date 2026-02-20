@@ -460,11 +460,7 @@
                 
                 this.initializeEventListeners();
                 
-                if (this.token) {
-                    this.authenticate();
-                } else {
-                    this.promptKey();
-                }
+                this.initializeDashboard(); // no prompt — key managed via ⚙️ or URL hash
             }
             
             promptKey() {
@@ -489,7 +485,7 @@
             }
             
             async authenticate() {
-                if (!this.token) { this.promptKey(); return; }
+                if (!this.token) { document.getElementById("authStatus").textContent = "No key — click ⚙️ to set one"; return; }
                 try {
                     const response = await fetch('https://api.octostore.io/admin/status', {
                         headers: {
