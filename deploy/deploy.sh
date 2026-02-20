@@ -54,11 +54,19 @@ for i in $(seq 1 10); do
   sleep 2
 done
 
-# 6. Verify live API version
-sleep 1
-LIVE_VERSION=$(curl -sf https://api.octostore.io/openapi.yaml | grep '  version:' | awk '{print $2}')
+# 6. Verify live API version (retry up to 30s — service needs time to open port)
+echo "Waiting for API to become ready..."
+LIVE_VERSION=""
+for i in $(seq 1 15); do
+  LIVE_VERSION=$(curl -sf --max-time 3 https://api.octostore.io/openapi.yaml 2>/dev/null | grep '  version:' | awk '{print $2}')
+  if [[ "$LIVE_VERSION" == "$EXPECTED_VERSION" ]]; then break; fi
+  echo "  API not ready yet (got: '${LIVE_VERSION:-<empty>}'), retry $i/15..."
+  sleep 2
+done
+
 if [[ "$LIVE_VERSION" != "$EXPECTED_VERSION" ]]; then
   echo "ERROR: live API reports '$LIVE_VERSION', expected '$EXPECTED_VERSION'" >&2
+  sudo journalctl -u "$SERVICE" -n 10 --no-pager >&2
   exit 1
 fi
 
