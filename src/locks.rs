@@ -9,7 +9,7 @@ use crate::{
 };
 use axum::{
     extract::{Path, State},
-    http::HeaderMap,
+    http::{HeaderMap, StatusCode},
     response::sse::{Event, KeepAlive, Sse},
     Json,
 };
@@ -33,9 +33,9 @@ pub async fn acquire_lock(
     State(state): State<crate::AppState>,
     headers: HeaderMap,
     Json(req): Json<AcquireLockRequest>,
-) -> Result<Json<AcquireLockResponse>> {
+) -> Result<(StatusCode, Json<AcquireLockResponse>)> {
     let user_id = state.auth_service.authenticate(&headers)?;
-    
+
     // Validate lock name
     validate_lock_name(&name)?;
 
@@ -45,6 +45,16 @@ pub async fn acquire_lock(
 
     // Validate metadata
     validate_metadata(&req.metadata)?;
+
+    let ephemeral = req.ephemeral.unwrap_or(false);
+    let lock_delay_seconds = req.lock_delay_seconds.map(|d| d.clamp(0, 30)).unwrap_or(0);
+
+    // Ephemeral locks require a session_id
+    if ephemeral && req.session_id.is_none() {
+        return Err(AppError::InvalidInput(
+            "ephemeral locks require a session_id".to_string(),
+        ));
+    }
 
     // Validate session if provided
     if let Some(session_id) = req.session_id {
@@ -60,46 +70,54 @@ pub async fn acquire_lock(
         }
     }
 
+    // Check if lock is in cooling period (lock delay / grace period)
+    if let Some((available_at, delay)) = state.lock_handlers.store.check_cooling(&name) {
+        return Ok((
+            StatusCode::CONFLICT,
+            Json(AcquireLockResponse::Delayed {
+                available_at,
+                lock_delay_seconds: delay,
+            }),
+        ));
+    }
+
     // Check user lock limit (max 100)
     let current_lock_count = state.lock_handlers.store.count_user_locks(user_id);
     if current_lock_count >= 100 {
         // Check if this specific lock is already held by the user (idempotent case)
         if let Some(existing_lock) = state.lock_handlers.store.get_lock(&name) {
             if existing_lock.holder_id == user_id && !existing_lock.is_expired() {
-                return Ok(Json(AcquireLockResponse::Acquired {
+                return Ok((StatusCode::OK, Json(AcquireLockResponse::Acquired {
                     lease_id: existing_lock.lease_id,
                     fencing_token: existing_lock.fencing_token,
                     expires_at: existing_lock.expires_at,
                     metadata: existing_lock.metadata.clone(),
-                }));
+                })));
             }
         }
         return Err(AppError::LockLimitExceeded);
     }
-    
-    match state.lock_handlers.store.acquire_lock(name.clone(), user_id, ttl_seconds, req.metadata.clone(), req.session_id) {
+
+    match state.lock_handlers.store.acquire_lock(name.clone(), user_id, ttl_seconds, req.metadata.clone(), req.session_id, ephemeral, lock_delay_seconds) {
         Ok((lease_id, fencing_token, expires_at)) => {
-            // Only increment counter for new lock acquisitions, not idempotent renewals
-            // We can check if this is a new acquisition by seeing if the fencing token changed
             state.metrics.record_lock_operation("acquire");
             info!("Lock acquired: {} by user {}", name, user_id);
-            Ok(Json(AcquireLockResponse::Acquired {
+            Ok((StatusCode::OK, Json(AcquireLockResponse::Acquired {
                 lease_id,
                 fencing_token,
                 expires_at,
                 metadata: req.metadata.clone(),
-            }))
+            })))
         }
         Err(AppError::LockHeld) => {
             // Return info about who holds it
             if let Some(lock) = state.lock_handlers.store.get_lock(&name) {
-                Ok(Json(AcquireLockResponse::Held {
+                Ok((StatusCode::OK, Json(AcquireLockResponse::Held {
                     holder_id: lock.holder_id,
                     expires_at: lock.expires_at,
                     metadata: lock.metadata.clone(),
-                }))
+                })))
             } else {
-                // This shouldn't happen, but handle gracefully
                 Err(AppError::Internal(anyhow::anyhow!("Lock state inconsistent")))
             }
         }
@@ -270,7 +288,7 @@ mod tests {
         let cloned = handlers.clone();
         let user_id = Uuid::new_v4();
 
-        handlers.store.acquire_lock("shared-test".into(), user_id, 60, None, None).unwrap();
+        handlers.store.acquire_lock("shared-test".into(), user_id, 60, None, None, false, 0).unwrap();
         assert_eq!(cloned.store.count_user_locks(user_id), 1,
             "cloned handlers should see locks created through the original");
     }
