@@ -460,6 +460,7 @@
                 <a href="/" style="color: #a1a1aa; text-decoration: none; font-weight: 500; padding: 8px 16px; border-radius: 6px; transition: all 0.2s;">Home</a>
                 <a href="/dashboard.html" style="color: #e5e5e5; text-decoration: none; font-weight: 500; padding: 8px 16px; border-radius: 6px; background: rgba(255, 255, 255, 0.05);">Dashboard</a>
                 <a href="/docs" style="color: #a1a1aa; text-decoration: none; font-weight: 500; padding: 8px 16px; border-radius: 6px; transition: all 0.2s;">API Docs</a>
+                <button onclick="signOut()" style="background:none;border:1px solid rgba(255,255,255,0.15);border-radius:6px;padding:8px 16px;color:#a1a1aa;cursor:pointer;font-size:14px;font-weight:500;">Sign out</button>
             </nav>
             <div class="user-section">
                 <img id="user-avatar" class="user-avatar" src="" alt="User avatar">
@@ -590,18 +591,20 @@
         // Initialize dashboard
         async function initDashboard() {
             try {
-                // Extract token from URL
-                const token = getTokenFromUrl();
-                if (!token) {
+                // Restore auth from URL (fresh OAuth) or localStorage (returning visitor)
+                const authInfo = getTokenFromUrl();
+                if (!authInfo || !authInfo.token) {
                     showError('No authentication token found. Please sign in again.');
                     window.location.href = '/';
                     return;
                 }
 
+                const token = authInfo.token;
+
                 // Store token and set up auth data
                 authData = { token };
 
-                // Fetch user info from the locks endpoint (this will validate the token)
+                // Validate token against API
                 const locksResponse = await fetch('https://api.octostore.io/locks', {
                     headers: {
                         'Authorization': `Bearer ${token}`
@@ -609,14 +612,13 @@
                 });
 
                 if (!locksResponse.ok) {
+                    // Token invalid / expired — clear storage and re-prompt login
+                    localStorage.removeItem('octostore_auth');
                     throw new Error('Failed to validate token');
                 }
 
-                // For display purposes, we'll extract username from the token (if it contains user info)
-                // Since we don't have a user endpoint, we'll use the GitHub username from the auth process
-                const urlParams = new URLSearchParams(window.location.search);
-                const username = urlParams.get('username') || 'GitHub User';
-                const userId = urlParams.get('user_id') || 'User';
+                const username = authInfo.username || 'GitHub User';
+                const userId   = authInfo.userId   || 'User';
 
                 // Update UI with user info
                 updateUserInfo(username, userId, token);
@@ -644,17 +646,42 @@
         }
 
         function getTokenFromUrl() {
-            // Try URL parameters first
+            // 1. Try URL parameters first (fresh OAuth redirect)
             const urlParams = new URLSearchParams(window.location.search);
-            let token = urlParams.get('token');
-            
-            // Try fragment if not in params
+            let token    = urlParams.get('token');
+            let username = urlParams.get('username');
+            let userId   = urlParams.get('user_id');
+
+            // 2. Try URL fragment if not in query params
             if (!token && window.location.hash) {
                 const hashParams = new URLSearchParams(window.location.hash.substring(1));
-                token = hashParams.get('token');
+                token    = hashParams.get('token')    || token;
+                username = hashParams.get('username') || username;
+                userId   = hashParams.get('user_id')  || userId;
             }
-            
-            return token;
+
+            // 3. Found in URL → persist to localStorage and clean the address bar
+            if (token) {
+                const stored = { token };
+                if (username) stored.username = username;
+                if (userId)   stored.userId   = userId;
+                localStorage.setItem('octostore_auth', JSON.stringify(stored));
+                history.replaceState(null, '', '/dashboard.html');
+                return stored;
+            }
+
+            // 4. Returning visitor → restore from localStorage
+            try {
+                const saved = localStorage.getItem('octostore_auth');
+                if (saved) return JSON.parse(saved);
+            } catch (_) {}
+
+            return null;
+        }
+
+        function signOut() {
+            localStorage.removeItem('octostore_auth');
+            window.location.href = '/';
         }
 
         function updateUserInfo(username, userId, token) {
