@@ -23,6 +23,8 @@ pub struct Lock {
     pub expires_at: DateTime<Utc>,
     pub metadata: Option<String>,
     pub acquired_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,6 +49,7 @@ pub struct LockEvent {
 pub struct AcquireLockRequest {
     pub ttl_seconds: Option<u32>,
     pub metadata: Option<String>,
+    pub session_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize)]
@@ -124,6 +127,50 @@ pub struct GitHubUser {
 #[derive(Debug, Deserialize)]
 pub struct GitHubTokenResponse {
     pub access_token: String,
+}
+
+// ── Session models ──────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Session {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub ttl_seconds: u32,
+    pub expires_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateSessionRequest {
+    pub ttl_seconds: Option<u32>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateSessionResponse {
+    pub session_id: Uuid,
+    pub expires_at: DateTime<Utc>,
+    pub keepalive_interval_secs: u32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct KeepAliveResponse {
+    pub session_id: Uuid,
+    pub expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SessionStatusResponse {
+    pub session_id: Uuid,
+    pub user_id: Uuid,
+    pub expires_at: DateTime<Utc>,
+    pub lock_count: usize,
+    pub active: bool,
+}
+
+impl Session {
+    pub fn is_expired(&self) -> bool {
+        Utc::now() > self.expires_at
+    }
 }
 
 impl Lock {
@@ -207,6 +254,7 @@ mod tests {
             expires_at: now - Duration::minutes(1), // 1 minute ago
             metadata: None,
             acquired_at: now - Duration::minutes(5),
+            session_id: None,
         };
         assert!(expired_lock.is_expired());
 
@@ -219,6 +267,7 @@ mod tests {
             expires_at: now + Duration::minutes(5), // 5 minutes from now
             metadata: Some("test metadata".to_string()),
             acquired_at: now,
+            session_id: None,
         };
         assert!(!active_lock.is_expired());
 
@@ -231,6 +280,7 @@ mod tests {
             expires_at: now,
             metadata: None,
             acquired_at: now - Duration::minutes(1),
+            session_id: None,
         };
         // This might be flaky due to timing, but should generally be expired
         // since some time has passed since we created 'now'
