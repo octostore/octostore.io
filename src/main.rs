@@ -5,6 +5,7 @@ mod error;
 mod locks;
 mod metrics;
 mod models;
+mod sessions;
 mod store;
 
 use app::AppState;
@@ -20,6 +21,7 @@ use axum::{
 use config::Config;
 use locks::{acquire_lock, get_lock_status, list_user_locks, release_lock, renew_lock, watch_lock, LockHandlers};
 use metrics::{endpoint_from_path, Metrics};
+use sessions::SessionStore;
 
 use std::sync::{Arc, Mutex};
 use store::{DbConn, LockStore};
@@ -225,11 +227,17 @@ async fn main() -> anyhow::Result<()> {
     info!("Loaded fencing counter: {}", initial_fencing_token);
 
     // Initialize lock store — reuses the same shared DbConn as AuthService
-    let lock_store = LockStore::new(db, initial_fencing_token)?;
-    
-    // Start background expiry task
+    let lock_store = LockStore::new(db.clone(), initial_fencing_token)?;
+
+    // Initialize session store — reuses the same shared DbConn
+    let session_store = SessionStore::new(db)?;
+
+    // Start background expiry tasks
     let expiry_store = lock_store.clone();
     expiry_store.start_expiry_task();
+
+    let session_expiry_store = session_store.clone();
+    session_expiry_store.start_expiry_task(lock_store.clone());
 
     // Create app state
     let lock_handlers = LockHandlers::new(lock_store.clone());
@@ -239,6 +247,7 @@ async fn main() -> anyhow::Result<()> {
         auth_service: auth_service.clone(),
         config: config.clone(),
         metrics: metrics.clone(),
+        session_store: session_store.clone(),
     };
 
     // Build router: GitHub auth routes are only registered when OAuth credentials
@@ -256,6 +265,10 @@ async fn main() -> anyhow::Result<()> {
         .merge(auth_router)
         // Auth routes (always available)
         .route("/auth/token/rotate", post(rotate_token))
+        // Session routes
+        .route("/sessions", post(sessions::create_session))
+        .route("/sessions/:id/keepalive", post(sessions::keepalive))
+        .route("/sessions/:id", get(sessions::get_session_status).delete(sessions::terminate_session))
         // Lock routes
         .route("/locks/:name/acquire", post(acquire_lock))
         .route("/locks/:name/release", post(release_lock))
@@ -461,16 +474,18 @@ mod tests {
             rusqlite::Connection::open(&config.database_url).unwrap(),
         ));
         let auth_service = AuthService::new(config.clone(), db.clone()).unwrap();
-        let lock_store = LockStore::new(db, 0).unwrap();
+        let lock_store = LockStore::new(db.clone(), 0).unwrap();
+        let session_store = SessionStore::new(db).unwrap();
 
         let lock_handlers = LockHandlers::new(lock_store.clone());
         let metrics = Metrics::new();
-        
+
         let app_state = AppState {
             lock_handlers,
             auth_service,
             config: config.clone(),
             metrics,
+            session_store,
         };
 
         let auth_router = if config.is_github_enabled() {
