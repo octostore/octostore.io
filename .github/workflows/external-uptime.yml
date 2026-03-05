@@ -9,6 +9,9 @@ permissions:
   contents: read
   issues: write
 
+env:
+  API_BASE: https://api.octostore.io
+
 concurrency:
   group: external-uptime-check
   cancel-in-progress: false
@@ -23,7 +26,7 @@ jobs:
         run: |
           set -euo pipefail
           BODY_FILE=$(mktemp)
-          CODE=$(curl -sS --max-time 10 -o "$BODY_FILE" -w "%{http_code}" https://api.octostore.io/health || echo "000")
+          CODE=$(curl -sS --max-time 10 -o "$BODY_FILE" -w "%{http_code}" "$API_BASE/health" || echo "000")
           BODY=$(tr -d '\r\n' < "$BODY_FILE")
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
           echo "body=$BODY" >> "$GITHUB_OUTPUT"
@@ -33,7 +36,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          CODE=$(curl -sS --max-time 10 -o /dev/null -w "%{http_code}" https://api.octostore.io/locks || echo "000")
+          CODE=$(curl -sS --max-time 10 -o /dev/null -w "%{http_code}" "$API_BASE/locks" || echo "000")
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
 
       - name: Check OpenAPI version exposed
@@ -41,9 +44,55 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          OPENAPI=$(curl -sS --max-time 10 https://api.octostore.io/openapi.yaml || true)
+          OPENAPI=$(curl -sS --max-time 10 "$API_BASE/openapi.yaml" || true)
           VERSION=$(printf '%s\n' "$OPENAPI" | awk '/^  version:/ {print $2; exit}')
           echo "value=${VERSION:-none}" >> "$GITHUB_OUTPUT"
+
+      - name: Check usage endpoint (optional)
+        id: usage
+        shell: bash
+        env:
+          USAGE_ENDPOINT: ${{ secrets.OCTOSTORE_USAGE_ENDPOINT }}
+          USAGE_TOKEN: ${{ secrets.OCTOSTORE_USAGE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${USAGE_ENDPOINT:-}" ]]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "status=skipped" >> "$GITHUB_OUTPUT"
+            echo "summary=usage endpoint not configured" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          AUTH_ARGS=()
+          if [[ -n "${USAGE_TOKEN:-}" ]]; then
+            AUTH_ARGS=(-H "Authorization: Bearer $USAGE_TOKEN")
+          fi
+
+          BODY_FILE=$(mktemp)
+          CODE=$(curl -sS --max-time 15 "${AUTH_ARGS[@]}" -o "$BODY_FILE" -w "%{http_code}" "$USAGE_ENDPOINT" || echo "000")
+
+          if [[ "$CODE" != "200" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "status=fail" >> "$GITHUB_OUTPUT"
+            echo "summary=usage endpoint http=$CODE" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          QUERIES_24H=$(jq -r '.queries_24h // .usage.queries_24h // .queries24h // empty' "$BODY_FILE" 2>/dev/null || true)
+          VISITS_24H=$(jq -r '.site_visits_24h // .visits_24h // .analytics.site_visits_24h // empty' "$BODY_FILE" 2>/dev/null || true)
+
+          if [[ -z "$QUERIES_24H" || -z "$VISITS_24H" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "status=fail" >> "$GITHUB_OUTPUT"
+            echo "summary=usage payload missing required fields (queries_24h/site_visits_24h)" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+          echo "status=ok" >> "$GITHUB_OUTPUT"
+          echo "queries_24h=$QUERIES_24H" >> "$GITHUB_OUTPUT"
+          echo "visits_24h=$VISITS_24H" >> "$GITHUB_OUTPUT"
+          echo "summary=queries_24h=$QUERIES_24H, site_visits_24h=$VISITS_24H" >> "$GITHUB_OUTPUT"
 
       - name: Evaluate probe
         id: eval
@@ -55,12 +104,16 @@ jobs:
           if [[ "${{ steps.health.outputs.body }}" != "OK" ]]; then status="fail"; fi
           if [[ "${{ steps.locks.outputs.code }}" != "401" ]]; then status="fail"; fi
           if [[ "${{ steps.version.outputs.value }}" == "none" ]]; then status="fail"; fi
+          if [[ "${{ steps.usage.outputs.status }}" == "fail" ]]; then status="fail"; fi
+
+          usage_summary="${{ steps.usage.outputs.summary || 'usage check not run' }}"
           echo "status=$status" >> "$GITHUB_OUTPUT"
-          echo "summary=health=${{ steps.health.outputs.code }}/${{ steps.health.outputs.body }}, locks=${{ steps.locks.outputs.code }}, version=${{ steps.version.outputs.value }}" >> "$GITHUB_OUTPUT"
+          echo "summary=health=${{ steps.health.outputs.code }}/${{ steps.health.outputs.body }}, locks=${{ steps.locks.outputs.code }}, version=${{ steps.version.outputs.value }}, usage=${usage_summary}" >> "$GITHUB_OUTPUT"
           [[ "$status" == "ok" ]]
 
       - name: Create or update outage issue
         if: failure()
+        id: outage_issue
         uses: actions/github-script@v7
         with:
           script: |
@@ -78,25 +131,31 @@ jobs:
             });
 
             const existing = openIssues.find(i => i.title === title || (i.body || '').includes(marker));
+            let issueNumber;
             if (existing) {
-              await github.rest.issues.createComment({
-                owner,
-                repo,
-                issue_number: existing.number,
-                body,
-              });
+              issueNumber = existing.number;
+              await github.rest.issues.createComment({ owner, repo, issue_number: issueNumber, body });
             } else {
-              await github.rest.issues.create({
-                owner,
-                repo,
-                title,
-                body,
-                labels: ['bug']
-              });
+              const created = await github.rest.issues.create({ owner, repo, title, body, labels: ['bug'] });
+              issueNumber = created.data.number;
             }
+
+            core.setOutput('issue_number', String(issueNumber));
+            core.setOutput('issue_url', `${context.serverUrl}/${owner}/${repo}/issues/${issueNumber}`);
+
+      - name: Notify Discord on outage
+        if: failure() && secrets.OCTOSTORE_DISCORD_WEBHOOK_URL != ''
+        shell: bash
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.OCTOSTORE_DISCORD_WEBHOOK_URL }}
+        run: |
+          set -euo pipefail
+          MSG="🚨 OctoStore external monitor failure\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\nIssue: ${{ steps.outage_issue.outputs.issue_url || 'n/a' }}\nSummary: ${{ steps.eval.outputs.summary || 'probe failed before summary was produced' }}"
+          jq -n --arg content "$MSG" '{content: $content}' | curl -sS -X POST -H 'Content-Type: application/json' --data @- "$DISCORD_WEBHOOK_URL" >/dev/null
 
       - name: Auto-close outage issue when recovered
         if: success()
+        id: recover_issue
         uses: actions/github-script@v7
         with:
           script: |
@@ -112,7 +171,10 @@ jobs:
             });
 
             const existing = openIssues.find(i => (i.body || '').includes(marker));
-            if (!existing) return;
+            if (!existing) {
+              core.setOutput('closed', 'false');
+              return;
+            }
 
             await github.rest.issues.createComment({
               owner,
@@ -121,9 +183,16 @@ jobs:
               body: `✅ Recovery detected at ${new Date().toISOString()} UTC. Summary: ${{ steps.eval.outputs.summary }}`,
             });
 
-            await github.rest.issues.update({
-              owner,
-              repo,
-              issue_number: existing.number,
-              state: 'closed'
-            });
+            await github.rest.issues.update({ owner, repo, issue_number: existing.number, state: 'closed' });
+            core.setOutput('closed', 'true');
+            core.setOutput('issue_url', `${context.serverUrl}/${owner}/${repo}/issues/${existing.number}`);
+
+      - name: Notify Discord on recovery
+        if: success() && steps.recover_issue.outputs.closed == 'true' && secrets.OCTOSTORE_DISCORD_WEBHOOK_URL != ''
+        shell: bash
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.OCTOSTORE_DISCORD_WEBHOOK_URL }}
+        run: |
+          set -euo pipefail
+          MSG="✅ OctoStore external monitor recovered\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\nIssue closed: ${{ steps.recover_issue.outputs.issue_url }}\nSummary: ${{ steps.eval.outputs.summary }}"
+          jq -n --arg content "$MSG" '{content: $content}' | curl -sS -X POST -H 'Content-Type: application/json' --data @- "$DISCORD_WEBHOOK_URL" >/dev/null
