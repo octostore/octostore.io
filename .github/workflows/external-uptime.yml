@@ -41,7 +41,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          VERSION=$(curl -sS --max-time 10 https://api.octostore.io/openapi.yaml | awk '/^  version:/ {print $2; exit}')
+          OPENAPI=$(curl -sS --max-time 10 https://api.octostore.io/openapi.yaml || true)
+          VERSION=$(printf '%s\n' "$OPENAPI" | awk '/^  version:/ {print $2; exit}')
           echo "value=${VERSION:-none}" >> "$GITHUB_OUTPUT"
 
       - name: Evaluate probe
