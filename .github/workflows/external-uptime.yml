@@ -1,0 +1,128 @@
+name: External Uptime Check
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: external-uptime-check
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check /health
+        id: health
+        shell: bash
+        run: |
+          set -euo pipefail
+          BODY_FILE=$(mktemp)
+          CODE=$(curl -sS --max-time 10 -o "$BODY_FILE" -w "%{http_code}" https://api.octostore.io/health || echo "000")
+          BODY=$(tr -d '\r\n' < "$BODY_FILE")
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "body=$BODY" >> "$GITHUB_OUTPUT"
+
+      - name: Check unauthenticated /locks returns 401
+        id: locks
+        shell: bash
+        run: |
+          set -euo pipefail
+          CODE=$(curl -sS --max-time 10 -o /dev/null -w "%{http_code}" https://api.octostore.io/locks || echo "000")
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+
+      - name: Check OpenAPI version exposed
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=$(curl -sS --max-time 10 https://api.octostore.io/openapi.yaml | awk '/^  version:/ {print $2; exit}')
+          echo "value=${VERSION:-none}" >> "$GITHUB_OUTPUT"
+
+      - name: Evaluate probe
+        id: eval
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="ok"
+          if [[ "${{ steps.health.outputs.code }}" != "200" ]]; then status="fail"; fi
+          if [[ "${{ steps.health.outputs.body }}" != "OK" ]]; then status="fail"; fi
+          if [[ "${{ steps.locks.outputs.code }}" != "401" ]]; then status="fail"; fi
+          if [[ "${{ steps.version.outputs.value }}" == "none" ]]; then status="fail"; fi
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "summary=health=${{ steps.health.outputs.code }}/${{ steps.health.outputs.body }}, locks=${{ steps.locks.outputs.code }}, version=${{ steps.version.outputs.value }}" >> "$GITHUB_OUTPUT"
+          [[ "$status" == "ok" ]]
+
+      - name: Create or update outage issue
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const marker = '[external-uptime-monitor]';
+            const title = '🚨 OctoStore external uptime check failing';
+            const body = `${marker}\n\nThe GitHub-hosted uptime probe failed.\n\n- Run: ${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}\n- Summary: ${{ steps.eval.outputs.summary || 'probe failed before summary was produced' }}\n- Timestamp (UTC): ${new Date().toISOString()}\n\nThis monitor runs outside demo-host so it still fires if the host is down.`;
+
+            const openIssues = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: 'open',
+              per_page: 100,
+            });
+
+            const existing = openIssues.find(i => i.title === title || (i.body || '').includes(marker));
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: existing.number,
+                body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner,
+                repo,
+                title,
+                body,
+                labels: ['bug']
+              });
+            }
+
+      - name: Auto-close outage issue when recovered
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const marker = '[external-uptime-monitor]';
+
+            const openIssues = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: 'open',
+              per_page: 100,
+            });
+
+            const existing = openIssues.find(i => (i.body || '').includes(marker));
+            if (!existing) return;
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: existing.number,
+              body: `✅ Recovery detected at ${new Date().toISOString()} UTC. Summary: ${{ steps.eval.outputs.summary }}`,
+            });
+
+            await github.rest.issues.update({
+              owner,
+              repo,
+              issue_number: existing.number,
+              state: 'closed'
+            });
