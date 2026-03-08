@@ -7,6 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
@@ -23,16 +24,18 @@
             --gradient: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(168, 85, 247, 0.1) 100%);
             --shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
             --shadow-lg: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+            --green: #10b981;
+            --yellow: #f59e0b;
+            --red: #ef4444;
+            --blue: #6366f1;
+            --purple: #a855f7;
+            --orange: #f97316;
+            --cyan: #06b6d4;
         }
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         a { color: #a1a1aa; text-decoration: none; }
-        a:hover { color: var(--text-primary, #ffffff); }
+        a:hover { color: var(--text-primary); }
 
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -42,14 +45,11 @@
             overflow-x: hidden;
         }
 
-        /* Background decoration */
         body::before {
             content: '';
             position: fixed;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
+            top: -50%; left: -50%;
+            width: 200%; height: 200%;
             background: radial-gradient(circle at 25% 25%, rgba(99, 102, 241, 0.05) 0%, transparent 50%),
                         radial-gradient(circle at 75% 75%, rgba(168, 85, 247, 0.05) 0%, transparent 50%);
             z-index: -1;
@@ -61,323 +61,331 @@
             50% { transform: rotate(180deg) scale(1.1); }
         }
 
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 0 24px;
-        }
+        .container { max-width: 1400px; margin: 0 auto; padding: 0 24px; }
 
-        /* Header */
-        header {
-            padding: 40px 0 60px;
-            text-align: center;
-            position: relative;
-        }
+        /* ── NAV ── */
+        header { padding: 40px 0 20px; text-align: center; position: relative; }
 
-        .auth-section {
+        /* ── TABS ── */
+        .tab-bar {
+            display: flex;
+            gap: 4px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 32px;
+            padding-bottom: 0;
+        }
+        .tab-btn {
+            padding: 10px 20px;
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            color: var(--text-muted);
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+            margin-bottom: -1px;
+        }
+        .tab-btn:hover { color: var(--text-secondary); }
+        .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+
+        /* ── SHARED COMPONENTS ── */
+        .auto-refresh {
+            display: flex; align-items: center; gap: 8px;
+            font-size: 12px; color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+        .refresh-dot {
+            width: 6px; height: 6px; border-radius: 50%;
+            background: var(--green);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.8); }
+        }
+        .last-updated { font-size: 12px; color: var(--text-muted); margin-bottom: 24px; }
+
+        .time-window-selector {
+            display: flex; gap: 8px; margin-bottom: 24px;
+        }
+        .time-btn {
+            padding: 8px 16px;
             background: var(--bg-secondary);
             border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 24px;
-            margin-bottom: 40px;
-        }
-
-        .auth-input-group {
-            display: flex;
-            gap: 16px;
-            align-items: center;
-            flex-wrap: wrap;
-            justify-content: center;
-        }
-
-        .auth-input {
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 12px 16px;
-            color: var(--text-primary);
-            font-size: 14px;
-            width: 300px;
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-        }
-
-        .auth-input:focus {
-            outline: none;
-            border-color: var(--accent);
-        }
-
-        .auth-btn {
-            background: var(--accent);
-            border: none;
-            border-radius: 8px;
-            padding: 12px 24px;
-            color: white;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.2s ease;
-        }
-
-        .auth-btn:hover {
-            background: var(--accent-hover);
-        }
-
-        .auth-status {
-            margin-top: 16px;
-            font-size: 14px;
-        }
-
-        .auth-status.success {
-            color: #10b981;
-        }
-
-        .auth-status.error {
-            color: #ef4444;
-        }
-
-        .dashboard-content {
-            display: block;
-        }
-
-        /* dashboard always visible */
-
-        h1 {
-            font-size: 2.5rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            margin-bottom: 16px;
-        }
-
-        /* Time window selector */
-        .time-window-selector {
-            display: flex;
-            gap: 8px;
-            justify-content: center;
-            margin-bottom: 32px;
-            flex-wrap: wrap;
-        }
-
-        .time-btn {
-            background: transparent;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 8px 16px;
+            border-radius: 6px;
             color: var(--text-muted);
+            font-size: 13px;
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: all 0.2s;
+            font-family: inherit;
         }
+        .time-btn:hover { border-color: var(--accent); color: var(--text-secondary); }
+        .time-btn.active { background: var(--accent); border-color: var(--accent); color: white; }
 
-        .time-btn.active {
-            background: var(--accent);
-            border-color: var(--accent);
-            color: white;
-        }
-
-        .time-btn:hover:not(.active) {
-            border-color: var(--border-hover);
-            color: var(--text-secondary);
-        }
-
-        /* Stats cards */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 24px;
-            margin-bottom: 40px;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px; margin-bottom: 24px;
         }
-
         .stat-card {
             background: var(--bg-secondary);
             border: 1px solid var(--border);
             border-radius: 12px;
-            padding: 24px;
-            transition: all 0.3s ease;
+            padding: 20px;
+            transition: border-color 0.2s;
         }
+        .stat-card:hover { border-color: var(--border-hover); }
+        .stat-title { font-size: 12px; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+        .stat-value { font-size: 28px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; }
+        .stat-subtitle { font-size: 12px; color: var(--text-muted); }
+        .stat-value.good { color: var(--green); }
+        .stat-value.warn { color: var(--yellow); }
+        .stat-value.bad  { color: var(--red); }
 
-        .stat-card:hover {
-            transform: translateY(-2px);
-            border-color: var(--border-hover);
-            box-shadow: var(--shadow);
-        }
-
-        .stat-title {
-            font-size: 14px;
-            font-weight: 500;
-            color: var(--text-muted);
-            margin-bottom: 8px;
-        }
-
-        .stat-value {
-            font-size: 2rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            margin-bottom: 4px;
-        }
-
-        .stat-subtitle {
-            font-size: 12px;
-            color: var(--text-muted);
-        }
-
-        /* Charts */
         .charts-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 32px;
-            margin-bottom: 40px;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 16px; margin-bottom: 24px;
         }
-
         .chart-container {
             background: var(--bg-secondary);
             border: 1px solid var(--border);
             border-radius: 12px;
-            padding: 24px;
-            height: 400px;
+            padding: 20px;
         }
+        .chart-title { font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-bottom: 16px; }
+        .chart-wrapper { height: 200px; position: relative; }
 
-        .chart-title {
-            font-size: 1.2rem;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin-bottom: 20px;
-        }
-
-        .chart-wrapper {
-            position: relative;
-            height: calc(100% - 40px);
-        }
-
-        /* Users section */
         .users-section {
             background: var(--bg-secondary);
             border: 1px solid var(--border);
             border-radius: 12px;
-            padding: 24px;
-            margin-bottom: 40px;
+            padding: 20px;
         }
-
-        .users-title {
-            font-size: 1.2rem;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin-bottom: 20px;
-        }
-
-        .users-list {
-            max-height: 300px;
-            overflow-y: auto;
-        }
-
+        .users-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
+        .users-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
         .user-item {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 16px;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .user-name { font-size: 14px; font-weight: 500; }
+        .user-locks { font-size: 12px; color: var(--text-muted); }
+
+        /* ── OTEL PANEL ── */
+        .otel-header {
             display: flex;
-            justify-content: space-between;
             align-items: center;
-            padding: 12px 0;
+            gap: 10px;
+            margin-bottom: 24px;
+        }
+        .otel-badge {
+            font-size: 11px;
+            font-weight: 600;
+            padding: 3px 8px;
+            border-radius: 4px;
+            background: rgba(99, 102, 241, 0.15);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .otel-status-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: var(--text-muted);
+            display: inline-block;
+            margin-right: 6px;
+        }
+        .otel-status-dot.enabled  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+        .otel-status-dot.disabled { background: var(--text-muted); }
+
+        .otel-section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+        .otel-section-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
             border-bottom: 1px solid var(--border);
         }
 
-        .user-item:last-child {
-            border-bottom: none;
+        /* metric table */
+        .metric-table { width: 100%; border-collapse: collapse; }
+        .metric-table th {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            text-align: left;
+            padding: 6px 12px;
+            border-bottom: 1px solid var(--border);
         }
+        .metric-table td {
+            font-size: 13px;
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            color: var(--text-secondary);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .metric-table tr:last-child td { border-bottom: none; }
+        .metric-table tr:hover td { background: rgba(255,255,255,0.02); }
+        .metric-name { color: var(--text-primary) !important; font-weight: 500; }
+        .metric-badge {
+            display: inline-block;
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: inherit;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+        .badge-counter  { background: rgba(99,102,241,0.15); color: var(--blue); border: 1px solid rgba(99,102,241,0.25); }
+        .badge-hist     { background: rgba(168,85,247,0.15); color: var(--purple); border: 1px solid rgba(168,85,247,0.25); }
+        .badge-gauge    { background: rgba(6,182,212,0.15); color: var(--cyan); border: 1px solid rgba(6,182,212,0.25); }
 
-        .user-name {
+        /* latency bar */
+        .latency-bar-wrap { display: flex; align-items: center; gap: 8px; }
+        .latency-bar-bg {
+            flex: 1; height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;
+        }
+        .latency-bar-fill {
+            height: 100%; border-radius: 3px;
+            transition: width 0.5s ease;
+            background: linear-gradient(90deg, var(--green), var(--blue));
+        }
+        .latency-bar-fill.warn { background: linear-gradient(90deg, var(--yellow), var(--orange)); }
+        .latency-bar-fill.bad  { background: linear-gradient(90deg, var(--red), var(--orange)); }
+        .latency-val { font-size: 12px; color: var(--text-muted); min-width: 50px; text-align: right; }
+
+        /* endpoint table */
+        .endpoint-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 12px;
+        }
+        .endpoint-card {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 14px 16px;
+        }
+        .endpoint-name {
+            font-size: 13px;
+            font-weight: 600;
             color: var(--text-primary);
-            font-weight: 500;
-        }
-
-        .user-locks {
-            color: var(--text-muted);
-            font-size: 14px;
-        }
-
-        /* Responsive */
-        @media (max-width: 768px) {
-            .charts-grid {
-                grid-template-columns: 1fr;
-            }
-            
-            .container {
-                padding: 0 16px;
-            }
-
-            .auth-input-group {
-                flex-direction: column;
-                align-items: stretch;
-            }
-
-            .auth-input {
-                width: 100%;
-            }
-        }
-
-        /* Last updated indicator */
-        .last-updated {
-            text-align: center;
-            color: var(--text-muted);
-            font-size: 12px;
-            margin-bottom: 20px;
-        }
-
-        /* Auto-refresh indicator */
-        .auto-refresh {
+            margin-bottom: 10px;
             display: flex;
+            justify-content: space-between;
             align-items: center;
-            justify-content: center;
-            gap: 8px;
-            font-size: 12px;
+        }
+        .endpoint-count {
+            font-size: 11px;
             color: var(--text-muted);
-            margin-bottom: 20px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .endpoint-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 8px; }
+        .ep-stat-val { font-size: 16px; font-weight: 700; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; }
+        .ep-stat-lbl { font-size: 10px; color: var(--text-muted); }
+        .ep-error-bar {
+            height: 3px;
+            border-radius: 2px;
+            background: rgba(255,255,255,0.06);
+            overflow: hidden;
+            margin-top: 4px;
+        }
+        .ep-error-fill {
+            height: 100%;
+            border-radius: 2px;
+            background: var(--red);
+            transition: width 0.5s ease;
         }
 
-        .refresh-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #10b981;
-            animation: pulse 2s infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-
-        .loading {
+        /* otel not configured placeholder */
+        .otel-placeholder {
             text-align: center;
+            padding: 48px 24px;
             color: var(--text-muted);
-            padding: 40px;
         }
+        .otel-placeholder h3 { font-size: 16px; color: var(--text-secondary); margin-bottom: 8px; }
+        .otel-placeholder pre {
+            display: inline-block;
+            margin-top: 16px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 20px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            color: var(--green);
+            text-align: left;
+        }
+
+        /* sparkline row */
+        .sparkline-row {
+            display: flex; align-items: center; gap: 12px;
+            padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.04);
+        }
+        .sparkline-row:last-child { border-bottom: none; }
+        .sparkline-label { font-size: 13px; color: var(--text-secondary); min-width: 120px; }
+        .sparkline-canvas { flex: 1; height: 32px; }
+        .sparkline-current { font-size: 13px; font-weight: 600; color: var(--text-primary);
+            min-width: 60px; text-align: right; font-family: 'JetBrains Mono', monospace; }
+
+        .loading { text-align: center; color: var(--text-muted); padding: 40px; }
+
+        .auth-input-group { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; justify-content: center; }
     </style>
 </head>
 <body>
     <div class="container">
-        <nav style="display: flex; justify-content: space-between; align-items: center; padding: 16px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08); margin-bottom: 40px;">
-            <a href="/" style="display: flex; align-items: center; gap: 8px; text-decoration: none;">
+        <nav style="display: flex; justify-content: space-between; align-items: center; padding: 16px 0; border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 40px;">
+            <a href="/" style="display: flex; align-items: center; gap: 8px;">
                 <span style="font-size: 1.5rem;">🐙</span>
-                <span style="font-size: 1.25rem; font-weight: 600; color: #ffffff;">OctoStore</span>
+                <span style="font-size: 1.25rem; font-weight: 600; color: #fff;">OctoStore</span>
             </a>
             <div style="display: flex; gap: 24px; align-items: center;">
-                <a href="/" style="color: #a1a1aa; text-decoration: none; font-weight: 500; padding: 8px 16px; border-radius: 6px; transition: all 0.2s;">Home</a>
-                <a href="/dashboard.html" style="color: #a1a1aa; text-decoration: none; font-weight: 500; padding: 8px 16px; border-radius: 6px; transition: all 0.2s;">Dashboard</a>
-                <a href="/admin.html" style="color: #e5e5e5; text-decoration: none; font-weight: 500; padding: 8px 16px; border-radius: 6px; transition: all 0.2s;">Admin</a>
-                <a href="https://api.octostore.io/docs" style="color: #a1a1aa; text-decoration: none; font-weight: 500; padding: 8px 16px; border-radius: 6px; transition: all 0.2s;">API Docs</a>
+                <a href="/" style="font-weight: 500; padding: 8px 16px; border-radius: 6px; transition: all 0.2s;">Home</a>
+                <a href="/dashboard.html" style="font-weight: 500; padding: 8px 16px; border-radius: 6px; transition: all 0.2s;">Dashboard</a>
+                <a href="/admin.html" style="color: #e5e5e5; font-weight: 500; padding: 8px 16px; border-radius: 6px; transition: all 0.2s;">Admin</a>
+                <a href="https://api.octostore.io/docs" style="font-weight: 500; padding: 8px 16px; border-radius: 6px; transition: all 0.2s;">API Docs</a>
             </div>
         </nav>
-        
+
         <header>
             <h1>🔧 Admin Dashboard</h1>
-            
             <div id="authStatus" style="font-size:12px;color:#71717a;margin-top:4px;"></div>
-            <button id="resetKeyBtn" title="Set admin key" style="position:absolute;top:16px;right:20px;background:none;border:none;color:#52525b;font-size:18px;cursor:pointer;opacity:0.5;" onclick="dashboard.promptKey()">⚙️</button>
+            <button id="resetKeyBtn" title="Set admin key"
+                style="position:absolute;top:16px;right:20px;background:none;border:none;color:#52525b;font-size:18px;cursor:pointer;opacity:0.5;"
+                onclick="app.promptKey()">⚙️</button>
         </header>
 
-        <div id="dashboardContent" class="dashboard-content">
-            <div class="auto-refresh">
-                <div class="refresh-dot"></div>
-                Auto-refreshing every 30 seconds
-            </div>
-            
+        <!-- Tab bar -->
+        <div class="tab-bar">
+            <button class="tab-btn active" data-tab="overview">📊 Overview</button>
+            <button class="tab-btn" data-tab="telemetry">📡 OpenTelemetry</button>
+            <button class="tab-btn" data-tab="users">👥 Users & Locks</button>
+        </div>
+
+        <!-- ═══════════════════ OVERVIEW TAB ═══════════════════ -->
+        <div class="tab-panel active" id="tab-overview">
+            <div class="auto-refresh"><div class="refresh-dot"></div> Auto-refreshing every 30s</div>
             <div class="last-updated" id="lastUpdated">Last updated: Never</div>
-            
+
             <div class="time-window-selector">
                 <button class="time-btn active" data-window="1h">1 Hour</button>
                 <button class="time-btn" data-window="12h">12 Hours</button>
@@ -388,22 +396,22 @@
             <div class="stats-grid">
                 <div class="stat-card">
                     <div class="stat-title">Total Users</div>
-                    <div class="stat-value" id="totalUsers">-</div>
+                    <div class="stat-value" id="totalUsers">—</div>
                     <div class="stat-subtitle">Registered users</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-title">Active Locks</div>
-                    <div class="stat-value" id="activeLocks">-</div>
+                    <div class="stat-value" id="activeLocks">—</div>
                     <div class="stat-subtitle">Currently held</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-title">Uptime</div>
-                    <div class="stat-value" id="uptime">-</div>
+                    <div class="stat-value" id="uptime">—</div>
                     <div class="stat-subtitle">Hours online</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-title">Total Operations</div>
-                    <div class="stat-value" id="totalOps">-</div>
+                    <div class="stat-value" id="totalOps">—</div>
                     <div class="stat-subtitle">Acquire + Release</div>
                 </div>
             </div>
@@ -411,339 +419,543 @@
             <div class="charts-grid">
                 <div class="chart-container">
                     <div class="chart-title">Request Volume</div>
-                    <div class="chart-wrapper">
-                        <canvas id="requestVolumeChart"></canvas>
-                    </div>
+                    <div class="chart-wrapper"><canvas id="requestVolumeChart"></canvas></div>
                 </div>
                 <div class="chart-container">
                     <div class="chart-title">Active Locks Over Time</div>
-                    <div class="chart-wrapper">
-                        <canvas id="activeLocksChart"></canvas>
-                    </div>
+                    <div class="chart-wrapper"><canvas id="activeLocksChart"></canvas></div>
                 </div>
                 <div class="chart-container">
                     <div class="chart-title">Acquire Rate</div>
-                    <div class="chart-wrapper">
-                        <canvas id="acquireRateChart"></canvas>
-                    </div>
+                    <div class="chart-wrapper"><canvas id="acquireRateChart"></canvas></div>
                 </div>
                 <div class="chart-container">
                     <div class="chart-title">Release Rate</div>
-                    <div class="chart-wrapper">
-                        <canvas id="releaseRateChart"></canvas>
+                    <div class="chart-wrapper"><canvas id="releaseRateChart"></canvas></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══════════════════ TELEMETRY TAB ═══════════════════ -->
+        <div class="tab-panel" id="tab-telemetry">
+            <div class="otel-header">
+                <span class="otel-badge">OpenTelemetry</span>
+                <span id="otelStatusText" style="font-size:13px;color:var(--text-muted);">
+                    <span class="otel-status-dot" id="otelDot"></span>Checking…
+                </span>
+                <span style="flex:1"></span>
+                <div class="auto-refresh"><div class="refresh-dot"></div> Live — refreshing every 10s</div>
+            </div>
+
+            <!-- OTEL not configured notice (shown when disabled) -->
+            <div id="otelNotConfigured" class="otel-section" style="display:none;">
+                <div class="otel-placeholder">
+                    <h3>OpenTelemetry not configured</h3>
+                    <p>Set the endpoint env var to enable OTEL export to your collector:</p>
+                    <pre>OTEL_EXPORTER_OTLP_ENDPOINT=http://your-collector:4317
+OTEL_SERVICE_NAME=octostore          # optional, defaults to "octostore"
+OTEL_SDK_DISABLED=false              # optional</pre>
+                    <p style="margin-top:16px;font-size:13px;">
+                        Works with any OTEL-compatible backend:<br>
+                        <a href="https://grafana.com/oss/tempo/" target="_blank" style="color:var(--accent)">Grafana Tempo</a> ·
+                        <a href="https://www.jaegertracing.io/" target="_blank" style="color:var(--accent)">Jaeger</a> ·
+                        <a href="https://honeycomb.io" target="_blank" style="color:var(--accent)">Honeycomb</a> ·
+                        <a href="https://opentelemetry.io/docs/collector/" target="_blank" style="color:var(--accent)">OTEL Collector</a>
+                    </p>
+                    <p style="margin-top:12px;font-size:12px;color:var(--text-muted);">
+                        Internal metrics below are always collected regardless of OTEL export status.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Lock operation metrics -->
+            <div class="otel-section">
+                <div class="otel-section-title">Lock Operations</div>
+                <table class="metric-table">
+                    <thead>
+                        <tr>
+                            <th>Metric</th>
+                            <th>Type</th>
+                            <th>Value</th>
+                            <th style="width:200px;">Rate</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="metric-name">octostore.locks.acquired</td>
+                            <td><span class="metric-badge badge-counter">counter</span></td>
+                            <td id="m_lock_acquired">—</td>
+                            <td><div class="latency-bar-wrap"><div class="latency-bar-bg"><div class="latency-bar-fill" id="bar_lock_acquired" style="width:0%"></div></div></div></td>
+                        </tr>
+                        <tr>
+                            <td class="metric-name">octostore.locks.released</td>
+                            <td><span class="metric-badge badge-counter">counter</span></td>
+                            <td id="m_lock_released">—</td>
+                            <td><div class="latency-bar-wrap"><div class="latency-bar-bg"><div class="latency-bar-fill" id="bar_lock_released" style="width:0%"></div></div></div></td>
+                        </tr>
+                        <tr>
+                            <td class="metric-name">octostore.locks.expired</td>
+                            <td><span class="metric-badge badge-counter">counter</span></td>
+                            <td id="m_lock_expired">—</td>
+                            <td><div class="latency-bar-wrap"><div class="latency-bar-bg"><div class="latency-bar-fill warn" id="bar_lock_expired" style="width:0%"></div></div></div></td>
+                        </tr>
+                        <tr>
+                            <td class="metric-name">octostore.locks.contention</td>
+                            <td><span class="metric-badge badge-counter">counter</span></td>
+                            <td id="m_lock_contention">—</td>
+                            <td><div class="latency-bar-wrap"><div class="latency-bar-bg"><div class="latency-bar-fill bad" id="bar_lock_contention" style="width:0%"></div></div></div></td>
+                        </tr>
+                        <tr>
+                            <td class="metric-name">octostore.locks.active</td>
+                            <td><span class="metric-badge badge-gauge">gauge</span></td>
+                            <td id="m_lock_active">—</td>
+                            <td></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- HTTP endpoint breakdown -->
+            <div class="otel-section">
+                <div class="otel-section-title">HTTP Endpoints — http.server.request.duration</div>
+                <div class="endpoint-grid" id="endpointGrid">
+                    <div class="loading">Loading endpoint metrics…</div>
+                </div>
+            </div>
+
+            <!-- Latency percentiles -->
+            <div class="otel-section">
+                <div class="otel-section-title">Lock Hold Duration — octostore.locks.held_duration</div>
+                <div class="charts-grid" style="grid-template-columns: 1fr 1fr;">
+                    <div>
+                        <div style="margin-bottom:12px;">
+                            <div class="sparkline-row">
+                                <span class="sparkline-label">p50 (median)</span>
+                                <div class="latency-bar-bg" style="height:8px;flex:1;"><div class="latency-bar-fill" id="p50bar" style="width:0%"></div></div>
+                                <span class="sparkline-current" id="p50val">—</span>
+                            </div>
+                            <div class="sparkline-row">
+                                <span class="sparkline-label">p95</span>
+                                <div class="latency-bar-bg" style="height:8px;flex:1;"><div class="latency-bar-fill" id="p95bar" style="width:0%"></div></div>
+                                <span class="sparkline-current" id="p95val">—</span>
+                            </div>
+                            <div class="sparkline-row">
+                                <span class="sparkline-label">p99</span>
+                                <div class="latency-bar-bg" style="height:8px;flex:1;"><div class="latency-bar-fill bad" id="p99bar" style="width:0%"></div></div>
+                                <span class="sparkline-current" id="p99val">—</span>
+                            </div>
+                            <div class="sparkline-row">
+                                <span class="sparkline-label">max</span>
+                                <div class="latency-bar-bg" style="height:8px;flex:1;"><div class="latency-bar-fill bad" id="maxbar" style="width:0%"></div></div>
+                                <span class="sparkline-current" id="maxval">—</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="chart-wrapper" style="height:160px;">
+                        <canvas id="latencyChart"></canvas>
                     </div>
                 </div>
             </div>
 
-            <div class="users-section">
-                <div class="users-title">Users & Lock Counts</div>
-                <div id="usersList" class="users-list loading">
-                    Loading users...
-                </div>
+            <!-- Session metrics -->
+            <div class="otel-section">
+                <div class="otel-section-title">Sessions</div>
+                <table class="metric-table">
+                    <thead>
+                        <tr><th>Metric</th><th>Type</th><th>Value</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="metric-name">octostore.sessions.created</td>
+                            <td><span class="metric-badge badge-counter">counter</span></td>
+                            <td id="m_sessions_created">—</td>
+                        </tr>
+                        <tr>
+                            <td class="metric-name">octostore.sessions.expired</td>
+                            <td><span class="metric-badge badge-counter">counter</span></td>
+                            <td id="m_sessions_expired">—</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- OTEL config reference -->
+            <div class="otel-section">
+                <div class="otel-section-title">Export Configuration</div>
+                <table class="metric-table">
+                    <thead><tr><th>Env Var</th><th>Current</th><th>Description</th></tr></thead>
+                    <tbody>
+                        <tr>
+                            <td class="metric-name">OTEL_EXPORTER_OTLP_ENDPOINT</td>
+                            <td id="cfg_endpoint">—</td>
+                            <td style="color:var(--text-muted);font-family:inherit;font-size:12px;">gRPC endpoint for OTLP export</td>
+                        </tr>
+                        <tr>
+                            <td class="metric-name">OTEL_SERVICE_NAME</td>
+                            <td id="cfg_service">—</td>
+                            <td style="color:var(--text-muted);font-family:inherit;font-size:12px;">Service name in traces</td>
+                        </tr>
+                        <tr>
+                            <td class="metric-name">OTEL_SDK_DISABLED</td>
+                            <td id="cfg_disabled">—</td>
+                            <td style="color:var(--text-muted);font-family:inherit;font-size:12px;">Hard disable all OTEL</td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
         </div>
-    </div>
+
+        <!-- ═══════════════════ USERS TAB ═══════════════════ -->
+        <div class="tab-panel" id="tab-users">
+            <div class="users-section">
+                <div class="users-title">Users &amp; Lock Counts</div>
+                <div id="usersList" class="users-list loading">Loading users…</div>
+            </div>
+        </div>
+    </div><!-- /.container -->
 
     <script>
-        class AdminDashboard {
-            constructor() {
-                // 1. Prefer GitHub OAuth token (set by dashboard.html after login)
-                let githubAuth = null;
-                try { githubAuth = JSON.parse(localStorage.getItem('octostore_auth')); } catch (_) {}
-                if (githubAuth && githubAuth.token) {
-                    this.token = githubAuth.token;
-                    this.usingGithubToken = true;
-                } else {
-                    // 2. Fall back to legacy adminToken (URL hash or stored)
-                    const hashKey = window.location.hash.slice(1);
-                    if (hashKey) {
-                        localStorage.setItem('adminToken', hashKey);
-                        history.replaceState(null, '', window.location.pathname);
-                    }
-                    this.token = localStorage.getItem('adminToken') || '';
-                    this.usingGithubToken = false;
-                }
-                this.currentWindow = '1h';
-                this.charts = {};
-                this.refreshInterval = null;
-                
-                this.initializeEventListeners();
-                
-                this.initializeDashboard(); // no prompt — key managed via ⚙️ or URL hash
-                if (this.usingGithubToken) {
-                    const s = document.getElementById('authStatus');
-                    if (s) { s.textContent = 'Authenticated via GitHub'; s.style.color = '#10b981'; }
-                    const btn = document.getElementById('resetKeyBtn');
-                    if (btn) btn.style.display = 'none'; // hide gear — not needed
-                }
+    /* ════════════════════════════════════════════════════════════
+       OctoStore Admin — unified dashboard + OTEL viewer
+       ════════════════════════════════════════════════════════════ */
+    class AdminApp {
+        constructor() {
+            // Auth
+            let gh = null;
+            try { gh = JSON.parse(localStorage.getItem('octostore_auth')); } catch (_) {}
+            if (gh?.token) {
+                this.token = gh.token;
+                this.usingGithubToken = true;
+            } else {
+                const hash = window.location.hash.slice(1);
+                if (hash) { localStorage.setItem('adminToken', hash); history.replaceState(null,'',location.pathname); }
+                this.token = localStorage.getItem('adminToken') || '';
+                this.usingGithubToken = false;
             }
-            
-            promptKey() {
-                const key = prompt('Enter admin key:');
-                if (key) {
-                    this.token = key;
-                    localStorage.setItem('adminToken', key);
-                    this.authenticate();
-                }
+
+            this.currentWindow = '1h';
+            this.charts = {};
+            this.latencyHistory = [];   // rolling 20-point history for latency sparkline
+            this.maxCounterVal = 1;     // for bar scaling
+
+            this._bindTabs();
+            this._bindTimeWindows();
+            this._initCharts();
+            this._initOtelChart();
+
+            if (!this.token) {
+                localStorage.setItem('post_auth_redirect', '/admin.html');
+                window.location.href = 'https://api.octostore.io/auth/github';
+                return;
             }
-            
-            initializeEventListeners() {
-                // Time window selector
-                document.querySelectorAll('.time-btn').forEach(btn => {
-                    btn.addEventListener('click', () => {
-                        document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
-                        btn.classList.add('active');
-                        this.currentWindow = btn.dataset.window;
-                        this.loadData();
-                    });
+
+            if (this.usingGithubToken) {
+                const s = document.getElementById('authStatus');
+                if (s) { s.textContent = 'Authenticated via GitHub'; s.style.color = '#10b981'; }
+                document.getElementById('resetKeyBtn').style.display = 'none';
+            }
+
+            this._loadAll();
+            setInterval(() => this._loadAll(), 30000);
+            // OTEL refreshes faster
+            setInterval(() => this._loadTelemetry(), 10000);
+        }
+
+        promptKey() {
+            const k = prompt('Enter admin key:');
+            if (k) { this.token = k; localStorage.setItem('adminToken', k); this._loadAll(); }
+        }
+
+        _headers() {
+            const t = this.token;
+            return {
+                'Authorization': t.startsWith('Bearer ') ? t : `Bearer ${t}`,
+                'X-Admin-Key': t
+            };
+        }
+
+        /* ── Tabs ── */
+        _bindTabs() {
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+                    btn.classList.add('active');
+                    document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
+                    // load telemetry immediately when switching to that tab
+                    if (btn.dataset.tab === 'telemetry') this._loadTelemetry();
                 });
-            }
-            
-            async authenticate() {
-                if (!this.token) { document.getElementById("authStatus").textContent = "No key — click ⚙️ to set one"; return; }
-                try {
-                    const response = await fetch('https://api.octostore.io/admin/status', {
-                        headers: {
-                            'Authorization': `Bearer ${this.token}`,
-                            'X-Admin-Key': this.token
-                        }
-                    });
-                    if (response.ok) {
-                        this.initializeDashboard();
-                    } else {
-                        document.getElementById('authStatus').textContent = 'Key invalid — click ⚙️ to update';
-                        localStorage.removeItem('adminToken');
-                    }
-                } catch (error) {
-                    document.getElementById('authStatus').textContent = `Error: ${error.message}`;
+            });
+        }
+
+        _bindTimeWindows() {
+            document.querySelectorAll('.time-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    this.currentWindow = btn.dataset.window;
+                    this._loadOverview();
+                });
+            });
+        }
+
+        /* ── Charts init ── */
+        _chartDefaults() {
+            return {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { grid: { color: 'rgba(255,255,255,0.08)' }, ticks: { color: '#a1a1aa', maxTicksLimit: 8 } },
+                    y: { grid: { color: 'rgba(255,255,255,0.08)' }, ticks: { color: '#a1a1aa' }, beginAtZero: true }
                 }
-            }
-            
-            initializeDashboard() {
-                this.initializeCharts();
-                this.loadData();
-                
-                // Set up auto-refresh every 30 seconds
-                if (this.refreshInterval) clearInterval(this.refreshInterval);
-                this.refreshInterval = setInterval(() => this.loadData(), 30000);
-            }
-            
-            initializeCharts() {
-                const chartOptions = {
+            };
+        }
+
+        _initCharts() {
+            const mk = (id, type, color, fill=false) => new Chart(
+                document.getElementById(id).getContext('2d'),
+                { type, data: { labels:[], datasets:[{ data:[], borderColor:color,
+                    backgroundColor: fill ? color.replace(')',',0.1)').replace('rgb','rgba') : color,
+                    fill, tension:0.4, borderWidth:2,
+                    ...(type==='bar'?{backgroundColor:color,borderColor:color,borderWidth:1}:{})
+                }]}, options: this._chartDefaults() }
+            );
+
+            this.charts.requestVolume = mk('requestVolumeChart','line','#6366f1',true);
+            this.charts.activeLocks   = mk('activeLocksChart',  'line','#10b981',true);
+            this.charts.acquireRate   = mk('acquireRateChart',  'bar', '#f59e0b');
+            this.charts.releaseRate   = mk('releaseRateChart',  'bar', '#ef4444');
+        }
+
+        _initOtelChart() {
+            const ctx = document.getElementById('latencyChart').getContext('2d');
+            this.charts.latency = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        { label:'p50', data:[], borderColor:'#10b981', backgroundColor:'transparent', tension:0.4, borderWidth:2, pointRadius:0 },
+                        { label:'p95', data:[], borderColor:'#f59e0b', backgroundColor:'transparent', tension:0.4, borderWidth:2, pointRadius:0 },
+                        { label:'p99', data:[], borderColor:'#ef4444', backgroundColor:'transparent', tension:0.4, borderWidth:2, pointRadius:0 },
+                    ]
+                },
+                options: {
                     responsive: true,
                     maintainAspectRatio: false,
                     plugins: {
-                        legend: {
-                            display: false
-                        }
+                        legend: { display: true, labels: { color: '#a1a1aa', boxWidth: 12, font: { size: 11 } } }
                     },
                     scales: {
-                        x: {
-                            grid: {
-                                color: 'rgba(255, 255, 255, 0.08)'
-                            },
-                            ticks: {
-                                color: '#a1a1aa'
-                            }
-                        },
-                        y: {
-                            grid: {
-                                color: 'rgba(255, 255, 255, 0.08)'
-                            },
-                            ticks: {
-                                color: '#a1a1aa'
-                            }
-                        }
+                        x: { grid:{color:'rgba(255,255,255,0.08)'}, ticks:{color:'#a1a1aa', maxTicksLimit:6} },
+                        y: { grid:{color:'rgba(255,255,255,0.08)'}, ticks:{color:'#a1a1aa'}, beginAtZero:true,
+                             title:{display:true,text:'ms',color:'#a1a1aa',font:{size:11}} }
                     }
-                };
-                
-                // Request Volume Chart
-                this.charts.requestVolume = new Chart(
-                    document.getElementById('requestVolumeChart').getContext('2d'),
-                    {
-                        type: 'line',
-                        data: {
-                            labels: [],
-                            datasets: [{
-                                label: 'Requests',
-                                data: [],
-                                borderColor: '#6366f1',
-                                backgroundColor: 'rgba(99, 102, 241, 0.1)',
-                                fill: true,
-                                tension: 0.4
-                            }]
-                        },
-                        options: chartOptions
-                    }
-                );
-                
-                // Active Locks Chart
-                this.charts.activeLocks = new Chart(
-                    document.getElementById('activeLocksChart').getContext('2d'),
-                    {
-                        type: 'line',
-                        data: {
-                            labels: [],
-                            datasets: [{
-                                label: 'Active Locks',
-                                data: [],
-                                borderColor: '#10b981',
-                                backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                                fill: true,
-                                tension: 0.4
-                            }]
-                        },
-                        options: chartOptions
-                    }
-                );
-                
-                // Acquire Rate Chart
-                this.charts.acquireRate = new Chart(
-                    document.getElementById('acquireRateChart').getContext('2d'),
-                    {
-                        type: 'bar',
-                        data: {
-                            labels: [],
-                            datasets: [{
-                                label: 'Acquires',
-                                data: [],
-                                backgroundColor: '#f59e0b',
-                                borderColor: '#d97706',
-                                borderWidth: 1
-                            }]
-                        },
-                        options: chartOptions
-                    }
-                );
-                
-                // Release Rate Chart
-                this.charts.releaseRate = new Chart(
-                    document.getElementById('releaseRateChart').getContext('2d'),
-                    {
-                        type: 'bar',
-                        data: {
-                            labels: [],
-                            datasets: [{
-                                label: 'Releases',
-                                data: [],
-                                backgroundColor: '#ef4444',
-                                borderColor: '#dc2626',
-                                borderWidth: 1
-                            }]
-                        },
-                        options: chartOptions
-                    }
-                );
-            }
-            
-            async loadData() {
-                // If no token, redirect to GitHub login (dashboard.html will store the token)
-                if (!this.token) {
-                    // Store intended destination so we can come back here after login
-                    localStorage.setItem('post_auth_redirect', '/admin.html');
-                    window.location.href = 'https://api.octostore.io/auth/github';
-                    return;
                 }
-                try {
-                    // Load admin status (current stats)
-                    const statusResponse = await fetch('https://api.octostore.io/admin/status', {
-                        headers: {
-                            'Authorization': this.token.startsWith('Bearer ') ? this.token : `Bearer ${this.token}`,
-                            'X-Admin-Key': this.token
-                        }
-                    });
-                    
-                    if (!statusResponse.ok) {
-                        throw new Error('Failed to load admin status');
-                    }
-                    
-                    const statusData = await statusResponse.json();
-                    this.updateCurrentStats(statusData);
-                    this.updateUsersList(statusData.users, statusData.locks);
-                    
-                    // Load time series data
-                    const timeseriesResponse = await fetch(`https://api.octostore.io/admin/metrics/timeseries?window=${this.currentWindow}`, {
-                        headers: {
-                            'Authorization': this.token.startsWith('Bearer ') ? this.token : `Bearer ${this.token}`,
-                            'X-Admin-Key': this.token
-                        }
-                    });
-                    
-                    if (!timeseriesResponse.ok) {
-                        throw new Error('Failed to load timeseries data');
-                    }
-                    
-                    const timeseriesData = await timeseriesResponse.json();
-                    this.updateCharts(timeseriesData);
-                    
-                    document.getElementById('lastUpdated').textContent = 
-                        `Last updated: ${new Date().toLocaleTimeString()}`;
-                        
-                } catch (error) {
-                    console.error('Error loading data:', error);
-                    document.getElementById('authStatus').textContent = `Error: ${error.message}`;
-                    document.getElementById('authStatus').className = 'auth-status error';
-                }
-            }
-            
-            updateCurrentStats(data) {
-                document.getElementById('totalUsers').textContent = data.total_users;
-                document.getElementById('activeLocks').textContent = data.active_locks;
-                document.getElementById('uptime').textContent = 
-                    Math.round(data.uptime_seconds / 3600 * 10) / 10; // Hours with 1 decimal
-                document.getElementById('totalOps').textContent = 
-                    data.total_acquires + data.total_releases;
-            }
-            
-            updateUsersList(users, locks) {
-                const usersList = document.getElementById('usersList');
-                
-                // Count locks per user
-                const lockCounts = {};
-                locks.forEach(lock => {
-                    lockCounts[lock.holder_username] = (lockCounts[lock.holder_username] || 0) + 1;
-                });
-                
-                const getName = u => (typeof u === 'string') ? u : (u.github_username || u.id || 'unknown');
-                usersList.innerHTML = users.map(user => {
-                    const name = getName(user);
-                    return `
-                    <div class="user-item">
-                        <div class="user-name">${name}</div>
-                        <div class="user-locks">${lockCounts[name] || 0} locks</div>
-                    </div>`;
-                }).join('');
-            }
-            
-            updateCharts(data) {
-                const labels = data.timestamps.map(ts => new Date(ts * 1000).toLocaleTimeString());
-                
-                // Update Request Volume Chart
-                this.charts.requestVolume.data.labels = labels;
-                this.charts.requestVolume.data.datasets[0].data = data.request_volume;
-                this.charts.requestVolume.update('none');
-                
-                // Update Active Locks Chart
-                this.charts.activeLocks.data.labels = labels;
-                this.charts.activeLocks.data.datasets[0].data = data.active_locks;
-                this.charts.activeLocks.update('none');
-                
-                // Update Acquire Rate Chart
-                this.charts.acquireRate.data.labels = labels;
-                this.charts.acquireRate.data.datasets[0].data = data.acquire_rates;
-                this.charts.acquireRate.update('none');
-                
-                // Update Release Rate Chart
-                this.charts.releaseRate.data.labels = labels;
-                this.charts.releaseRate.data.datasets[0].data = data.release_rates;
-                this.charts.releaseRate.update('none');
+            });
+        }
+
+        /* ── Data loading ── */
+        async _loadAll() {
+            await Promise.all([this._loadOverview(), this._loadTelemetry()]);
+            document.getElementById('lastUpdated').textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+        }
+
+        async _loadOverview() {
+            try {
+                const [status, ts] = await Promise.all([
+                    fetch('https://api.octostore.io/admin/status', { headers: this._headers() }).then(r=>r.json()),
+                    fetch(`https://api.octostore.io/admin/metrics/timeseries?window=${this.currentWindow}`, { headers: this._headers() }).then(r=>r.json())
+                ]);
+                this._updateStats(status);
+                this._updateUsers(status.users, status.locks);
+                this._updateCharts(ts);
+            } catch(e) {
+                document.getElementById('authStatus').textContent = `Error: ${e.message}`;
+                document.getElementById('authStatus').style.color = '#ef4444';
             }
         }
-        
-        // Initialize dashboard when page loads
-        document.addEventListener('DOMContentLoaded', () => {
-            new AdminDashboard();
-        });
+
+        async _loadTelemetry() {
+            try {
+                // Primary: /admin/metrics (always available)
+                const snap = await fetch('https://api.octostore.io/admin/metrics', { headers: this._headers() }).then(r=>r.json());
+                this._renderTelemetry(snap);
+            } catch(e) {
+                // silently ignore — telemetry tab shows stale data
+                console.warn('telemetry fetch failed', e);
+            }
+
+            // Secondary: /admin/telemetry (only exists when OTEL is configured in backend)
+            try {
+                const otel = await fetch('https://api.octostore.io/admin/telemetry', { headers: this._headers() }).then(r=>r.json());
+                this._renderOtelConfig(otel);
+            } catch(_) {
+                // endpoint may not exist yet — no-op
+                this._renderOtelConfig(null);
+            }
+        }
+
+        /* ── Stats ── */
+        _updateStats(d) {
+            document.getElementById('totalUsers').textContent = d.total_users ?? '—';
+            document.getElementById('activeLocks').textContent = d.active_locks ?? '—';
+            document.getElementById('uptime').textContent = d.uptime_seconds
+                ? (Math.round(d.uptime_seconds / 360) / 10).toFixed(1)
+                : '—';
+            document.getElementById('totalOps').textContent =
+                ((d.total_acquires ?? 0) + (d.total_releases ?? 0)).toLocaleString();
+        }
+
+        _updateUsers(users=[], locks=[]) {
+            const lockCounts = {};
+            locks.forEach(l => { const h = l.holder_username||'?'; lockCounts[h]=(lockCounts[h]||0)+1; });
+            const name = u => typeof u==='string' ? u : (u.github_username||u.id||'?');
+            document.getElementById('usersList').innerHTML = (users||[]).map(u => {
+                const n = name(u);
+                return `<div class="user-item"><div class="user-name">${n}</div><div class="user-locks">${lockCounts[n]||0} locks</div></div>`;
+            }).join('') || '<p style="color:var(--text-muted)">No users found.</p>';
+        }
+
+        _updateCharts(d) {
+            const labels = (d.timestamps||[]).map(ts => new Date(ts*1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}));
+            const up = (chart, data) => { chart.data.labels=labels; chart.data.datasets[0].data=data; chart.update('none'); };
+            up(this.charts.requestVolume, d.request_volume||[]);
+            up(this.charts.activeLocks,   d.active_locks||[]);
+            up(this.charts.acquireRate,   d.acquire_rates||[]);
+            up(this.charts.releaseRate,   d.release_rates||[]);
+        }
+
+        /* ── Telemetry rendering ── */
+        _renderTelemetry(snap) {
+            if (!snap) return;
+            const ls = snap.lock_store || {};
+            const eps = snap.endpoints || {};
+
+            // Update counters
+            const acquired   = ls.total_acquires   || 0;
+            const released   = ls.total_releases   || 0;
+            const expired    = ls.total_expirations|| 0;
+            const contention = ls.lock_contention  || 0;
+            const active     = snap.active_locks   || 0;
+
+            document.getElementById('m_lock_acquired').textContent   = acquired.toLocaleString();
+            document.getElementById('m_lock_released').textContent   = released.toLocaleString();
+            document.getElementById('m_lock_expired').textContent    = expired.toLocaleString();
+            document.getElementById('m_lock_contention').textContent = contention.toLocaleString();
+            document.getElementById('m_lock_active').textContent     = active.toLocaleString();
+
+            // Session metrics (from timeseries or lock_store if available)
+            document.getElementById('m_sessions_created').textContent = (ls.total_sessions_created||'—').toLocaleString?.() ?? '—';
+            document.getElementById('m_sessions_expired').textContent = (ls.total_sessions_expired||'—').toLocaleString?.() ?? '—';
+
+            // Scale bars relative to largest counter
+            const maxVal = Math.max(1, acquired, released, expired, contention);
+            const pct = v => Math.round(v/maxVal*100)+'%';
+            document.getElementById('bar_lock_acquired').style.width   = pct(acquired);
+            document.getElementById('bar_lock_released').style.width   = pct(released);
+            document.getElementById('bar_lock_expired').style.width    = pct(expired);
+            document.getElementById('bar_lock_contention').style.width = pct(contention);
+
+            // Endpoint cards
+            this._renderEndpoints(eps);
+
+            // Latency (acquire endpoint as proxy for lock hold duration until backend exposes it separately)
+            const acqEp = eps.acquire || {};
+            const p50 = parseFloat(acqEp.p50_ms) || 0;
+            const p95 = parseFloat(acqEp.p95_ms) || 0;
+            const p99 = parseFloat(acqEp.p99_ms) || 0;
+            const mx  = parseInt(acqEp.max_ms)   || 0;
+
+            const refMs = Math.max(1, mx);
+            const fmtMs = v => v > 0 ? v.toFixed(1)+'ms' : '—';
+            document.getElementById('p50val').textContent = fmtMs(p50);
+            document.getElementById('p95val').textContent = fmtMs(p95);
+            document.getElementById('p99val').textContent = fmtMs(p99);
+            document.getElementById('maxval').textContent = fmtMs(mx);
+            document.getElementById('p50bar').style.width = Math.round(p50/refMs*100)+'%';
+            document.getElementById('p95bar').style.width = Math.round(p95/refMs*100)+'%';
+            document.getElementById('p99bar').style.width = Math.round(p99/refMs*100)+'%';
+            document.getElementById('maxbar').style.width = '100%';
+
+            // Rolling latency chart
+            const now = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+            this.latencyHistory.push({ t:now, p50, p95, p99 });
+            if (this.latencyHistory.length > 20) this.latencyHistory.shift();
+            const lc = this.charts.latency;
+            lc.data.labels = this.latencyHistory.map(h=>h.t);
+            lc.data.datasets[0].data = this.latencyHistory.map(h=>h.p50);
+            lc.data.datasets[1].data = this.latencyHistory.map(h=>h.p95);
+            lc.data.datasets[2].data = this.latencyHistory.map(h=>h.p99);
+            lc.update('none');
+        }
+
+        _renderEndpoints(eps) {
+            const names = Object.keys(eps);
+            if (!names.length) {
+                document.getElementById('endpointGrid').innerHTML = '<p style="color:var(--text-muted);font-size:13px;">No endpoint data yet.</p>';
+                return;
+            }
+            const COLORS = { acquire:'#f59e0b', release:'#10b981', renew:'#6366f1', status:'#06b6d4', list:'#a855f7', auth:'#f97316' };
+            document.getElementById('endpointGrid').innerHTML = names.map(name => {
+                const e = eps[name] || {};
+                const count = e.count || 0;
+                const errors = e.errors || 0;
+                const errPct = count > 0 ? Math.round(errors/count*100) : 0;
+                const color = COLORS[name] || '#6366f1';
+                return `
+                <div class="endpoint-card">
+                    <div class="endpoint-name">
+                        <span style="color:${color}">/${name}</span>
+                        <span class="endpoint-count">${count.toLocaleString()} req</span>
+                    </div>
+                    <div class="endpoint-stats">
+                        <div><div class="ep-stat-val">${e.avg_ms||'—'}</div><div class="ep-stat-lbl">avg</div></div>
+                        <div><div class="ep-stat-val">${e.p95_ms||'—'}</div><div class="ep-stat-lbl">p95</div></div>
+                        <div><div class="ep-stat-val">${e.p99_ms||'—'}</div><div class="ep-stat-lbl">p99</div></div>
+                    </div>
+                    <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">
+                        ${errors} error${errors!==1?'s':''} (${errPct}%) · min ${e.min_ms||0}ms · max ${e.max_ms||0}ms
+                    </div>
+                    <div class="ep-error-bar">
+                        <div class="ep-error-fill" style="width:${Math.min(100,errPct*5)}%"></div>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        _renderOtelConfig(otel) {
+            const dot  = document.getElementById('otelDot');
+            const text = document.getElementById('otelStatusText');
+            const placeholder = document.getElementById('otelNotConfigured');
+
+            if (!otel) {
+                // /admin/telemetry endpoint not found yet — backend not updated
+                dot.className = 'otel-status-dot disabled';
+                text.innerHTML = '<span class="otel-status-dot disabled"></span>Not configured — set OTEL_EXPORTER_OTLP_ENDPOINT';
+                placeholder.style.display = '';
+                document.getElementById('cfg_endpoint').textContent = 'not set';
+                document.getElementById('cfg_service').textContent  = 'octostore (default)';
+                document.getElementById('cfg_disabled').textContent = 'false';
+                return;
+            }
+
+            const enabled = otel.enabled && otel.endpoint;
+            dot.className = `otel-status-dot ${enabled ? 'enabled' : 'disabled'}`;
+            text.innerHTML = enabled
+                ? `<span class="otel-status-dot enabled"></span>Exporting to <code style="font-size:12px;color:var(--green)">${otel.endpoint}</code>`
+                : `<span class="otel-status-dot disabled"></span>OTEL configured but disabled`;
+            placeholder.style.display = enabled ? 'none' : '';
+
+            document.getElementById('cfg_endpoint').textContent = otel.endpoint  || 'not set';
+            document.getElementById('cfg_service').textContent  = otel.service_name || 'octostore';
+            document.getElementById('cfg_disabled').textContent = otel.disabled ? 'true' : 'false';
+        }
+    }
+
+    /* Boot */
+    let app;
+    document.addEventListener('DOMContentLoaded', () => { app = new AdminApp(); });
     </script>
 </body>
 </html>
