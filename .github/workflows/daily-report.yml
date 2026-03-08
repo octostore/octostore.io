@@ -1,0 +1,188 @@
+name: Daily Metrics Report
+
+on:
+  schedule:
+    - cron: '0 9 * * *'   # 9am UTC daily
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  METRICS_BRANCH: monitoring-data
+  METRICS_FILE: data/uptime.jsonl
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout metrics branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.METRICS_BRANCH }}
+          path: metrics
+          fetch-depth: 0
+
+      - name: Checkout repo (for release data)
+        uses: actions/checkout@v4
+        with:
+          path: repo
+          sparse-checkout: |
+            .github
+
+      - name: Compute uptime & latency stats (last 24h)
+        id: stats
+        shell: bash
+        run: |
+          METRICS_PATH="metrics/${{ env.METRICS_FILE }}"
+
+          if [[ ! -f "$METRICS_PATH" ]]; then
+            echo "No metrics file yet."
+            echo "uptime_pct=n/a"         >> "$GITHUB_OUTPUT"
+            echo "avg_ms=n/a"             >> "$GITHUB_OUTPUT"
+            echo "p95_ms=n/a"             >> "$GITHUB_OUTPUT"
+            echo "total_checks=0"         >> "$GITHUB_OUTPUT"
+            echo "downtime_events=0"      >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CUTOFF=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+                   || date -u -v-24H +%Y-%m-%dT%H:%M:%SZ)   # macOS fallback
+
+          python3 - "$METRICS_PATH" "$CUTOFF" <<'PYEOF'
+          import sys, json, statistics
+
+          path, cutoff = sys.argv[1], sys.argv[2]
+          records = []
+          with open(path) as f:
+              for line in f:
+                  line = line.strip()
+                  if not line:
+                      continue
+                  try:
+                      r = json.loads(line)
+                  except Exception:
+                      continue
+                  if r.get('ts', '') >= cutoff:
+                      records.append(r)
+
+          total  = len(records)
+          up     = sum(1 for r in records if r.get('ok') == 1)
+          latencies = [r['response_ms'] for r in records if isinstance(r.get('response_ms'), (int, float))]
+
+          pct   = round(up / total * 100, 2) if total else 0
+          avg   = round(statistics.mean(latencies)) if latencies else 0
+          p95   = round(sorted(latencies)[int(len(latencies) * 0.95)]) if latencies else 0
+          downs = total - up
+
+          # Write GitHub outputs
+          with open(sys.argv[0].replace(sys.argv[0], '/dev/stdout'), 'w') as _:
+              pass  # no-op; write to env file below
+
+          import os
+          env_file = os.environ['GITHUB_OUTPUT']
+          with open(env_file, 'a') as ef:
+              ef.write(f"uptime_pct={pct}\n")
+              ef.write(f"avg_ms={avg}\n")
+              ef.write(f"p95_ms={p95}\n")
+              ef.write(f"total_checks={total}\n")
+              ef.write(f"downtime_events={downs}\n")
+          PYEOF
+
+      - name: Fetch GitHub release download counts
+        id: downloads
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Pull release assets download counts via API
+          RELEASES=$(gh api repos/${{ github.repository }}/releases \
+            --jq '[.[] | {tag:.tag_name, assets:[.assets[] | {name:.name, downloads:.download_count}]}]' \
+            2>/dev/null || echo '[]')
+
+          TOTAL=$(echo "$RELEASES" | jq '[.[].assets[].downloads] | add // 0')
+          TOP=$(echo "$RELEASES" | jq -r \
+            '[.[].assets[] | select(.downloads > 0)] | sort_by(-.downloads) | .[0:3] | .[] | "• \(.name): \(.downloads)"' \
+            2>/dev/null || echo "none")
+
+          echo "total=$TOTAL"  >> "$GITHUB_OUTPUT"
+          {
+            echo 'top<<EOF'
+            echo "$TOP"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Fetch GitHub repo stats
+        id: repo_stats
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          STATS=$(gh api repos/${{ github.repository }} \
+            --jq '{stars:.stargazers_count, forks:.forks_count, open_issues:.open_issues_count}')
+          STARS=$(echo "$STATS" | jq '.stars')
+          FORKS=$(echo "$STATS" | jq '.forks')
+          ISSUES=$(echo "$STATS" | jq '.open_issues')
+          echo "stars=$STARS"   >> "$GITHUB_OUTPUT"
+          echo "forks=$FORKS"   >> "$GITHUB_OUTPUT"
+          echo "issues=$ISSUES" >> "$GITHUB_OUTPUT"
+
+      - name: Build and post Discord daily report
+        shell: bash
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.OCTOSTORE_DISCORD_WEBHOOK_URL }}
+        run: |
+          [[ -z "${DISCORD_WEBHOOK:-}" ]] && { echo "No webhook configured, skipping."; exit 0; }
+
+          DATE=$(date -u +%Y-%m-%d)
+
+          # Uptime colour: green >=99.9, yellow >=99, red below
+          PCT="${{ steps.stats.outputs.uptime_pct }}"
+          if awk "BEGIN{exit !($PCT >= 99.9)}"; then
+            COLOR=3066993   # green
+          elif awk "BEGIN{exit !($PCT >= 99.0)}"; then
+            COLOR=16776960  # yellow
+          else
+            COLOR=15158332  # red
+          fi
+
+          PAYLOAD=$(jq -n \
+            --argjson color "$COLOR" \
+            --arg date "$DATE" \
+            --arg uptime    "${{ steps.stats.outputs.uptime_pct }}%" \
+            --arg checks    "${{ steps.stats.outputs.total_checks }}" \
+            --arg downs     "${{ steps.stats.outputs.downtime_events }}" \
+            --arg avg_ms    "${{ steps.stats.outputs.avg_ms }}ms" \
+            --arg p95_ms    "${{ steps.stats.outputs.p95_ms }}ms" \
+            --arg dl_total  "${{ steps.downloads.outputs.total }}" \
+            --arg dl_top    "${{ steps.downloads.outputs.top }}" \
+            --arg stars     "${{ steps.repo_stats.outputs.stars }}" \
+            --arg forks     "${{ steps.repo_stats.outputs.forks }}" \
+            --arg issues    "${{ steps.repo_stats.outputs.issues }}" \
+            --arg run_url   "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            '{
+              embeds: [{
+                color: $color,
+                title: ("📊 OctoStore Daily Report — " + $date),
+                fields: [
+                  {name:"⬆️ Uptime (24h)",      value:$uptime,   inline:true},
+                  {name:"⚡ Avg latency",        value:$avg_ms,   inline:true},
+                  {name:"📈 p95 latency",        value:$p95_ms,   inline:true},
+                  {name:"🔍 Checks run",         value:$checks,   inline:true},
+                  {name:"❌ Downtime events",    value:$downs,    inline:true},
+                  {name:"\u200b",                value:"\u200b",  inline:true},
+                  {name:"📦 Total downloads",   value:$dl_total,  inline:true},
+                  {name:"⭐ Stars",              value:$stars,    inline:true},
+                  {name:"🍴 Forks",              value:$forks,    inline:true},
+                  {name:"🐛 Open issues",        value:$issues,   inline:true},
+                  {name:"\u200b",                value:"\u200b",  inline:true},
+                  {name:"\u200b",                value:"\u200b",  inline:true},
+                  {name:"🏆 Top downloads",      value:$dl_top,   inline:false}
+                ],
+                footer: {text: "octostore.io monitoring"},
+                timestamp: "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"
+              }]
+            }')
+
+          curl -sS -X POST -H 'Content-Type: application/json' --data "$PAYLOAD" "$DISCORD_WEBHOOK"
+          echo "Daily report posted."
