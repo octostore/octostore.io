@@ -29,6 +29,36 @@ impl LockHandlers {
     }
 }
 
+fn is_name_in_namespace(name: &str, namespace: &str) -> bool {
+    if !name.contains('.') {
+        return true;
+    }
+    name == namespace || name.starts_with(&format!("{namespace}."))
+}
+
+fn enforce_namespace_for_name(user_namespace: Option<&str>, name: &str) -> Result<()> {
+    if let Some(namespace) = user_namespace {
+        if !is_name_in_namespace(name, namespace) {
+            return Err(AppError::Forbidden(format!(
+                "lock '{name}' is outside namespace '{namespace}'"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn enforce_namespace_for_prefix(user_namespace: Option<&str>, prefix: Option<&str>) -> Result<()> {
+    if let (Some(namespace), Some(prefix)) = (user_namespace, prefix) {
+        let allowed = prefix == namespace || prefix.starts_with(&format!("{namespace}."));
+        if !allowed {
+            return Err(AppError::Forbidden(format!(
+                "prefix '{prefix}' is outside namespace '{namespace}'"
+            )));
+        }
+    }
+    Ok(())
+}
+
 pub async fn acquire_lock(
     Path(name): Path<String>,
     State(state): State<crate::AppState>,
@@ -36,9 +66,11 @@ pub async fn acquire_lock(
     Json(req): Json<AcquireLockRequest>,
 ) -> Result<(StatusCode, Json<AcquireLockResponse>)> {
     let user_id = state.auth_service.authenticate(&headers)?;
+    let user_namespace = state.auth_service.get_user_namespace(user_id)?;
 
     // Validate lock name
     validate_lock_name(&name)?;
+    enforce_namespace_for_name(user_namespace.as_deref(), &name)?;
 
     // Validate TTL
     let ttl_seconds = req.ttl_seconds.unwrap_or(60);
@@ -152,8 +184,10 @@ pub async fn release_lock(
     Json(req): Json<ReleaseLockRequest>,
 ) -> Result<Json<()>> {
     let user_id = state.auth_service.authenticate(&headers)?;
+    let user_namespace = state.auth_service.get_user_namespace(user_id)?;
 
     validate_lock_name(&name)?;
+    enforce_namespace_for_name(user_namespace.as_deref(), &name)?;
 
     state
         .lock_handlers
@@ -173,8 +207,10 @@ pub async fn renew_lock(
     Json(req): Json<RenewLockRequest>,
 ) -> Result<Json<RenewLockResponse>> {
     let user_id = state.auth_service.authenticate(&headers)?;
+    let user_namespace = state.auth_service.get_user_namespace(user_id)?;
 
     validate_lock_name(&name)?;
+    enforce_namespace_for_name(user_namespace.as_deref(), &name)?;
 
     let ttl_seconds = req.ttl_seconds.unwrap_or(60);
     validate_ttl(ttl_seconds)?;
@@ -197,9 +233,11 @@ pub async fn get_lock_status(
     State(state): State<crate::AppState>,
     headers: HeaderMap,
 ) -> Result<Json<LockStatusResponse>> {
-    let _user_id = state.auth_service.authenticate(&headers)?; // Auth required but user_id not used
+    let user_id = state.auth_service.authenticate(&headers)?;
+    let user_namespace = state.auth_service.get_user_namespace(user_id)?;
 
     validate_lock_name(&name)?;
+    enforce_namespace_for_name(user_namespace.as_deref(), &name)?;
 
     if let Some(lock) = state.lock_handlers.store.get_lock(&name) {
         if lock.is_expired() {
@@ -244,9 +282,11 @@ pub async fn watch_lock(
     headers: HeaderMap,
 ) -> Result<Sse<impl Stream<Item = std::result::Result<Event, Infallible>>>> {
     // Authenticate the user
-    let _user_id = state.auth_service.authenticate(&headers)?;
+    let user_id = state.auth_service.authenticate(&headers)?;
+    let user_namespace = state.auth_service.get_user_namespace(user_id)?;
 
     validate_lock_name(&name)?;
+    enforce_namespace_for_name(user_namespace.as_deref(), &name)?;
 
     let rx = state.lock_handlers.store.watch_lock(&name);
 
@@ -273,12 +313,17 @@ pub async fn list_locks(
     headers: HeaderMap,
     Query(query): Query<ListLocksQuery>,
 ) -> Result<Json<ListLocksResponse>> {
-    let _user_id = state.auth_service.authenticate(&headers)?;
+    let user_id = state.auth_service.authenticate(&headers)?;
+    let user_namespace = state.auth_service.get_user_namespace(user_id)?;
+    enforce_namespace_for_prefix(user_namespace.as_deref(), query.prefix.as_deref())?;
 
-    let locks = state
-        .lock_handlers
-        .store
-        .list_locks(query.prefix.as_deref());
+    let effective_prefix = if query.prefix.is_some() {
+        query.prefix.as_deref()
+    } else {
+        user_namespace.as_deref()
+    };
+
+    let locks = state.lock_handlers.store.list_locks(effective_prefix);
     let lock_responses: Vec<LockStatusResponse> = locks
         .into_iter()
         .filter(|lock| !lock.is_expired())
@@ -396,6 +441,11 @@ mod tests {
                 [],
             )
             .unwrap();
+            conn.execute(
+                "INSERT OR REPLACE INTO users (id, github_id, github_username, token, namespace, created_at) VALUES (?, ?, ?, ?, NULL, datetime('now'))",
+                rusqlite::params![Uuid::new_v4().to_string(), 42_i64, "user2", "token2"],
+            )
+            .unwrap();
         }
         let lock_store = LockStore::new(db.clone(), 0).unwrap();
         let lock_handlers = LockHandlers::new(lock_store.clone());
@@ -417,6 +467,7 @@ mod tests {
             .route("/locks/:name/renew", axum::routing::post(renew_lock))
             .route("/locks/:name/watch", axum::routing::get(watch_lock))
             .route("/locks/:name", axum::routing::get(get_lock_status))
+            .route("/locks", axum::routing::get(list_locks))
             .with_state(app_state);
 
         (router, temp_file)
@@ -677,7 +728,7 @@ mod tests {
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/locks/contested-lock/acquire")
+                    .uri("/locks/team-b.contested-lock/acquire")
                     .method("POST")
                     .header("authorization", "Bearer testtoken")
                     .header("content-type", "application/json")
@@ -693,7 +744,7 @@ mod tests {
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/locks/contested-lock/acquire")
+                    .uri("/locks/team-b.contested-lock/acquire")
                     .method("POST")
                     .header("authorization", "Bearer token2")
                     .header("content-type", "application/json")
