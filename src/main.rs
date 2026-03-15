@@ -211,6 +211,10 @@ async fn main() -> anyhow::Result<()> {
 
     // Open one SQLite connection shared by both AuthService and LockStore (#19)
     let db: DbConn = Arc::new(Mutex::new(rusqlite::Connection::open(&config.database_url)?));
+    {
+        let conn = db.lock().unwrap();
+        conn.execute_batch("PRAGMA journal_mode=WAL;")?;
+    }
 
     // Initialize auth service
     let auth_service = AuthService::new(config.clone(), db.clone())?;
@@ -341,8 +345,23 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn health_check() -> &'static str {
-    "OK"
+async fn health_check(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let storage = state
+        .lock_handlers
+        .store
+        .journal_mode()
+        .unwrap_or_else(|_| "unknown".to_string());
+    let db_size_bytes = state
+        .lock_handlers
+        .store
+        .db_size_bytes()
+        .unwrap_or(0);
+
+    Json(serde_json::json!({
+        "healthy": true,
+        "storage": storage,
+        "db_size_bytes": db_size_bytes
+    }))
 }
 
 async fn status_check(State(state): State<AppState>) -> Json<serde_json::Value> {
@@ -545,8 +564,10 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         
         let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let body_str = std::str::from_utf8(&body).unwrap();
-        assert_eq!(body_str, "OK");
+        let body_json: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body_json["healthy"], true);
+        assert_eq!(body_json["storage"], "wal");
+        assert!(body_json["db_size_bytes"].is_number());
     }
 
     #[tokio::test]

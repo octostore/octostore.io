@@ -57,7 +57,7 @@ All lock endpoints require `Authorization: Bearer <token>`.
 | `GET` | `/locks/{name}` | Check lock status |
 | `GET` | `/locks` | List your locks |
 | `GET` | `/docs` | Interactive API docs |
-| `GET` | `/health` | Health check |
+| `GET` | `/health` | Health check + storage details |
 
 ### Acquire
 
