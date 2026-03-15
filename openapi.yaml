@@ -458,16 +458,26 @@ paths:
       tags:
       - System
       summary: Health check
-      description: Simple health check endpoint
+      description: Health and storage details
       security: []
       responses:
         '200':
           description: Service is healthy
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
-                example: OK
+                type: object
+                properties:
+                  healthy:
+                    type: boolean
+                    example: true
+                  storage:
+                    type: string
+                    example: wal
+                  db_size_bytes:
+                    type: integer
+                    format: int64
+                    example: 16384
 components:
   securitySchemes:
     bearerAuth:
