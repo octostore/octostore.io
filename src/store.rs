@@ -4,7 +4,7 @@ use crate::{
 };
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::{
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -81,6 +81,16 @@ impl LockStore {
             if !columns.iter().any(|n| n == "lock_delay_seconds") {
                 conn.execute("ALTER TABLE locks ADD COLUMN lock_delay_seconds INTEGER NOT NULL DEFAULT 0", [])?;
             }
+
+            conn.execute(
+                r#"
+            CREATE TABLE IF NOT EXISTS lock_acls (
+                name TEXT PRIMARY KEY,
+                acquire_acl TEXT NOT NULL
+            )
+            "#,
+                [],
+            )?;
         }
 
         info!("Locks table initialized");
@@ -448,6 +458,31 @@ impl LockStore {
 
     pub fn get_lock(&self, name: &str) -> Option<Lock> {
         self.locks.get(name).map(|entry| entry.value().clone())
+    }
+
+    pub fn get_lock_acl(&self, name: &str) -> Result<Option<crate::models::LockAcl>> {
+        let conn = self.db.lock().unwrap();
+        let acl_json: Option<String> = conn
+            .query_row(
+                "SELECT acquire_acl FROM lock_acls WHERE name = ?",
+                params![name],
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        match acl_json {
+            Some(raw) => Ok(Some(serde_json::from_str(&raw)?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn set_lock_acl(&self, name: &str, acl: &crate::models::LockAcl) -> Result<()> {
+        let conn = self.db.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO lock_acls (name, acquire_acl) VALUES (?, ?)",
+            params![name, serde_json::to_string(acl)?],
+        )?;
+        Ok(())
     }
 
     pub fn get_user_locks(&self, user_id: Uuid) -> Vec<Lock> {

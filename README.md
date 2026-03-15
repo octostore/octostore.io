@@ -51,7 +51,8 @@ All lock endpoints require `Authorization: Bearer <token>`.
 |--------|----------|-------------|
 | `GET` | `/auth/github` | Start GitHub OAuth flow |
 | `POST` | `/auth/token/rotate` | Rotate bearer token |
-| `POST` | `/locks/{name}/acquire` | Acquire a lock |
+| `POST` | `/locks/{name}/acquire` | Acquire a lock (supports optional ACL) |
+| `PUT` | `/locks/{name}/acl` | Update lock ACL (holder/admin only) |
 | `POST` | `/locks/{name}/release` | Release a lock |
 | `POST` | `/locks/{name}/renew` | Extend lock TTL |
 | `GET` | `/locks/{name}` | Check lock status |

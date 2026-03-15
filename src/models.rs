@@ -47,6 +47,11 @@ pub struct LockEvent {
     pub timestamp: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LockAcl {
+    pub acquire: Vec<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct AcquireLockRequest {
     pub ttl_seconds: Option<u32>,
@@ -54,6 +59,18 @@ pub struct AcquireLockRequest {
     pub session_id: Option<Uuid>,
     pub ephemeral: Option<bool>,
     pub lock_delay_seconds: Option<u32>,
+    pub acl: Option<LockAcl>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateLockAclRequest {
+    pub acl: LockAcl,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UpdateLockAclResponse {
+    pub name: String,
+    pub acl: LockAcl,
 }
 
 #[derive(Debug, Serialize)]
@@ -104,6 +121,7 @@ pub struct LockStatusResponse {
     pub fencing_token: u64,
     pub expires_at: Option<DateTime<Utc>>,
     pub metadata: Option<String>,
+    pub acl: Option<LockAcl>,
 }
 
 #[derive(Debug, Serialize)]

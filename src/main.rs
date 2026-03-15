@@ -16,11 +16,11 @@ use axum::{
     http::HeaderValue,
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, post, put},
     Json, Router,
 };
 use config::Config;
-use locks::{acquire_lock, get_lock_status, list_locks, release_lock, renew_lock, watch_lock, LockHandlers};
+use locks::{acquire_lock, get_lock_status, list_locks, release_lock, renew_lock, update_lock_acl, watch_lock, LockHandlers};
 use metrics::{endpoint_from_path, Metrics};
 use sessions::SessionStore;
 use webhooks::{WebhookStore, create_webhook_handler, list_webhooks, delete_webhook_handler};
@@ -278,6 +278,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/sessions/:id", get(sessions::get_session_status).delete(sessions::terminate_session))
         // Lock routes
         .route("/locks/:name/acquire", post(acquire_lock))
+        .route("/locks/:name/acl", put(update_lock_acl))
         .route("/locks/:name/release", post(release_lock))
         .route("/locks/:name/renew", post(renew_lock))
         .route("/locks/:name/watch", get(watch_lock))
@@ -513,6 +514,7 @@ mod tests {
             .merge(auth_router)
             .route("/auth/token/rotate", post(rotate_token))
             .route("/locks/:name/acquire", post(acquire_lock))
+            .route("/locks/:name/acl", put(update_lock_acl))
             .route("/locks/:name/release", post(release_lock))
             .route("/locks/:name/renew", post(renew_lock))
             .route("/locks/:name/watch", get(watch_lock))
