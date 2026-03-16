@@ -395,6 +395,7 @@ impl LockStore {
         sender.subscribe()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn acquire_lock(
         &self,
         name: String,
@@ -572,6 +573,7 @@ impl LockStore {
         self.locks.get(name).map(|entry| entry.value().clone())
     }
 
+    #[allow(dead_code)]
     pub fn get_user_locks(&self, user_id: Uuid) -> Vec<Lock> {
         self.locks
             .iter()
@@ -603,7 +605,7 @@ impl LockStore {
     pub fn list_locks(&self, prefix: Option<&str>) -> Vec<Lock> {
         self.locks
             .iter()
-            .filter(|e| prefix.map_or(true, |p| e.key().starts_with(p)))
+            .filter(|e| prefix.is_none_or(|p| e.key().starts_with(p)))
             .map(|e| e.value().clone())
             .collect()
     }
