@@ -5,7 +5,7 @@ use crate::{
         AcquireLockResponse, ListLocksResponse, LockStatusResponse, ReleaseLockRequest,
         RenewLockRequest, RenewLockResponse, UserLockInfo, UserLocksResponse,
     },
-    store::LockStore,
+    store::{AcquireLockOptions, LockStore},
 };
 use axum::{
     extract::{Path, Query, State},
@@ -19,11 +19,7 @@ use std::convert::Infallible;
 use tracing::info;
 use uuid::Uuid;
 
-fn ensure_namespace_access(
-    state: &crate::AppState,
-    user_id: Uuid,
-    lock_name: &str,
-) -> Result<()> {
+fn ensure_namespace_access(state: &crate::AppState, user_id: Uuid, lock_name: &str) -> Result<()> {
     if user_id == Uuid::nil() {
         return Ok(());
     }
@@ -153,11 +149,11 @@ pub async fn acquire_lock(
     match state.lock_handlers.store.acquire_lock(
         name.clone(),
         user_id,
-        ttl_seconds,
-        req.metadata.clone(),
-        req.session_id,
-        ephemeral,
-        lock_delay_seconds,
+        AcquireLockOptions::new(ttl_seconds)
+            .with_metadata(req.metadata.clone())
+            .with_session_id(req.session_id)
+            .ephemeral(ephemeral)
+            .with_lock_delay_seconds(lock_delay_seconds),
     ) {
         Ok((lease_id, fencing_token, expires_at)) => {
             state.metrics.record_lock_operation("acquire");
@@ -353,6 +349,7 @@ pub async fn list_locks(
     }))
 }
 
+#[allow(dead_code)]
 pub async fn list_user_locks(
     State(state): State<crate::AppState>,
     headers: HeaderMap,
@@ -406,7 +403,7 @@ mod tests {
 
         handlers
             .store
-            .acquire_lock("shared-test".into(), user_id, 60, None, None, false, 0)
+            .acquire_lock("shared-test".into(), user_id, AcquireLockOptions::new(60))
             .unwrap();
         assert_eq!(
             cloned.store.count_user_locks(user_id),

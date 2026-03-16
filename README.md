@@ -151,3 +151,14 @@ See `BENCHMARKS.md` for detailed results and system specifications.
 ## License
 
 MIT
+
+
+## Local CI preflight
+
+Run the same core checks as CI before pushing or opening a PR:
+
+```bash
+./scripts/ci-local.sh
+```
+
+At minimum, do this for any Rust code, auth, lock, session, or workflow change.
