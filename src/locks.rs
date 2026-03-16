@@ -17,6 +17,53 @@ use futures::stream::{Stream, StreamExt};
 use serde::Deserialize;
 use std::convert::Infallible;
 use tracing::info;
+use uuid::Uuid;
+
+fn ensure_namespace_access(
+    state: &crate::AppState,
+    user_id: Uuid,
+    lock_name: &str,
+) -> Result<()> {
+    if user_id == Uuid::nil() {
+        return Ok(());
+    }
+
+    if let Some(namespace) = state.auth_service.get_user_namespace(user_id)? {
+        let required_prefix = format!("{}.", namespace);
+        if !lock_name.starts_with(&required_prefix) {
+            return Err(AppError::Forbidden(format!(
+                "lock '{}' is outside namespace '{}'",
+                lock_name, namespace
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn ensure_prefix_access(
+    state: &crate::AppState,
+    user_id: Uuid,
+    prefix: Option<&str>,
+) -> Result<()> {
+    if user_id == Uuid::nil() {
+        return Ok(());
+    }
+
+    if let Some(namespace) = state.auth_service.get_user_namespace(user_id)? {
+        let required_prefix = format!("{}.", namespace);
+        match prefix {
+            Some(prefix) if prefix.starts_with(&required_prefix) => Ok(()),
+            Some(prefix) => Err(AppError::Forbidden(format!(
+                "prefix '{}' is outside namespace '{}'",
+                prefix, namespace
+            ))),
+            None => Ok(()),
+        }
+    } else {
+        Ok(())
+    }
+}
 
 #[derive(Clone)]
 pub struct LockHandlers {
@@ -39,6 +86,7 @@ pub async fn acquire_lock(
 
     // Validate lock name
     validate_lock_name(&name)?;
+    ensure_namespace_access(&state, user_id, &name)?;
 
     // Validate TTL
     let ttl_seconds = req.ttl_seconds.unwrap_or(60);
@@ -154,6 +202,7 @@ pub async fn release_lock(
     let user_id = state.auth_service.authenticate(&headers)?;
 
     validate_lock_name(&name)?;
+    ensure_namespace_access(&state, user_id, &name)?;
 
     state
         .lock_handlers
@@ -175,6 +224,7 @@ pub async fn renew_lock(
     let user_id = state.auth_service.authenticate(&headers)?;
 
     validate_lock_name(&name)?;
+    ensure_namespace_access(&state, user_id, &name)?;
 
     let ttl_seconds = req.ttl_seconds.unwrap_or(60);
     validate_ttl(ttl_seconds)?;
@@ -197,9 +247,10 @@ pub async fn get_lock_status(
     State(state): State<crate::AppState>,
     headers: HeaderMap,
 ) -> Result<Json<LockStatusResponse>> {
-    let _user_id = state.auth_service.authenticate(&headers)?; // Auth required but user_id not used
+    let user_id = state.auth_service.authenticate(&headers)?;
 
     validate_lock_name(&name)?;
+    ensure_namespace_access(&state, user_id, &name)?;
 
     if let Some(lock) = state.lock_handlers.store.get_lock(&name) {
         if lock.is_expired() {
@@ -244,9 +295,10 @@ pub async fn watch_lock(
     headers: HeaderMap,
 ) -> Result<Sse<impl Stream<Item = std::result::Result<Event, Infallible>>>> {
     // Authenticate the user
-    let _user_id = state.auth_service.authenticate(&headers)?;
+    let user_id = state.auth_service.authenticate(&headers)?;
 
     validate_lock_name(&name)?;
+    ensure_namespace_access(&state, user_id, &name)?;
 
     let rx = state.lock_handlers.store.watch_lock(&name);
 
@@ -273,7 +325,8 @@ pub async fn list_locks(
     headers: HeaderMap,
     Query(query): Query<ListLocksQuery>,
 ) -> Result<Json<ListLocksResponse>> {
-    let _user_id = state.auth_service.authenticate(&headers)?;
+    let user_id = state.auth_service.authenticate(&headers)?;
+    ensure_prefix_access(&state, user_id, query.prefix.as_deref())?;
 
     let locks = state
         .lock_handlers
@@ -417,6 +470,7 @@ mod tests {
             .route("/locks/:name/renew", axum::routing::post(renew_lock))
             .route("/locks/:name/watch", axum::routing::get(watch_lock))
             .route("/locks/:name", axum::routing::get(get_lock_status))
+            .route("/locks", axum::routing::get(list_locks))
             .with_state(app_state);
 
         (router, temp_file)
@@ -431,7 +485,7 @@ mod tests {
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/locks/test-lock/acquire")
+                    .uri("/locks/team-a.test-lock/acquire")
                     .method("POST")
                     .header("authorization", "Bearer testtoken")
                     .header("content-type", "application/json")
@@ -453,7 +507,7 @@ mod tests {
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/locks/test-lock")
+                    .uri("/locks/team-a.test-lock")
                     .header("authorization", "Bearer testtoken")
                     .body(Body::empty())
                     .unwrap(),
@@ -472,7 +526,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::builder()
-                    .uri("/locks/test-lock/release")
+                    .uri("/locks/team-a.test-lock/release")
                     .method("POST")
                     .header("authorization", "Bearer testtoken")
                     .header("content-type", "application/json")
@@ -490,7 +544,7 @@ mod tests {
         let (app, _tmp) = test_app().await;
 
         let req = Request::builder()
-            .uri("/locks/test-lock/acquire")
+            .uri("/locks/team-a.test-lock/acquire")
             .method("POST")
             .header("authorization", "Bearer testtoken")
             .header("content-type", "application/json")
@@ -504,7 +558,7 @@ mod tests {
         let res1: Value = serde_json::from_slice(&body).unwrap();
 
         let req2 = Request::builder()
-            .uri("/locks/test-lock/acquire")
+            .uri("/locks/team-a.test-lock/acquire")
             .method("POST")
             .header("authorization", "Bearer testtoken")
             .header("content-type", "application/json")
@@ -532,7 +586,7 @@ mod tests {
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/locks/test-lock/acquire")
+                    .uri("/locks/team-a.test-lock/acquire")
                     .method("POST")
                     .header("authorization", "Bearer testtoken")
                     .header("content-type", "application/json")
@@ -547,7 +601,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::builder()
-                    .uri("/locks/test-lock/release")
+                    .uri("/locks/team-a.test-lock/release")
                     .method("POST")
                     .header("authorization", "Bearer testtoken")
                     .header("content-type", "application/json")
@@ -569,7 +623,7 @@ mod tests {
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/locks/test-lock/acquire")
+                    .uri("/locks/team-a.test-lock/acquire")
                     .method("POST")
                     .header("authorization", "Bearer testtoken")
                     .header("content-type", "application/json")
@@ -587,7 +641,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::builder()
-                    .uri("/locks/test-lock/acquire")
+                    .uri("/locks/team-a.test-lock/acquire")
                     .method("POST")
                     .header("authorization", "Bearer testtoken")
                     .header("content-type", "application/json")
@@ -609,7 +663,7 @@ mod tests {
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/locks/renew-test/acquire")
+                    .uri("/locks/team-a.renew-test/acquire")
                     .method("POST")
                     .header("authorization", "Bearer testtoken")
                     .header("content-type", "application/json")
@@ -630,7 +684,7 @@ mod tests {
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/locks/renew-test/renew")
+                    .uri("/locks/team-a.renew-test/renew")
                     .method("POST")
                     .header("authorization", "Bearer testtoken")
                     .header("content-type", "application/json")
@@ -656,7 +710,7 @@ mod tests {
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/locks/renew-test/release")
+                    .uri("/locks/team-a.renew-test/release")
                     .method("POST")
                     .header("authorization", "Bearer testtoken")
                     .header("content-type", "application/json")
@@ -677,7 +731,7 @@ mod tests {
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/locks/contested-lock/acquire")
+                    .uri("/locks/team-a.contested-lock/acquire")
                     .method("POST")
                     .header("authorization", "Bearer testtoken")
                     .header("content-type", "application/json")
@@ -686,23 +740,26 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(response.status(), StatusCode::OK);
 
-        // user2 is unscoped and can acquire the same lock
+        // user2 is unscoped and can still inspect the held lock
         let response = app
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/locks/contested-lock/acquire")
-                    .method("POST")
-                    .header("authorization", "Bearer token2")
-                    .header("content-type", "application/json")
-                    .body(Body::from(json!({"ttl_seconds": 60}).to_string()))
+                    .uri("/locks/team-a.contested-lock")
+                    .header("authorization", "Bearer testtoken")
+                    .body(Body::empty())
                     .unwrap(),
             )
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let res: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(res["status"], "held");
     }
 
     #[tokio::test]
