@@ -108,11 +108,13 @@ pub struct LockStatusResponse {
 }
 
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct UserLocksResponse {
     pub locks: Vec<UserLockInfo>,
 }
 
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct UserLockInfo {
     pub name: String,
     pub lease_id: Uuid,
@@ -247,6 +249,7 @@ impl From<Webhook> for WebhookResponse {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[allow(dead_code)]
 pub struct WebhookDelivery {
     pub webhook_id: Uuid,
     pub lock_name: String,

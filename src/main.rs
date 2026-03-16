@@ -391,7 +391,7 @@ async fn admin_status(
     let active_locks = state.lock_handlers.store.get_all_active_locks();
     let locks: Vec<serde_json::Value> = active_locks
         .into_iter()
-        .filter_map(|lock| {
+        .map(|lock| {
             // Get holder username
             let holder_username = state.auth_service
                 .get_user_by_id(&lock.holder_id.to_string())
@@ -405,14 +405,14 @@ async fn admin_status(
                 0
             };
 
-            Some(serde_json::json!({
+            serde_json::json!({
                 "name": lock.name,
                 "holder_username": holder_username,
                 "metadata": lock.metadata,
                 "fencing_token": lock.fencing_token,
                 "expires_at": lock.expires_at.to_rfc3339(),
                 "ttl_remaining_seconds": ttl_remaining
-            }))
+            })
         }).collect();
 
     // Get all registered users

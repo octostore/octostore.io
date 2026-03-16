@@ -345,6 +345,7 @@ pub async fn list_locks(
     }))
 }
 
+#[allow(dead_code)]
 pub async fn list_user_locks(
     State(state): State<crate::AppState>,
     headers: HeaderMap,

@@ -236,6 +236,7 @@ impl SessionStore {
             .map(|entry| entry.value().clone())
     }
 
+    #[allow(dead_code)]
     pub fn get_user_sessions(&self, user_id: Uuid) -> Vec<Session> {
         self.sessions
             .iter()
@@ -268,7 +269,7 @@ impl SessionStore {
 
         for entry in self.sessions.iter() {
             if entry.value().expires_at <= now {
-                expired.push(entry.key().clone());
+                expired.push(*entry.key());
             }
         }
 
@@ -315,7 +316,7 @@ impl SessionStore {
 }
 
 fn clamp_ttl(ttl: Option<u32>) -> u32 {
-    ttl.unwrap_or(DEFAULT_TTL).max(MIN_TTL).min(MAX_TTL)
+    ttl.unwrap_or(DEFAULT_TTL).clamp(MIN_TTL, MAX_TTL)
 }
 
 // ── Route handlers ──────────────────────────────────────────────────────

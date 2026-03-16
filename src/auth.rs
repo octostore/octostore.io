@@ -136,11 +136,9 @@ impl AuthService {
             let rows = stmt.query_map([], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?;
-            for row in rows {
-                if let Ok((token, id)) = row {
-                    if let Ok(uuid) = Uuid::parse_str(&id) {
-                        token_cache.insert(token, uuid);
-                    }
+            for (token, id) in rows.flatten() {
+                if let Ok(uuid) = Uuid::parse_str(&id) {
+                    token_cache.insert(token, uuid);
                 }
             }
             info!("Loaded {} tokens into auth cache", token_cache.len());

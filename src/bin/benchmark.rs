@@ -97,7 +97,7 @@ async fn worker(
         // ACQUIRE
         let start = Instant::now();
         let result = client
-            .post(&format!("{}/locks/{}/acquire", base_url, lock_name))
+            .post(format!("{}/locks/{}/acquire", base_url, lock_name))
             .header("Authorization", format!("Bearer {}", token))
             .json(&json!({"ttl_seconds": 30}))
             .send().await;
@@ -161,7 +161,7 @@ async fn worker(
         // STATUS
         let start = Instant::now();
         if let Ok(resp) = client
-            .get(&format!("{}/locks/{}", base_url, lock_name))
+            .get(format!("{}/locks/{}", base_url, lock_name))
             .header("Authorization", format!("Bearer {}", token))
             .send().await
         {
@@ -179,7 +179,7 @@ async fn worker(
         // RENEW
         let start = Instant::now();
         if let Ok(resp) = client
-            .post(&format!("{}/locks/{}/renew", base_url, lock_name))
+            .post(format!("{}/locks/{}/renew", base_url, lock_name))
             .header("Authorization", format!("Bearer {}", token))
             .json(&json!({"lease_id": lease_id, "ttl_seconds": 30}))
             .send().await
@@ -200,7 +200,7 @@ async fn worker(
         // RELEASE
         let start = Instant::now();
         if let Ok(resp) = client
-            .post(&format!("{}/locks/{}/release", base_url, lock_name))
+            .post(format!("{}/locks/{}/release", base_url, lock_name))
             .header("Authorization", format!("Bearer {}", token))
             .json(&json!({"lease_id": lease_id}))
             .send().await
@@ -223,7 +223,7 @@ async fn cleanup_locks(client: &Client, base_url: &str, token: &str, lock_names:
     for name in lock_names {
         // Try to release with dummy lease (will fail but that's fine — just want to clear)
         let _ = client
-            .post(&format!("{}/locks/{}/release", base_url, name))
+            .post(format!("{}/locks/{}/release", base_url, name))
             .header("Authorization", format!("Bearer {}", token))
             .json(&json!({"lease_id": "00000000-0000-0000-0000-000000000000"}))
             .send().await;
@@ -387,7 +387,7 @@ async fn main() {
 
     // Validate token
     print!("🔑 Validating token... ");
-    match client.get(&format!("{}/locks", base_url))
+    match client.get(format!("{}/locks", base_url))
         .header("Authorization", format!("Bearer {}", args.token))
         .send().await
     {
@@ -405,7 +405,7 @@ async fn main() {
     println!("  Per wave:   {}s", args.wave_duration);
     println!("  Waves:      1 → 10 → 20 → 50 → 100 → 150 (overflow!)");
 
-    let waves = vec![1, 10, 20, 50, 100, 150];
+    let waves = [1, 10, 20, 50, 100, 150];
     let mut results = Vec::new();
 
     for (i, &workers) in waves.iter().enumerate() {
