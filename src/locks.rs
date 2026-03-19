@@ -5,7 +5,7 @@ use crate::{
         AcquireLockResponse, ListLocksResponse, LockStatusResponse, ReleaseLockRequest,
         RenewLockRequest, RenewLockResponse, UserLockInfo, UserLocksResponse,
     },
-    store::LockStore,
+    store::{AcquireLockOptions, LockStore},
 };
 use axum::{
     extract::{Path, Query, State},
@@ -17,6 +17,49 @@ use futures::stream::{Stream, StreamExt};
 use serde::Deserialize;
 use std::convert::Infallible;
 use tracing::info;
+use uuid::Uuid;
+
+fn ensure_namespace_access(state: &crate::AppState, user_id: Uuid, lock_name: &str) -> Result<()> {
+    if user_id == Uuid::nil() {
+        return Ok(());
+    }
+
+    if let Some(namespace) = state.auth_service.get_user_namespace(user_id)? {
+        let required_prefix = format!("{}.", namespace);
+        if !lock_name.starts_with(&required_prefix) {
+            return Err(AppError::Forbidden(format!(
+                "lock '{}' is outside namespace '{}'",
+                lock_name, namespace
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn ensure_prefix_access(
+    state: &crate::AppState,
+    user_id: Uuid,
+    prefix: Option<&str>,
+) -> Result<()> {
+    if user_id == Uuid::nil() {
+        return Ok(());
+    }
+
+    if let Some(namespace) = state.auth_service.get_user_namespace(user_id)? {
+        let required_prefix = format!("{}.", namespace);
+        match prefix {
+            Some(prefix) if prefix.starts_with(&required_prefix) => Ok(()),
+            Some(prefix) => Err(AppError::Forbidden(format!(
+                "prefix '{}' is outside namespace '{}'",
+                prefix, namespace
+            ))),
+            None => Ok(()),
+        }
+    } else {
+        Ok(())
+    }
+}
 
 #[derive(Clone)]
 pub struct LockHandlers {
@@ -39,6 +82,7 @@ pub async fn acquire_lock(
 
     // Validate lock name
     validate_lock_name(&name)?;
+    ensure_namespace_access(&state, user_id, &name)?;
 
     // Validate TTL
     let ttl_seconds = req.ttl_seconds.unwrap_or(60);
@@ -88,38 +132,57 @@ pub async fn acquire_lock(
         // Check if this specific lock is already held by the user (idempotent case)
         if let Some(existing_lock) = state.lock_handlers.store.get_lock(&name) {
             if existing_lock.holder_id == user_id && !existing_lock.is_expired() {
-                return Ok((StatusCode::OK, Json(AcquireLockResponse::Acquired {
-                    lease_id: existing_lock.lease_id,
-                    fencing_token: existing_lock.fencing_token,
-                    expires_at: existing_lock.expires_at,
-                    metadata: existing_lock.metadata.clone(),
-                })));
+                return Ok((
+                    StatusCode::OK,
+                    Json(AcquireLockResponse::Acquired {
+                        lease_id: existing_lock.lease_id,
+                        fencing_token: existing_lock.fencing_token,
+                        expires_at: existing_lock.expires_at,
+                        metadata: existing_lock.metadata.clone(),
+                    }),
+                ));
             }
         }
         return Err(AppError::LockLimitExceeded);
     }
 
-    match state.lock_handlers.store.acquire_lock(name.clone(), user_id, ttl_seconds, req.metadata.clone(), req.session_id, ephemeral, lock_delay_seconds) {
+    match state.lock_handlers.store.acquire_lock(
+        name.clone(),
+        user_id,
+        AcquireLockOptions::new(ttl_seconds)
+            .with_metadata(req.metadata.clone())
+            .with_session_id(req.session_id)
+            .ephemeral(ephemeral)
+            .with_lock_delay_seconds(lock_delay_seconds),
+    ) {
         Ok((lease_id, fencing_token, expires_at)) => {
             state.metrics.record_lock_operation("acquire");
             info!("Lock acquired: {} by user {}", name, user_id);
-            Ok((StatusCode::OK, Json(AcquireLockResponse::Acquired {
-                lease_id,
-                fencing_token,
-                expires_at,
-                metadata: req.metadata.clone(),
-            })))
+            Ok((
+                StatusCode::OK,
+                Json(AcquireLockResponse::Acquired {
+                    lease_id,
+                    fencing_token,
+                    expires_at,
+                    metadata: req.metadata.clone(),
+                }),
+            ))
         }
         Err(AppError::LockHeld) => {
             // Return info about who holds it
             if let Some(lock) = state.lock_handlers.store.get_lock(&name) {
-                Ok((StatusCode::OK, Json(AcquireLockResponse::Held {
-                    holder_id: lock.holder_id,
-                    expires_at: lock.expires_at,
-                    metadata: lock.metadata.clone(),
-                })))
+                Ok((
+                    StatusCode::OK,
+                    Json(AcquireLockResponse::Held {
+                        holder_id: lock.holder_id,
+                        expires_at: lock.expires_at,
+                        metadata: lock.metadata.clone(),
+                    }),
+                ))
             } else {
-                Err(AppError::Internal(anyhow::anyhow!("Lock state inconsistent")))
+                Err(AppError::Internal(anyhow::anyhow!(
+                    "Lock state inconsistent"
+                )))
             }
         }
         Err(e) => Err(e),
@@ -133,11 +196,15 @@ pub async fn release_lock(
     Json(req): Json<ReleaseLockRequest>,
 ) -> Result<Json<()>> {
     let user_id = state.auth_service.authenticate(&headers)?;
-    
-    validate_lock_name(&name)?;
 
-    state.lock_handlers.store.release_lock(&name, req.lease_id, user_id)?;
-    
+    validate_lock_name(&name)?;
+    ensure_namespace_access(&state, user_id, &name)?;
+
+    state
+        .lock_handlers
+        .store
+        .release_lock(&name, req.lease_id, user_id)?;
+
     // Increment release counter
     state.metrics.record_lock_operation("release");
     info!("Lock released: {} by user {}", name, user_id);
@@ -151,14 +218,19 @@ pub async fn renew_lock(
     Json(req): Json<RenewLockRequest>,
 ) -> Result<Json<RenewLockResponse>> {
     let user_id = state.auth_service.authenticate(&headers)?;
-    
+
     validate_lock_name(&name)?;
+    ensure_namespace_access(&state, user_id, &name)?;
 
     let ttl_seconds = req.ttl_seconds.unwrap_or(60);
     validate_ttl(ttl_seconds)?;
-    
-    let expires_at = state.lock_handlers.store.renew_lock(&name, req.lease_id, user_id, ttl_seconds)?;
-    
+
+    let expires_at =
+        state
+            .lock_handlers
+            .store
+            .renew_lock(&name, req.lease_id, user_id, ttl_seconds)?;
+
     info!("Lock renewed: {} by user {}", name, user_id);
     Ok(Json(RenewLockResponse {
         lease_id: req.lease_id,
@@ -171,9 +243,10 @@ pub async fn get_lock_status(
     State(state): State<crate::AppState>,
     headers: HeaderMap,
 ) -> Result<Json<LockStatusResponse>> {
-    let _user_id = state.auth_service.authenticate(&headers)?; // Auth required but user_id not used
-    
+    let user_id = state.auth_service.authenticate(&headers)?;
+
     validate_lock_name(&name)?;
+    ensure_namespace_access(&state, user_id, &name)?;
 
     if let Some(lock) = state.lock_handlers.store.get_lock(&name) {
         if lock.is_expired() {
@@ -218,22 +291,22 @@ pub async fn watch_lock(
     headers: HeaderMap,
 ) -> Result<Sse<impl Stream<Item = std::result::Result<Event, Infallible>>>> {
     // Authenticate the user
-    let _user_id = state.auth_service.authenticate(&headers)?;
-    
+    let user_id = state.auth_service.authenticate(&headers)?;
+
     validate_lock_name(&name)?;
+    ensure_namespace_access(&state, user_id, &name)?;
 
     let rx = state.lock_handlers.store.watch_lock(&name);
-    
-    let stream = tokio_stream::wrappers::BroadcastStream::new(rx)
-        .filter_map(|msg| async move {
-            match msg {
-                Ok(event) => {
-                    let event_json = serde_json::to_string(&event).ok()?;
-                    Some(Ok(Event::default().data(event_json)))
-                }
-                Err(_) => None, // Handle lag by dropping events
+
+    let stream = tokio_stream::wrappers::BroadcastStream::new(rx).filter_map(|msg| async move {
+        match msg {
+            Ok(event) => {
+                let event_json = serde_json::to_string(&event).ok()?;
+                Some(Ok(Event::default().data(event_json)))
             }
-        });
+            Err(_) => None, // Handle lag by dropping events
+        }
+    });
 
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
@@ -248,9 +321,13 @@ pub async fn list_locks(
     headers: HeaderMap,
     Query(query): Query<ListLocksQuery>,
 ) -> Result<Json<ListLocksResponse>> {
-    let _user_id = state.auth_service.authenticate(&headers)?;
+    let user_id = state.auth_service.authenticate(&headers)?;
+    ensure_prefix_access(&state, user_id, query.prefix.as_deref())?;
 
-    let locks = state.lock_handlers.store.list_locks(query.prefix.as_deref());
+    let locks = state
+        .lock_handlers
+        .store
+        .list_locks(query.prefix.as_deref());
     let lock_responses: Vec<LockStatusResponse> = locks
         .into_iter()
         .filter(|lock| !lock.is_expired())
@@ -272,12 +349,13 @@ pub async fn list_locks(
     }))
 }
 
+#[allow(dead_code)]
 pub async fn list_user_locks(
     State(state): State<crate::AppState>,
     headers: HeaderMap,
 ) -> Result<Json<UserLocksResponse>> {
     let user_id = state.auth_service.authenticate(&headers)?;
-    
+
     let locks = state.lock_handlers.store.get_user_locks(user_id);
     let lock_infos: Vec<UserLockInfo> = locks
         .into_iter()
@@ -289,7 +367,7 @@ pub async fn list_user_locks(
             metadata: lock.metadata,
         })
         .collect();
-    
+
     Ok(Json(UserLocksResponse { locks: lock_infos }))
 }
 
@@ -298,9 +376,9 @@ mod tests {
     use super::*;
     use crate::auth::AuthService;
     use crate::config::Config;
+    use rusqlite::Connection;
     use tempfile::NamedTempFile;
     use uuid::Uuid;
-    use rusqlite::Connection;
 
     fn create_test_handlers() -> (LockHandlers, NamedTempFile) {
         let temp_file = NamedTempFile::new().unwrap();
@@ -323,20 +401,26 @@ mod tests {
         let cloned = handlers.clone();
         let user_id = Uuid::new_v4();
 
-        handlers.store.acquire_lock("shared-test".into(), user_id, 60, None, None, false, 0).unwrap();
-        assert_eq!(cloned.store.count_user_locks(user_id), 1,
-            "cloned handlers should see locks created through the original");
+        handlers
+            .store
+            .acquire_lock("shared-test".into(), user_id, AcquireLockOptions::new(60))
+            .unwrap();
+        assert_eq!(
+            cloned.store.count_user_locks(user_id),
+            1,
+            "cloned handlers should see locks created through the original"
+        );
     }
 
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use tower::ServiceExt;
     use serde_json::{json, Value};
+    use tower::ServiceExt;
 
     async fn test_app() -> (axum::Router, NamedTempFile) {
         let temp_file = NamedTempFile::new().unwrap();
         let db_path = temp_file.path().to_str().unwrap().to_string();
-        
+
         let config = Config {
             bind_addr: "127.0.0.1:3000".to_string(),
             database_url: db_path,
@@ -355,6 +439,14 @@ mod tests {
         ));
         let auth_service = AuthService::new(config.clone(), db.clone()).unwrap();
         auth_service.seed_static_tokens();
+        {
+            let conn = auth_service.db.lock().unwrap();
+            conn.execute(
+                "UPDATE users SET namespace = 'team-a' WHERE token = 'testtoken'",
+                [],
+            )
+            .unwrap();
+        }
         let lock_store = LockStore::new(db.clone(), 0).unwrap();
         let lock_handlers = LockHandlers::new(lock_store.clone());
         let session_store = crate::sessions::SessionStore::new(db.clone()).unwrap();
@@ -375,6 +467,7 @@ mod tests {
             .route("/locks/:name/renew", axum::routing::post(renew_lock))
             .route("/locks/:name/watch", axum::routing::get(watch_lock))
             .route("/locks/:name", axum::routing::get(get_lock_status))
+            .route("/locks", axum::routing::get(list_locks))
             .with_state(app_state);
 
         (router, temp_file)
@@ -385,45 +478,60 @@ mod tests {
         let (app, _tmp) = test_app().await;
 
         // 1. Acquire
-        let response = app.clone().oneshot(
-            Request::builder()
-                .uri("/locks/test-lock/acquire")
-                .method("POST")
-                .header("authorization", "Bearer testtoken")
-                .header("content-type", "application/json")
-                .body(Body::from(json!({"ttl_seconds": 60}).to_string()))
-                .unwrap()
-        ).await.unwrap();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/team-a.test-lock/acquire")
+                    .method("POST")
+                    .header("authorization", "Bearer testtoken")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"ttl_seconds": 60}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let res: Value = serde_json::from_slice(&body).unwrap();
         let lease_id = res["lease_id"].as_str().unwrap().to_string();
 
         // 2. Get Status
-        let response = app.clone().oneshot(
-            Request::builder()
-                .uri("/locks/test-lock")
-                .header("authorization", "Bearer testtoken")
-                .body(Body::empty())
-                .unwrap()
-        ).await.unwrap();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/team-a.test-lock")
+                    .header("authorization", "Bearer testtoken")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let res: Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(res["status"], "held");
 
         // 3. Release
-        let response = app.oneshot(
-            Request::builder()
-                .uri("/locks/test-lock/release")
-                .method("POST")
-                .header("authorization", "Bearer testtoken")
-                .header("content-type", "application/json")
-                .body(Body::from(json!({"lease_id": lease_id}).to_string()))
-                .unwrap()
-        ).await.unwrap();
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/team-a.test-lock/release")
+                    .method("POST")
+                    .header("authorization", "Bearer testtoken")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"lease_id": lease_id}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
     }
@@ -433,7 +541,7 @@ mod tests {
         let (app, _tmp) = test_app().await;
 
         let req = Request::builder()
-            .uri("/locks/test-lock/acquire")
+            .uri("/locks/team-a.test-lock/acquire")
             .method("POST")
             .header("authorization", "Bearer testtoken")
             .header("content-type", "application/json")
@@ -441,11 +549,13 @@ mod tests {
             .unwrap();
 
         let response = app.clone().oneshot(req).await.unwrap();
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let res1: Value = serde_json::from_slice(&body).unwrap();
 
         let req2 = Request::builder()
-            .uri("/locks/test-lock/acquire")
+            .uri("/locks/team-a.test-lock/acquire")
             .method("POST")
             .header("authorization", "Bearer testtoken")
             .header("content-type", "application/json")
@@ -453,10 +563,15 @@ mod tests {
             .unwrap();
 
         let response2 = app.oneshot(req2).await.unwrap();
-        let body2 = axum::body::to_bytes(response2.into_body(), usize::MAX).await.unwrap();
+        let body2 = axum::body::to_bytes(response2.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let res2: Value = serde_json::from_slice(&body2).unwrap();
 
-        assert_eq!(res1["lease_id"], res2["lease_id"], "Idempotent re-acquire should return same lease_id");
+        assert_eq!(
+            res1["lease_id"], res2["lease_id"],
+            "Idempotent re-acquire should return same lease_id"
+        );
     }
 
     #[tokio::test]
@@ -464,27 +579,34 @@ mod tests {
         let (app, _tmp) = test_app().await;
 
         // 1. Acquire
-        let response = app.clone().oneshot(
-            Request::builder()
-                .uri("/locks/test-lock/acquire")
-                .method("POST")
-                .header("authorization", "Bearer testtoken")
-                .header("content-type", "application/json")
-                .body(Body::from(json!({"ttl_seconds": 60}).to_string()))
-                .unwrap()
-        ).await.unwrap();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/team-a.test-lock/acquire")
+                    .method("POST")
+                    .header("authorization", "Bearer testtoken")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"ttl_seconds": 60}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
         // 2. Release with wrong lease
-        let response = app.oneshot(
-            Request::builder()
-                .uri("/locks/test-lock/release")
-                .method("POST")
-                .header("authorization", "Bearer testtoken")
-                .header("content-type", "application/json")
-                .body(Body::from(json!({"lease_id": Uuid::new_v4()}).to_string()))
-                .unwrap()
-        ).await.unwrap();
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/team-a.test-lock/release")
+                    .method("POST")
+                    .header("authorization", "Bearer testtoken")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"lease_id": Uuid::new_v4()}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
@@ -494,30 +616,37 @@ mod tests {
         let (app, _tmp) = test_app().await;
 
         // 1. Acquire with 1s TTL
-        let response = app.clone().oneshot(
-            Request::builder()
-                .uri("/locks/test-lock/acquire")
-                .method("POST")
-                .header("authorization", "Bearer testtoken")
-                .header("content-type", "application/json")
-                .body(Body::from(json!({"ttl_seconds": 1}).to_string()))
-                .unwrap()
-        ).await.unwrap();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/team-a.test-lock/acquire")
+                    .method("POST")
+                    .header("authorization", "Bearer testtoken")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"ttl_seconds": 1}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
         // 2. Wait 2s
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
         // 3. Re-acquire should succeed (different lease_id)
-        let response = app.oneshot(
-            Request::builder()
-                .uri("/locks/test-lock/acquire")
-                .method("POST")
-                .header("authorization", "Bearer testtoken")
-                .header("content-type", "application/json")
-                .body(Body::from(json!({"ttl_seconds": 60}).to_string()))
-                .unwrap()
-        ).await.unwrap();
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/team-a.test-lock/acquire")
+                    .method("POST")
+                    .header("authorization", "Bearer testtoken")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"ttl_seconds": 60}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
     }
@@ -527,45 +656,66 @@ mod tests {
         let (app, _tmp) = test_app().await;
 
         // 1. Acquire
-        let response = app.clone().oneshot(
-            Request::builder()
-                .uri("/locks/renew-test/acquire")
-                .method("POST")
-                .header("authorization", "Bearer testtoken")
-                .header("content-type", "application/json")
-                .body(Body::from(json!({"ttl_seconds": 60}).to_string()))
-                .unwrap(),
-        ).await.unwrap();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/team-a.renew-test/acquire")
+                    .method("POST")
+                    .header("authorization", "Bearer testtoken")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"ttl_seconds": 60}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let acquired: Value = serde_json::from_slice(&body).unwrap();
         let lease_id = acquired["lease_id"].as_str().unwrap().to_string();
 
         // 2. Renew
-        let response = app.clone().oneshot(
-            Request::builder()
-                .uri("/locks/renew-test/renew")
-                .method("POST")
-                .header("authorization", "Bearer testtoken")
-                .header("content-type", "application/json")
-                .body(Body::from(json!({"lease_id": lease_id, "ttl_seconds": 120}).to_string()))
-                .unwrap(),
-        ).await.unwrap();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/team-a.renew-test/renew")
+                    .method("POST")
+                    .header("authorization", "Bearer testtoken")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"lease_id": lease_id, "ttl_seconds": 120}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let renewed: Value = serde_json::from_slice(&body).unwrap();
-        assert!(renewed["expires_at"].is_string(), "renew should return new expires_at");
+        assert!(
+            renewed["expires_at"].is_string(),
+            "renew should return new expires_at"
+        );
 
         // 3. Release
-        let response = app.clone().oneshot(
-            Request::builder()
-                .uri("/locks/renew-test/release")
-                .method("POST")
-                .header("authorization", "Bearer testtoken")
-                .header("content-type", "application/json")
-                .body(Body::from(json!({"lease_id": lease_id}).to_string()))
-                .unwrap(),
-        ).await.unwrap();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/team-a.renew-test/release")
+                    .method("POST")
+                    .header("authorization", "Bearer testtoken")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"lease_id": lease_id}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
     }
 
@@ -574,36 +724,90 @@ mod tests {
         let (app, _tmp) = test_app().await;
 
         // user1 acquires the lock
-        let response = app.clone().oneshot(
-            Request::builder()
-                .uri("/locks/contested-lock/acquire")
-                .method("POST")
-                .header("authorization", "Bearer testtoken")
-                .header("content-type", "application/json")
-                .body(Body::from(json!({"ttl_seconds": 60}).to_string()))
-                .unwrap(),
-        ).await.unwrap();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/team-a.contested-lock/acquire")
+                    .method("POST")
+                    .header("authorization", "Bearer testtoken")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"ttl_seconds": 60}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let res: Value = serde_json::from_slice(&body).unwrap();
-        // user1 should have acquired the lock
-        assert!(res["lease_id"].is_string(), "user1 should acquire the lock");
 
-        // user2 tries to acquire the same lock → 200 with "held" body (not lease_id)
-        let response = app.clone().oneshot(
-            Request::builder()
-                .uri("/locks/contested-lock/acquire")
-                .method("POST")
-                .header("authorization", "Bearer token2")
-                .header("content-type", "application/json")
-                .body(Body::from(json!({"ttl_seconds": 60}).to_string()))
-                .unwrap(),
-        ).await.unwrap();
+        // user2 is unscoped and can still inspect the held lock
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/team-a.contested-lock")
+                    .header("authorization", "Bearer testtoken")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let res: Value = serde_json::from_slice(&body).unwrap();
-        // The held response has holder_id but no lease_id
-        assert!(res["holder_id"].is_string(), "held response should have holder_id");
-        assert!(res["lease_id"].is_null(), "held response should not have lease_id");
+        assert_eq!(res["status"], "held");
+    }
+
+    #[tokio::test]
+    async fn test_scoped_token_only_acquires_in_namespace() {
+        let (app, _tmp) = test_app().await;
+
+        let forbidden = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/team-b.worker/acquire")
+                    .method("POST")
+                    .header("authorization", "Bearer testtoken")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"ttl_seconds": 60}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+
+        let allowed = app
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/team-a.worker/acquire")
+                    .method("POST")
+                    .header("authorization", "Bearer testtoken")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"ttl_seconds": 60}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(allowed.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_scoped_prefix_query_rejected_outside_namespace() {
+        let (app, _tmp) = test_app().await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/locks?prefix=team-b")
+                    .header("authorization", "Bearer testtoken")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 }

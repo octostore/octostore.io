@@ -10,6 +10,7 @@ pub struct User {
     pub github_id: u64,
     pub github_username: String,
     pub token: String,
+    pub namespace: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -107,11 +108,13 @@ pub struct LockStatusResponse {
 }
 
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct UserLocksResponse {
     pub locks: Vec<UserLockInfo>,
 }
 
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct UserLockInfo {
     pub name: String,
     pub lease_id: Uuid,
@@ -132,6 +135,7 @@ pub struct AuthTokenResponse {
     pub token: String,
     pub user_id: Uuid,
     pub github_username: String,
+    pub namespace: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -245,6 +249,7 @@ impl From<Webhook> for WebhookResponse {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[allow(dead_code)]
 pub struct WebhookDelivery {
     pub webhook_id: Uuid,
     pub lock_name: String,
@@ -351,7 +356,7 @@ mod tests {
     #[test]
     fn test_lock_is_expired() {
         let now = Utc::now();
-        
+
         // Test expired lock
         let expired_lock = Lock {
             name: "test-lock".to_string(),
@@ -501,7 +506,7 @@ mod tests {
         assert!(validate_metadata(&None).is_ok());
         assert!(validate_metadata(&Some("".to_string())).is_ok());
         assert!(validate_metadata(&Some("short metadata".to_string())).is_ok());
-        
+
         // Exactly 1024 bytes should be OK
         let max_metadata = "a".repeat(1024);
         assert!(validate_metadata(&Some(max_metadata)).is_ok());
@@ -523,8 +528,10 @@ mod tests {
             metadata: Some("test".to_string()),
         };
         let json = serde_json::to_string(&acquired).unwrap();
-        assert!(json.contains("\"status\":\"acquired\""),
-            "acquired variant must serialize with status=acquired");
+        assert!(
+            json.contains("\"status\":\"acquired\""),
+            "acquired variant must serialize with status=acquired"
+        );
 
         let held = AcquireLockResponse::Held {
             holder_id: uuid::Uuid::new_v4(),
@@ -532,17 +539,31 @@ mod tests {
             metadata: None,
         };
         let json = serde_json::to_string(&held).unwrap();
-        assert!(json.contains("\"status\":\"held\""),
-            "held variant must serialize with status=held");
+        assert!(
+            json.contains("\"status\":\"held\""),
+            "held variant must serialize with status=held"
+        );
     }
 
     #[test]
     fn test_boundary_values() {
-        assert!(validate_lock_name(&"a".repeat(64)).is_ok(), "64-char component should be valid");
-        assert!(validate_lock_name(&"a".repeat(65)).is_err(), "65-char component should be rejected");
-        assert!(validate_lock_name(&"a".repeat(256)).is_err(), "256-char single component should be rejected (>64)");
+        assert!(
+            validate_lock_name(&"a".repeat(64)).is_ok(),
+            "64-char component should be valid"
+        );
+        assert!(
+            validate_lock_name(&"a".repeat(65)).is_err(),
+            "65-char component should be rejected"
+        );
+        assert!(
+            validate_lock_name(&"a".repeat(256)).is_err(),
+            "256-char single component should be rejected (>64)"
+        );
         let name_256 = format!("{}/{}", "a".repeat(64), "b".repeat(64));
-        assert!(validate_lock_name(&name_256).is_ok(), "multi-component name within limits should be valid");
+        assert!(
+            validate_lock_name(&name_256).is_ok(),
+            "multi-component name within limits should be valid"
+        );
         assert!(validate_ttl(1).is_ok());
         assert!(validate_ttl(3600).is_ok());
         assert!(validate_ttl(3601).is_err());

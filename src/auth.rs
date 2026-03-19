@@ -11,12 +11,12 @@ use axum::{
 };
 use base64::Engine;
 use chrono::Utc;
+use dashmap::DashMap;
 use rand::Rng;
 use reqwest::Client;
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap};
-use dashmap::DashMap;
+use std::collections::HashMap;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -79,6 +79,7 @@ pub struct GitHubCallbackQuery {
 #[derive(Deserialize)]
 pub struct RegisterRequest {
     pub username: String,
+    pub namespace: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -86,6 +87,7 @@ pub struct RegisterResponse {
     pub token: String,
     pub user_id: Uuid,
     pub username: String,
+    pub namespace: Option<String>,
 }
 
 impl AuthService {
@@ -105,6 +107,8 @@ impl AuthService {
             "#,
                 [],
             )?;
+
+            let _ = conn.execute("ALTER TABLE users ADD COLUMN namespace TEXT", []);
 
             conn.execute(
                 r#"
@@ -132,11 +136,9 @@ impl AuthService {
             let rows = stmt.query_map([], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?;
-            for row in rows {
-                if let Ok((token, id)) = row {
-                    if let Ok(uuid) = Uuid::parse_str(&id) {
-                        token_cache.insert(token, uuid);
-                    }
+            for (token, id) in rows.flatten() {
+                if let Ok(uuid) = Uuid::parse_str(&id) {
+                    token_cache.insert(token, uuid);
                 }
             }
             info!("Loaded {} tokens into auth cache", token_cache.len());
@@ -216,26 +218,50 @@ impl AuthService {
 
     /// Register a new local user (no GitHub required).  Idempotent — returns
     /// the existing token if the username was already registered.
-    pub async fn register_local_user(&self, username: &str) -> Result<RegisterResponse> {
+    pub async fn register_local_user(
+        &self,
+        username: &str,
+        namespace: Option<&str>,
+    ) -> Result<RegisterResponse> {
         if username.is_empty() || username.len() > 64 {
             return Err(AppError::Internal(anyhow::anyhow!(
                 "username must be 1–64 characters"
             )));
         }
-        if !username.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        if !username
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+        {
             return Err(AppError::Internal(anyhow::anyhow!(
                 "username may only contain alphanumeric characters, hyphens, and underscores"
             )));
         }
 
+        let desired_namespace = namespace
+            .map(|n| n.trim_matches('/').to_string())
+            .filter(|n| !n.is_empty());
+
         let local_id = username_to_local_id(username);
-        let github_user = GitHubUser { id: local_id, login: username.to_string() };
-        let user = self.create_or_get_user(github_user).await?;
+        let github_user = GitHubUser {
+            id: local_id,
+            login: username.to_string(),
+        };
+        let mut user = self.create_or_get_user(github_user).await?;
+
+        if user.namespace.is_none() && desired_namespace.is_some() {
+            let conn = self.db.lock().unwrap();
+            conn.execute(
+                "UPDATE users SET namespace = ? WHERE id = ?",
+                params![desired_namespace.clone(), user.id.to_string()],
+            )?;
+            user.namespace = desired_namespace;
+        }
 
         Ok(RegisterResponse {
             token: user.token,
             user_id: user.id,
             username: user.github_username,
+            namespace: user.namespace,
         })
     }
 
@@ -264,12 +290,17 @@ impl AuthService {
             token: user.token,
             user_id: user.id,
             github_username: user.github_username,
+            namespace: user.namespace,
         })
     }
 
     async fn exchange_code_for_token(&self, code: &str) -> Result<GitHubTokenResponse> {
         let client_id = self.config.github_client_id.as_deref().unwrap_or_default();
-        let client_secret = self.config.github_client_secret.as_deref().unwrap_or_default();
+        let client_secret = self
+            .config
+            .github_client_secret
+            .as_deref()
+            .unwrap_or_default();
 
         let mut params = HashMap::new();
         params.insert("client_id", client_id);
@@ -318,7 +349,7 @@ impl AuthService {
 
         let existing_user: Option<User> = conn
             .query_row(
-                "SELECT id, github_id, github_username, token, created_at FROM users WHERE github_id = ?",
+                "SELECT id, github_id, github_username, token, namespace, created_at FROM users WHERE github_id = ?",
                 params![github_user.id as i64],
                 |row| {
                     Ok(User {
@@ -326,8 +357,9 @@ impl AuthService {
                         github_id: row.get::<_, i64>(1)? as u64,
                         github_username: row.get(2)?,
                         token: row.get(3)?,
+                        namespace: row.get(4)?,
                         created_at: chrono::DateTime::parse_from_rfc3339(
-                            &row.get::<_, String>(4)?,
+                            &row.get::<_, String>(5)?,
                         )
                         .unwrap()
                         .with_timezone(&chrono::Utc),
@@ -346,12 +378,13 @@ impl AuthService {
         let created_at = Utc::now();
 
         conn.execute(
-            "INSERT INTO users (id, github_id, github_username, token, created_at) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO users (id, github_id, github_username, token, namespace, created_at) VALUES (?, ?, ?, ?, ?, ?)",
             params![
                 user_id.to_string(),
                 github_user.id as i64,
                 github_user.login,
                 token,
+                Option::<String>::None,
                 created_at.to_rfc3339()
             ],
         )?;
@@ -361,6 +394,7 @@ impl AuthService {
             github_id: github_user.id,
             github_username: github_user.login,
             token,
+            namespace: None,
             created_at,
         };
 
@@ -407,18 +441,20 @@ impl AuthService {
                 .or_else(|| headers.get("x-octostore-admin-key"))
                 .and_then(|v| v.to_str().ok())
                 .or(bearer_token);
-                
+
             if provided_key == Some(admin_key) {
                 let admin_uuid = Uuid::nil();
-                
+
                 // Ensure admin exists in DB so foreign keys/lookups don't fail
                 let conn = self.db.lock().unwrap();
-                let exists: bool = conn.query_row(
-                    "SELECT 1 FROM users WHERE id = ?",
-                    params![admin_uuid.to_string()],
-                    |_| Ok(true)
-                ).unwrap_or(false);
-                
+                let exists: bool = conn
+                    .query_row(
+                        "SELECT 1 FROM users WHERE id = ?",
+                        params![admin_uuid.to_string()],
+                        |_| Ok(true),
+                    )
+                    .unwrap_or(false);
+
                 if !exists {
                     let _ = conn.execute(
                         "INSERT OR IGNORE INTO users (id, github_id, github_username, token, created_at) \
@@ -432,7 +468,7 @@ impl AuthService {
                         ],
                     );
                 }
-                
+
                 return Ok(admin_uuid);
             }
         }
@@ -486,6 +522,18 @@ impl AuthService {
         Ok(())
     }
 
+    pub fn get_user_namespace(&self, user_id: Uuid) -> Result<Option<String>> {
+        let conn = self.db.lock().unwrap();
+        let namespace = conn
+            .query_row(
+                "SELECT namespace FROM users WHERE id = ?",
+                params![user_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(namespace)
+    }
+
     pub fn get_user_by_id(&self, user_id: &str) -> Result<Option<String>> {
         // Special case for admin nil UUID
         if user_id == Uuid::nil().to_string() {
@@ -505,8 +553,7 @@ impl AuthService {
 
     pub fn get_all_users(&self) -> Result<Vec<serde_json::Value>> {
         let conn = self.db.lock().unwrap();
-        let mut stmt =
-            conn.prepare("SELECT id, github_username, created_at FROM users")?;
+        let mut stmt = conn.prepare("SELECT id, github_username, created_at FROM users")?;
         let user_rows = stmt.query_map([], |row| {
             Ok(serde_json::json!({
                 "id": row.get::<_, String>(0)?,
@@ -561,16 +608,17 @@ pub async fn rotate_token(
     let new_token = state.auth_service.rotate_token(current_token).await?;
 
     let conn = state.auth_service.db.lock().unwrap();
-    let github_username: String = conn.query_row(
-        "SELECT github_username FROM users WHERE id = ?",
+    let (github_username, namespace): (String, Option<String>) = conn.query_row(
+        "SELECT github_username, namespace FROM users WHERE id = ?",
         params![user_id.to_string()],
-        |row| row.get(0),
+        |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
 
     Ok(Json(AuthTokenResponse {
         token: new_token,
         user_id,
         github_username,
+        namespace,
     }))
 }
 
@@ -589,7 +637,7 @@ pub async fn register_local(
     }
     let resp = state
         .auth_service
-        .register_local_user(&payload.username)
+        .register_local_user(&payload.username, payload.namespace.as_deref())
         .await?;
     Ok(Json(resp))
 }
@@ -601,8 +649,8 @@ pub async fn register_local(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rusqlite::Connection;
     use crate::config::Config;
+    use rusqlite::Connection;
     use tempfile::NamedTempFile;
 
     fn local_config() -> Config {
@@ -638,10 +686,13 @@ mod tests {
     #[test]
     fn test_parse_token_list_user_token() {
         let pairs = parse_token_list("alice:tok1,bob:tok2");
-        assert_eq!(pairs, vec![
-            ("alice".to_string(), "tok1".to_string()),
-            ("bob".to_string(), "tok2".to_string()),
-        ]);
+        assert_eq!(
+            pairs,
+            vec![
+                ("alice".to_string(), "tok1".to_string()),
+                ("bob".to_string(), "tok2".to_string()),
+            ]
+        );
     }
 
     #[test]
@@ -680,7 +731,7 @@ mod tests {
     fn test_register_local_user() {
         let svc = make_service(local_config());
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let resp = rt.block_on(svc.register_local_user("alice")).unwrap();
+        let resp = rt.block_on(svc.register_local_user("alice", None)).unwrap();
         assert_eq!(resp.username, "alice");
         assert!(!resp.token.is_empty());
     }
@@ -689,8 +740,8 @@ mod tests {
     fn test_register_local_user_idempotent() {
         let svc = make_service(local_config());
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let r1 = rt.block_on(svc.register_local_user("alice")).unwrap();
-        let r2 = rt.block_on(svc.register_local_user("alice")).unwrap();
+        let r1 = rt.block_on(svc.register_local_user("alice", None)).unwrap();
+        let r2 = rt.block_on(svc.register_local_user("alice", None)).unwrap();
         assert_eq!(r1.token, r2.token);
         assert_eq!(r1.user_id, r2.user_id);
     }
@@ -699,14 +750,16 @@ mod tests {
     fn test_register_local_user_rejects_empty() {
         let svc = make_service(local_config());
         let rt = tokio::runtime::Runtime::new().unwrap();
-        assert!(rt.block_on(svc.register_local_user("")).is_err());
+        assert!(rt.block_on(svc.register_local_user("", None)).is_err());
     }
 
     #[test]
     fn test_register_local_user_rejects_bad_chars() {
         let svc = make_service(local_config());
         let rt = tokio::runtime::Runtime::new().unwrap();
-        assert!(rt.block_on(svc.register_local_user("alice@example.com")).is_err());
+        assert!(rt
+            .block_on(svc.register_local_user("alice@example.com", None))
+            .is_err());
     }
 
     // -- static token seeding ----------------------------------------------
@@ -761,10 +814,15 @@ mod tests {
     fn test_authenticate_valid_token() {
         let svc = make_service(local_config());
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let resp = rt.block_on(svc.register_local_user("testuser")).unwrap();
+        let resp = rt
+            .block_on(svc.register_local_user("testuser", None))
+            .unwrap();
 
         let mut headers = HeaderMap::new();
-        headers.insert("authorization", format!("Bearer {}", resp.token).parse().unwrap());
+        headers.insert(
+            "authorization",
+            format!("Bearer {}", resp.token).parse().unwrap(),
+        );
         assert!(svc.authenticate(&headers).is_ok());
     }
 
@@ -773,13 +831,19 @@ mod tests {
         let svc = make_service(local_config());
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer invalid".parse().unwrap());
-        assert!(matches!(svc.authenticate(&headers), Err(AppError::Unauthorized)));
+        assert!(matches!(
+            svc.authenticate(&headers),
+            Err(AppError::Unauthorized)
+        ));
     }
 
     #[test]
     fn test_authenticate_missing_header() {
         let svc = make_service(local_config());
-        assert!(matches!(svc.authenticate(&HeaderMap::new()), Err(AppError::MissingAuth)));
+        assert!(matches!(
+            svc.authenticate(&HeaderMap::new()),
+            Err(AppError::MissingAuth)
+        ));
     }
 
     #[test]
@@ -802,9 +866,12 @@ mod tests {
     #[test]
     fn test_parse_token_list_whitespace() {
         let pairs = parse_token_list(" alice : tok1 , bob : tok2 ");
-        assert_eq!(pairs, vec![
-            ("alice".to_string(), "tok1".to_string()),
-            ("bob".to_string(), "tok2".to_string()),
-        ]);
+        assert_eq!(
+            pairs,
+            vec![
+                ("alice".to_string(), "tok1".to_string()),
+                ("bob".to_string(), "tok2".to_string()),
+            ]
+        );
     }
 }

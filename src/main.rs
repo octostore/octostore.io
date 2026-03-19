@@ -10,7 +10,7 @@ mod store;
 mod webhooks;
 
 use app::AppState;
-use auth::{github_auth, github_callback, rotate_token, register_local, AuthService};
+use auth::{github_auth, github_callback, register_local, rotate_token, AuthService};
 use axum::{
     extract::{Request, State},
     http::HeaderValue,
@@ -20,10 +20,12 @@ use axum::{
     Json, Router,
 };
 use config::Config;
-use locks::{acquire_lock, get_lock_status, list_locks, release_lock, renew_lock, watch_lock, LockHandlers};
+use locks::{
+    acquire_lock, get_lock_status, list_locks, release_lock, renew_lock, watch_lock, LockHandlers,
+};
 use metrics::{endpoint_from_path, Metrics};
 use sessions::SessionStore;
-use webhooks::{WebhookStore, create_webhook_handler, list_webhooks, delete_webhook_handler};
+use webhooks::{create_webhook_handler, delete_webhook_handler, list_webhooks, WebhookStore};
 
 use std::sync::{Arc, Mutex};
 use store::{DbConn, LockStore};
@@ -36,8 +38,11 @@ static VERSIONED_SPEC: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 fn versioned_openapi_spec() -> &'static str {
     VERSIONED_SPEC.get_or_init(|| {
-        include_str!("../openapi.yaml")
-            .replacen("  version: 0.0.0-dev", &format!("  version: {}", env!("CARGO_PKG_VERSION")), 1)
+        include_str!("../openapi.yaml").replacen(
+            "  version: 0.0.0-dev",
+            &format!("  version: {}", env!("CARGO_PKG_VERSION")),
+            1,
+        )
     })
 }
 
@@ -46,17 +51,15 @@ fn versioned_openapi_spec() -> &'static str {
 /// Accepts either an `X-Admin-Key` / `X-OctoStore-Admin-Key` header,
 /// a `Bearer admin:<key>` authorization header, or a regular bearer token
 /// belonging to the hardcoded admin username.
-fn require_admin(
-    headers: &axum::http::HeaderMap,
-    state: &AppState,
-) -> crate::error::Result<()> {
+fn require_admin(headers: &axum::http::HeaderMap, state: &AppState) -> crate::error::Result<()> {
     let provided_key = headers
         .get("x-admin-key")
         .or_else(|| headers.get("x-octostore-admin-key"))
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string())
         .or_else(|| {
-            headers.get("authorization")
+            headers
+                .get("authorization")
                 .and_then(|v| v.to_str().ok())
                 .and_then(|v| v.strip_prefix("Bearer admin:"))
                 .map(|s| s.to_string())
@@ -89,10 +92,9 @@ fn require_admin(
 // Handler to serve OpenAPI spec
 async fn openapi_spec() -> impl IntoResponse {
     let mut response = Response::new(versioned_openapi_spec().to_string());
-    response.headers_mut().insert(
-        "content-type",
-        HeaderValue::from_static("application/yaml"),
-    );
+    response
+        .headers_mut()
+        .insert("content-type", HeaderValue::from_static("application/yaml"));
     response
 }
 
@@ -114,7 +116,7 @@ async fn api_docs() -> impl IntoResponse {
     </script>
 </body>
 </html>"#;
-    
+
     Html(html_content)
 }
 
@@ -126,20 +128,22 @@ async fn metrics_middleware(
 ) -> Response {
     let start = std::time::Instant::now();
     let path = request.uri().path().to_string();
-    
+
     let response = next.run(request).await;
-    
+
     let duration = start.elapsed();
     let duration_ms = duration.as_micros() as f64 / 1000.0;
-    
+
     // Determine if this was an error (4xx/5xx status codes)
     let is_error = response.status().as_u16() >= 400;
-    
+
     // Map path to endpoint name
     if let Some(endpoint) = endpoint_from_path(&path) {
-        state.metrics.record_request(endpoint, duration_ms, is_error);
+        state
+            .metrics
+            .record_request(endpoint, duration_ms, is_error);
     }
-    
+
     response
 }
 
@@ -152,15 +156,21 @@ async fn metrics_endpoint(
 
     // Get metrics snapshot
     let mut metrics_json = state.metrics.snapshot();
-    
+
     // Add current active locks and users count
     let active_locks = state.lock_handlers.store.get_all_active_locks();
     let users = state.auth_service.get_all_users().unwrap_or_default();
-    
+
     // Update the snapshot with real data
     if let Some(obj) = metrics_json.as_object_mut() {
-        obj.insert("active_locks".to_string(), serde_json::Value::Number(active_locks.len().into()));
-        obj.insert("total_users".to_string(), serde_json::Value::Number(users.len().into()));
+        obj.insert(
+            "active_locks".to_string(),
+            serde_json::Value::Number(active_locks.len().into()),
+        );
+        obj.insert(
+            "total_users".to_string(),
+            serde_json::Value::Number(users.len().into()),
+        );
     }
 
     Ok(axum::Json(metrics_json))
@@ -176,11 +186,13 @@ async fn timeseries_endpoint(
 
     // Get window parameter (default to "1h")
     let window = params.get("window").map(|s| s.as_str()).unwrap_or("1h");
-    
+
     // Update active locks count in time series before returning data
     let active_locks = state.lock_handlers.store.get_all_active_locks();
-    state.metrics.update_active_locks_count(active_locks.len() as u64);
-    
+    state
+        .metrics
+        .update_active_locks_count(active_locks.len() as u64);
+
     // Get time series data
     let timeseries_data = state.metrics.get_timeseries_data(window);
 
@@ -210,7 +222,9 @@ async fn main() -> anyhow::Result<()> {
     info!("Starting octostore-lock on {}", config.bind_addr);
 
     // Open one SQLite connection shared by both AuthService and LockStore (#19)
-    let db: DbConn = Arc::new(Mutex::new(rusqlite::Connection::open(&config.database_url)?));
+    let db: DbConn = Arc::new(Mutex::new(rusqlite::Connection::open(
+        &config.database_url,
+    )?));
 
     // Initialize auth service
     let auth_service = AuthService::new(config.clone(), db.clone())?;
@@ -223,7 +237,7 @@ async fn main() -> anyhow::Result<()> {
             tracing::warn!("Use POST /auth/register to create users, or set STATIC_TOKENS.");
         }
     }
-    
+
     // Load fencing counter from database
     let initial_fencing_token = auth_service.load_fencing_counter()?;
     info!("Loaded fencing counter: {}", initial_fencing_token);
@@ -264,8 +278,7 @@ async fn main() -> anyhow::Result<()> {
             .route("/auth/github", get(github_auth))
             .route("/auth/github/callback", get(github_callback))
     } else {
-        Router::new()
-            .route("/auth/register", post(register_local))
+        Router::new().route("/auth/register", post(register_local))
     };
 
     let app = Router::new()
@@ -275,7 +288,10 @@ async fn main() -> anyhow::Result<()> {
         // Session routes
         .route("/sessions", post(sessions::create_session))
         .route("/sessions/:id/keepalive", post(sessions::keepalive))
-        .route("/sessions/:id", get(sessions::get_session_status).delete(sessions::terminate_session))
+        .route(
+            "/sessions/:id",
+            get(sessions::get_session_status).delete(sessions::terminate_session),
+        )
         // Lock routes
         .route("/locks/:name/acquire", post(acquire_lock))
         .route("/locks/:name/release", post(release_lock))
@@ -285,12 +301,14 @@ async fn main() -> anyhow::Result<()> {
         .route("/locks", get(list_locks))
         // Webhook routes
         .route("/webhooks", post(create_webhook_handler).get(list_webhooks))
-        .route("/webhooks/:id", axum::routing::delete(delete_webhook_handler))
+        .route(
+            "/webhooks/:id",
+            axum::routing::delete(delete_webhook_handler),
+        )
         // Documentation routes
         .route("/", get(api_docs))
         .route("/openapi.yaml", get(openapi_spec))
         .route("/docs", get(api_docs))
-        
         // Health check
         .route("/health", get(health_check))
         .fallback(api_docs)
@@ -302,7 +320,10 @@ async fn main() -> anyhow::Result<()> {
         // Metrics endpoint
         .route("/metrics", get(metrics_endpoint))
         // Add metrics middleware layer
-        .layer(middleware::from_fn_with_state(app_state.clone(), metrics_middleware))
+        .layer(middleware::from_fn_with_state(
+            app_state.clone(),
+            metrics_middleware,
+        ))
         // Add CORS layer
         .layer(
             CorsLayer::new()
@@ -312,14 +333,19 @@ async fn main() -> anyhow::Result<()> {
                     "http://localhost:3000".parse().unwrap(),
                     "http://127.0.0.1:3000".parse().unwrap(),
                 ])
-                .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::PUT, axum::http::Method::DELETE])
+                .allow_methods([
+                    axum::http::Method::GET,
+                    axum::http::Method::POST,
+                    axum::http::Method::PUT,
+                    axum::http::Method::DELETE,
+                ])
                 .max_age(std::time::Duration::from_secs(600))
                 .allow_headers([
                     axum::http::header::AUTHORIZATION,
                     axum::http::header::CONTENT_TYPE,
                     axum::http::HeaderName::from_static("x-admin-key"),
                     axum::http::HeaderName::from_static("x-octostore-admin-key"),
-                ])
+                ]),
         )
         // Add state
         .with_state(app_state);
@@ -331,7 +357,7 @@ async fn main() -> anyhow::Result<()> {
     // Set up graceful shutdown handling
     let shutdown_lock_store = lock_store.clone();
     let shutdown_auth_service = Arc::new(auth_service);
-    
+
     // Start the server with graceful shutdown
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal(shutdown_lock_store, shutdown_auth_service))
@@ -349,8 +375,14 @@ async fn status_check(State(state): State<AppState>) -> Json<serde_json::Value> 
     let active_locks = state.lock_handlers.store.get_all_active_locks();
     let users = state.auth_service.get_all_users().unwrap_or_default();
     let uptime_seconds = state.metrics.start_time.elapsed().as_secs();
-    let total_acquires = state.metrics.lock_store_acquires.load(std::sync::atomic::Ordering::Relaxed);
-    let total_releases = state.metrics.lock_store_releases.load(std::sync::atomic::Ordering::Relaxed);
+    let total_acquires = state
+        .metrics
+        .lock_store_acquires
+        .load(std::sync::atomic::Ordering::Relaxed);
+    let total_releases = state
+        .metrics
+        .lock_store_releases
+        .load(std::sync::atomic::Ordering::Relaxed);
 
     Json(serde_json::json!({
         "status": "ok",
@@ -372,9 +404,10 @@ async fn admin_status(
     let active_locks = state.lock_handlers.store.get_all_active_locks();
     let locks: Vec<serde_json::Value> = active_locks
         .into_iter()
-        .filter_map(|lock| {
+        .map(|lock| {
             // Get holder username
-            let holder_username = state.auth_service
+            let holder_username = state
+                .auth_service
                 .get_user_by_id(&lock.holder_id.to_string())
                 .unwrap_or(None)
                 .unwrap_or_else(|| "unknown".to_string());
@@ -386,22 +419,29 @@ async fn admin_status(
                 0
             };
 
-            Some(serde_json::json!({
+            serde_json::json!({
                 "name": lock.name,
                 "holder_username": holder_username,
                 "metadata": lock.metadata,
                 "fencing_token": lock.fencing_token,
                 "expires_at": lock.expires_at.to_rfc3339(),
                 "ttl_remaining_seconds": ttl_remaining
-            }))
-        }).collect();
+            })
+        })
+        .collect();
 
     // Get all registered users
     let users = state.auth_service.get_all_users().unwrap_or_default();
 
     let uptime_seconds = state.metrics.start_time.elapsed().as_secs();
-    let total_acquires = state.metrics.lock_store_acquires.load(std::sync::atomic::Ordering::Relaxed);
-    let total_releases = state.metrics.lock_store_releases.load(std::sync::atomic::Ordering::Relaxed);
+    let total_acquires = state
+        .metrics
+        .lock_store_acquires
+        .load(std::sync::atomic::Ordering::Relaxed);
+    let total_releases = state
+        .metrics
+        .lock_store_releases
+        .load(std::sync::atomic::Ordering::Relaxed);
     let active_locks = locks.len();
     let total_users = users.len();
 
@@ -467,7 +507,7 @@ mod tests {
     async fn create_test_app() -> Router {
         let temp_file = NamedTempFile::new().unwrap();
         let db_path = temp_file.path().to_str().unwrap().to_string();
-        
+
         let config = Config {
             bind_addr: "127.0.0.1:3000".to_string(),
             database_url: db_path,
@@ -505,8 +545,7 @@ mod tests {
                 .route("/auth/github", get(github_auth))
                 .route("/auth/github/callback", get(github_callback))
         } else {
-            Router::new()
-                .route("/auth/register", post(register_local))
+            Router::new().route("/auth/register", post(register_local))
         };
 
         Router::new()
@@ -524,14 +563,17 @@ mod tests {
             .route("/status", get(status_check))
             .route("/admin/status", get(admin_status))
             .route("/metrics", get(metrics_endpoint))
-            .layer(middleware::from_fn_with_state(app_state.clone(), metrics_middleware))
+            .layer(middleware::from_fn_with_state(
+                app_state.clone(),
+                metrics_middleware,
+            ))
             .with_state(app_state)
     }
 
     #[tokio::test]
     async fn test_health_check() {
         let app = create_test_app().await;
-        
+
         let response = app
             .oneshot(
                 Request::builder()
@@ -543,8 +585,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let body_str = std::str::from_utf8(&body).unwrap();
         assert_eq!(body_str, "OK");
     }
@@ -552,7 +596,7 @@ mod tests {
     #[tokio::test]
     async fn test_openapi_spec() {
         let app = create_test_app().await;
-        
+
         let response = app
             .oneshot(
                 Request::builder()
@@ -573,20 +617,17 @@ mod tests {
     #[tokio::test]
     async fn test_api_docs() {
         let app = create_test_app().await;
-        
+
         let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/docs")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(Request::builder().uri("/docs").body(Body::empty()).unwrap())
             .await
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let body_str = std::str::from_utf8(&body).unwrap();
         assert!(body_str.contains("OctoStore API Documentation"));
         assert!(body_str.contains("@scalar/api-reference"));
@@ -595,7 +636,7 @@ mod tests {
     #[tokio::test]
     async fn test_github_auth_redirect() {
         let app = create_test_app().await;
-        
+
         let response = app
             .oneshot(
                 Request::builder()
@@ -607,7 +648,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
-        
+
         let location = response.headers().get("location").unwrap();
         let location_str = location.to_str().unwrap();
         assert!(location_str.contains("https://github.com/login/oauth/authorize"));
@@ -617,7 +658,7 @@ mod tests {
     #[tokio::test]
     async fn test_authentication_required() {
         let app = create_test_app().await;
-        
+
         // Try to access a protected endpoint without auth
         let response = app
             .oneshot(
@@ -630,8 +671,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let body_json: Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(body_json["error"], "Authorization header required");
     }
@@ -639,7 +682,7 @@ mod tests {
     #[tokio::test]
     async fn test_invalid_token() {
         let app = create_test_app().await;
-        
+
         let response = app
             .oneshot(
                 Request::builder()
@@ -652,8 +695,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let body_json: Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(body_json["error"], "Authentication failed");
     }
@@ -661,7 +706,7 @@ mod tests {
     #[tokio::test]
     async fn test_admin_status_unauthorized() {
         let app = create_test_app().await;
-        
+
         // Try without any auth
         let response = app
             .clone()
@@ -675,7 +720,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        
+
         // Try with wrong admin key
         let response = app
             .oneshot(
@@ -694,7 +739,7 @@ mod tests {
     #[tokio::test]
     async fn test_admin_status_authorized() {
         let app = create_test_app().await;
-        
+
         let response = app
             .oneshot(
                 Request::builder()
@@ -707,10 +752,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let body_json: Value = serde_json::from_slice(&body).unwrap();
-        
+
         assert_eq!(body_json["healthy"], true);
         assert!(body_json["uptime_seconds"].is_number());
         assert!(body_json["active_locks"].is_number());
@@ -722,7 +769,7 @@ mod tests {
     #[tokio::test]
     async fn test_metrics_endpoint() {
         let app = create_test_app().await;
-        
+
         let response = app
             .oneshot(
                 Request::builder()
@@ -735,10 +782,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let body_json: Value = serde_json::from_slice(&body).unwrap();
-        
+
         assert!(body_json["uptime_seconds"].is_number());
         assert!(body_json["total_requests"].is_number());
         assert!(body_json["requests_per_second"].is_number());
@@ -750,7 +799,7 @@ mod tests {
     #[tokio::test]
     async fn test_invalid_json_body() {
         let app = create_test_app().await;
-        
+
         let response = app
             .oneshot(
                 Request::builder()
@@ -768,10 +817,10 @@ mod tests {
         assert!(response.status().is_client_error());
     }
 
-    #[tokio::test] 
+    #[tokio::test]
     async fn test_lock_name_validation() {
         let app = create_test_app().await;
-        
+
         // Test with invalid lock name (spaces)
         let response = app
             .oneshot(
@@ -793,7 +842,7 @@ mod tests {
     #[tokio::test]
     async fn test_cors_headers() {
         let app = create_test_app().await;
-        
+
         // Make an OPTIONS request to check CORS
         let response = app
             .oneshot(
@@ -809,13 +858,15 @@ mod tests {
             .unwrap();
 
         // CORS layer should handle OPTIONS requests
-        assert!(response.status().is_success() || response.status() == StatusCode::METHOD_NOT_ALLOWED);
+        assert!(
+            response.status().is_success() || response.status() == StatusCode::METHOD_NOT_ALLOWED
+        );
     }
 
     #[tokio::test]
     async fn test_content_type_handling() {
         let app = create_test_app().await;
-        
+
         // Test without content-type header (should still work for JSON endpoints)
         let response = app
             .oneshot(
@@ -832,15 +883,15 @@ mod tests {
 
         // Content-type validation happens before auth
         assert!(
-            response.status() == StatusCode::UNAUTHORIZED 
-            || response.status() == StatusCode::UNSUPPORTED_MEDIA_TYPE
+            response.status() == StatusCode::UNAUTHORIZED
+                || response.status() == StatusCode::UNSUPPORTED_MEDIA_TYPE
         );
     }
 
     #[tokio::test]
     async fn test_large_request_body() {
         let app = create_test_app().await;
-        
+
         // Create a very large JSON payload
         let large_metadata = "x".repeat(200_000); // 200KB string
         let large_request = json!({
@@ -868,7 +919,7 @@ mod tests {
     #[tokio::test]
     async fn test_path_traversal_protection() {
         let app = create_test_app().await;
-        
+
         // Test with path traversal attempt in lock name
         let response = app
             .oneshot(
@@ -890,7 +941,7 @@ mod tests {
     #[tokio::test]
     async fn test_method_not_allowed() {
         let app = create_test_app().await;
-        
+
         // Try PATCH on an endpoint that doesn't support it
         let response = app
             .oneshot(
@@ -909,7 +960,7 @@ mod tests {
     #[tokio::test]
     async fn test_empty_path_segments() {
         let app = create_test_app().await;
-        
+
         // Test with empty path segments
         let response = app
             .oneshot(
@@ -929,7 +980,7 @@ mod tests {
     #[tokio::test]
     async fn test_metrics_middleware_basic() {
         let app = create_test_app().await;
-        
+
         // Make a request to trigger metrics recording
         let _response = app
             .oneshot(
