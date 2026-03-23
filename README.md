@@ -1,15 +1,67 @@
 # 🐙 OctoStore
 
-Distributed locking as a service. One binary, simple HTTP API, SQLite persistence.
+**Hosted coordination for agent swarms**
+
+OctoStore gives distributed workers and agent swarms one owner per job, visible ownership metadata, and automatic recovery when a worker disappears.
+
+If multiple agents can run the same skill against the same task, only one of them should do the work.
+
+That is what OctoStore is for.
 
 > **Alpha software.** API may change. AI-assisted development. No SLA.
 
-## What it does
+## Why it exists
 
-OctoStore gives you distributed locks over HTTP with monotonically increasing
-fencing tokens. No etcd, no ZooKeeper, no Consul — just a single Rust binary.
+Once agents share reusable skills, runtime contention becomes inevitable.
 
-Sign up with GitHub → get a bearer token → start locking.
+Without a coordination layer, multi-agent systems tend to produce:
+- duplicate work
+- invisible ownership
+- blind retries
+- stuck jobs after worker crashes
+
+OctoStore solves that with simple execution ownership.
+
+## The model
+
+The stack is straightforward:
+
+- **Skills** provide capabilities
+- **The marketplace** distributes those capabilities
+- **OctoStore** coordinates execution
+
+In practice, that means:
+- claim a job
+- heartbeat while working
+- inspect the current owner
+- release on completion
+- recover automatically on failure
+
+## Core properties
+
+### One owner per job
+Only one worker successfully claims a task.
+
+### Visible ownership
+Attach metadata so anyone can see who owns a job and what they are doing.
+
+### Heartbeat while running
+Workers keep claims alive while they are healthy.
+
+### Automatic recovery
+If a worker dies, its claim expires and the job becomes available again.
+
+## Example
+
+Five agents can all run the same GitHub issue skill on the same issue.
+Only one should own the job.
+
+With OctoStore:
+1. each agent tries to claim the same stable job name
+2. one agent wins
+3. the others can inspect the owner metadata
+4. if the winning worker crashes, the claim expires
+5. another agent can take over
 
 ## Quick start
 
@@ -19,7 +71,7 @@ Sign up with GitHub → get a bearer token → start locking.
 # Sign in with GitHub (opens browser)
 open https://api.octostore.io/auth/github
 
-# Acquire a lock (60s TTL)
+# Acquire a job claim / lock (60s TTL)
 curl -X POST https://api.octostore.io/locks/my-service/acquire \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
@@ -51,46 +103,13 @@ All lock endpoints require `Authorization: Bearer <token>`.
 |--------|----------|-------------|
 | `GET` | `/auth/github` | Start GitHub OAuth flow |
 | `POST` | `/auth/token/rotate` | Rotate bearer token |
-| `POST` | `/locks/{name}/acquire` | Acquire a lock |
+| `POST` | `/locks/{name}/acquire` | Acquire a lock / job claim |
 | `POST` | `/locks/{name}/release` | Release a lock |
 | `POST` | `/locks/{name}/renew` | Extend lock TTL |
-| `GET` | `/locks/{name}` | Check lock status |
+| `GET` | `/locks/{name}` | Check current owner / lock status |
 | `GET` | `/locks` | List your locks |
 | `GET` | `/docs` | Interactive API docs |
-| `GET` | `/health` | Health check |
-
-### Acquire
-
-```bash
-curl -X POST https://api.octostore.io/locks/leader/acquire \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"ttl_seconds": 60}'
-```
-
-**Lock acquired:**
-```json
-{"status": "acquired", "lease_id": "uuid", "fencing_token": 42, "expires_at": "..."}
-```
-
-**Already held:**
-```json
-{"status": "held", "holder_id": "other-uuid", "expires_at": "..."}
-```
-
-### Release / Renew
-
-```bash
-# Release
-curl -X POST .../locks/leader/release \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"lease_id": "your-lease-uuid"}'
-
-# Renew
-curl -X POST .../locks/leader/renew \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"lease_id": "your-lease-uuid", "ttl_seconds": 60}'
-```
+| `GET` | `/health` | Health check + storage details |
 
 ## Fencing tokens
 
@@ -102,6 +121,15 @@ UPDATE state SET data = ?, fence = ? WHERE fence < ?
 ```
 
 This is what makes the locking actually safe, unlike Redlock.
+
+## Good fit
+
+OctoStore works well for:
+- agent swarms
+- coding agents claiming issues or PR tasks
+- CI/CD deploy serialization
+- background workers on shared queues
+- human-plus-agent workflows with inspectable ownership
 
 ## Constraints
 
@@ -122,43 +150,14 @@ Single process. Locks live in memory for speed, replayed from SQLite on restart.
 ## Testing & Quality
 
 ```bash
-cargo test                           # Run all unit + integration tests  
+cargo test                           # Run all unit + integration tests
 cargo bench                          # Run criterion benchmarks
 cargo tarpaulin --skip-clean         # Generate coverage report
 cargo +nightly fuzz run fuzz_lock_name  # Run fuzz testing
 ```
 
-### Code Coverage
-![Coverage](https://img.shields.io/badge/coverage-pending-yellow)
-
-Coverage analysis using `cargo-tarpaulin` to ensure comprehensive test coverage across all modules.
-
-### Fuzz Testing
-Three dedicated fuzz targets test input handling robustness:
-- `fuzz_lock_name` — Lock name validation with arbitrary strings
-- `fuzz_auth_header` — Authorization header parsing edge cases  
-- `fuzz_json_body` — JSON request body parsing with malformed data
-
-### Benchmarks
-Comprehensive performance testing with Criterion.rs:
-- Single-operation latency (acquire/release)
-- Lock contention under load (2-10 threads)
-- Database persistence overhead
-- HTTP stack performance
-
-See `BENCHMARKS.md` for detailed results and system specifications.
+See `BENCHMARKS.md` for detailed performance results and system specifications.
 
 ## License
 
 MIT
-
-
-## Local CI preflight
-
-Run the same core checks as CI before pushing or opening a PR:
-
-```bash
-./scripts/ci-local.sh
-```
-
-At minimum, do this for any Rust code, auth, lock, session, or workflow change.

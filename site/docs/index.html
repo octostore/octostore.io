@@ -3,18 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>OctoStore API Docs</title>
-  <meta name="description" content="OctoStore REST API reference — distributed locking, rate limiting, feature flags, and config storage." />
+  <title>OctoStore Docs</title>
+  <meta name="description" content="OctoStore docs: narrative guide for agent orchestration plus interactive API reference." />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
     body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
       background: #0a0a0b;
       color: #e5e5e5;
       min-height: 100vh;
     }
-
     .topbar {
       background: #111111;
       border-bottom: 1px solid rgba(255,255,255,0.08);
@@ -29,7 +27,7 @@
     }
     .topbar-brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
     .topbar-brand span { font-size: 1.1rem; font-weight: 700; color: #fff; }
-    .topbar nav { display: flex; gap: 8px; }
+    .topbar nav { display: flex; gap: 8px; flex-wrap: wrap; }
     .topbar nav a {
       color: #a1a1aa;
       text-decoration: none;
@@ -41,10 +39,29 @@
     }
     .topbar nav a:hover { color: #fff; background: rgba(255,255,255,0.06); }
     .topbar nav a.active { color: #fff; background: rgba(99,102,241,0.15); }
-
-    /* push Scalar below our sticky topbar */
-    #scalar-container {
-      height: calc(100vh - 56px);
+    .hero {
+      max-width: 1100px; margin: 0 auto; padding: 48px 24px 28px;
+    }
+    .hero h1 { font-size: 2.6rem; line-height: 1.1; color: #fff; margin-bottom: 14px; }
+    .hero p { color: #a1a1aa; font-size: 1.1rem; max-width: 760px; }
+    .cards {
+      max-width: 1100px; margin: 0 auto; padding: 0 24px 24px;
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px;
+    }
+    .card {
+      background: #111111; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 24px;
+    }
+    .card h2 { color: #fff; font-size: 1.35rem; margin-bottom: 10px; }
+    .card p { color: #a1a1aa; margin-bottom: 16px; }
+    .card a {
+      display: inline-flex; align-items: center; gap: 8px; color: #fff; text-decoration: none;
+      background: rgba(99,102,241,0.16); padding: 10px 14px; border-radius: 10px; font-weight: 600;
+    }
+    .api-wrap { height: calc(100vh - 56px - 280px); min-height: 640px; }
+    @media (max-width: 820px) {
+      .cards { grid-template-columns: 1fr; }
+      .hero h1 { font-size: 2rem; }
+      .api-wrap { height: calc(100vh - 56px - 360px); }
     }
   </style>
 </head>
@@ -55,15 +72,33 @@
     </a>
     <nav>
       <a href="/">Home</a>
-      <a href="/status.html">Status</a>
+      <a href="/docs/agent-orchestration.html">Guide</a>
       <a href="/docs/" class="active">API Docs</a>
       <a href="https://github.com/aronchick/octostore-lock" target="_blank" rel="noopener">GitHub</a>
     </nav>
   </header>
 
-  <div id="scalar-container">
+  <section class="hero">
+    <h1>Docs for humans first, API docs second</h1>
+    <p>Start with the agent orchestration guide for the product story and mental model. Then use the interactive API reference for the exact endpoints.</p>
+  </section>
+
+  <section class="cards">
+    <div class="card">
+      <h2>Agent orchestration guide</h2>
+      <p>Why OctoStore exists, how it fits with skills and marketplaces, and the “five agents, one task, one winner” model.</p>
+      <a href="/docs/agent-orchestration.html">Read the guide →</a>
+    </div>
+    <div class="card">
+      <h2>Interactive API reference</h2>
+      <p>The full OpenAPI-backed reference for auth, acquire/release/renew flows, lock inspection, and health endpoints.</p>
+      <a href="#api-reference">Jump to API reference ↓</a>
+    </div>
+  </section>
+
+  <div id="api-reference" class="api-wrap">
     <script
-      id="api-reference"
+      id="api-reference-script"
       data-url="https://api.octostore.io/openapi.yaml"
       data-configuration='{"theme":"purple","layout":"modern","defaultHttpClient":{"targetKey":"shell","clientKey":"curl"}}'
       src="https://cdn.jsdelivr.net/npm/@scalar/api-reference">

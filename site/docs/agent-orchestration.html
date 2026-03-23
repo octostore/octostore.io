@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OctoStore for agent orchestration</title>
+  <meta name="description" content="OctoStore is the runtime coordination layer for agents with shared skills: one owner per job, visible ownership, and automatic recovery." />
+  <style>
+    :root {
+      --bg-primary: #0a0a0b;
+      --bg-secondary: #111111;
+      --bg-tertiary: #1a1a1b;
+      --text-primary: #ffffff;
+      --text-secondary: #e5e5e5;
+      --text-muted: #a1a1aa;
+      --accent: #6366f1;
+      --border: rgba(255,255,255,0.08);
+      --shadow: 0 20px 25px -5px rgba(0,0,0,0.4), 0 10px 10px -5px rgba(0,0,0,0.2);
+      --shadow-lg: 0 25px 50px -12px rgba(0,0,0,0.6);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-secondary);
+      line-height: 1.7;
+    }
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0; left: 50%; transform: translateX(-50%);
+      width: 900px; height: 600px;
+      background: radial-gradient(ellipse at 40% 30%, rgba(99,102,241,0.12) 0%, transparent 60%),
+                  radial-gradient(ellipse at 70% 60%, rgba(168,85,247,0.08) 0%, transparent 55%);
+      z-index: -1;
+      pointer-events: none;
+    }
+    a { color: #c4b5fd; text-decoration: none; }
+    a:hover { color: #fff; }
+    .container { max-width: 980px; margin: 0 auto; padding: 0 24px; }
+    nav {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 16px 0; border-bottom: 1px solid var(--border); margin-bottom: 48px;
+    }
+    .brand { display: flex; gap: 10px; align-items: center; color: #fff; font-weight: 700; }
+    .nav-links { display: flex; gap: 12px; flex-wrap: wrap; }
+    .nav-links a {
+      color: var(--text-muted); padding: 8px 14px; border-radius: 8px;
+    }
+    .nav-links a.active, .nav-links a:hover { background: rgba(255,255,255,0.06); color: #fff; }
+    header { padding: 32px 0 48px; }
+    h1 {
+      font-size: 3.5rem; line-height: 1.08; letter-spacing: -0.03em;
+      color: var(--text-primary); margin-bottom: 20px;
+    }
+    .lede {
+      font-size: 1.3rem; color: var(--text-muted); max-width: 820px;
+      margin-bottom: 28px;
+    }
+    .callout {
+      background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.22);
+      border-radius: 16px; padding: 20px 22px; margin: 28px 0 0;
+      color: var(--text-secondary); box-shadow: var(--shadow);
+    }
+    main { padding-bottom: 80px; }
+    section {
+      background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 18px;
+      padding: 32px; margin: 28px 0; box-shadow: var(--shadow);
+    }
+    h2 { color: #fff; font-size: 1.9rem; margin-bottom: 14px; }
+    h3 { color: #fff; font-size: 1.2rem; margin: 22px 0 8px; }
+    p { margin: 12px 0; }
+    ul, ol { margin: 12px 0 12px 22px; }
+    li { margin: 8px 0; }
+    .stack {
+      display: grid; grid-template-columns: repeat(3,1fr); gap: 18px; margin-top: 18px;
+    }
+    .card {
+      background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 14px; padding: 20px;
+    }
+    .card h3 { margin-top: 0; }
+    .quote {
+      font-size: 1.25rem; color: #fff; font-weight: 600; line-height: 1.5;
+      border-left: 3px solid var(--accent); padding-left: 16px; margin: 16px 0;
+    }
+    code, pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    pre {
+      background: #0d1117; border: 1px solid rgba(99,102,241,0.15); border-radius: 12px;
+      padding: 18px; overflow-x: auto; color: #e6edf3; margin-top: 14px;
+    }
+    .footer-note { color: var(--text-muted); text-align: center; margin-top: 36px; }
+    @media (max-width: 900px) {
+      .stack { grid-template-columns: 1fr; }
+      h1 { font-size: 2.6rem; }
+      .lede { font-size: 1.15rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <nav>
+      <a class="brand" href="/"><span>🐙</span><span>OctoStore</span></a>
+      <div class="nav-links">
+        <a href="/">Home</a>
+        <a href="/docs/agent-orchestration.html" class="active">Guide</a>
+        <a href="/docs/">API Docs</a>
+        <a href="https://github.com/aronchick/octostore-lock" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </nav>
+
+    <header>
+      <h1>OctoStore for agent orchestration</h1>
+      <p class="lede">OctoStore is the runtime coordination layer for agents with shared skills. It gives multi-agent systems one owner per job, visible ownership metadata, and automatic recovery when workers disappear.</p>
+      <div class="callout"><strong>Core message:</strong> Skills provide capabilities. The marketplace distributes them. OctoStore coordinates execution.</div>
+    </header>
+
+    <main>
+      <section>
+        <h2>The problem</h2>
+        <p>Once multiple agents can see the same queue and run the same skill, duplicate work becomes the default failure mode.</p>
+        <ul>
+          <li>two agents pick up the same task</li>
+          <li>nobody can tell who owns a job right now</li>
+          <li>retries collide with active work</li>
+          <li>a crashed worker leaves work looking busy forever</li>
+          <li>teams overcompensate with heavyweight orchestration</li>
+        </ul>
+        <p>OctoStore solves that with simple shared work ownership.</p>
+      </section>
+
+      <section>
+        <h2>The stack story</h2>
+        <div class="stack">
+          <div class="card">
+            <h3>Skills</h3>
+            <p>Reusable capabilities for what agents can do: triage issues, review PRs, generate docs, run analytics, deploy systems.</p>
+          </div>
+          <div class="card">
+            <h3>Marketplace</h3>
+            <p>Discovery and distribution for those capabilities: install, share, version, and reuse skills across teams.</p>
+          </div>
+          <div class="card">
+            <h3>OctoStore</h3>
+            <p>Runtime coordination for who owns the work right now: claim, heartbeat, inspect ownership, release, recover on failure.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>The product sentence</h2>
+        <p class="quote">OctoStore gives distributed workers and agent swarms one owner per job, visible ownership metadata, and automatic recovery when a worker disappears.</p>
+        <p>This is the right abstraction level. Users do not want a lecture on leases and lock semantics. They want to know who owns the job, whether that ownership is still live, and how the system recovers if a worker dies.</p>
+      </section>
+
+      <section>
+        <h2>The example to use everywhere</h2>
+        <p class="quote">Five agents can all run the same skill on the same GitHub issue. Only one should own the job.</p>
+        <ol>
+          <li>Each agent tries to claim the same stable job name.</li>
+          <li>One claim succeeds.</li>
+          <li>The others can inspect the owner metadata.</li>
+          <li>The owner heartbeats while working.</li>
+          <li>If the owner disappears, the claim expires.</li>
+          <li>Another worker can take over.</li>
+        </ol>
+      </section>
+
+      <section>
+        <h2>Recommended mental model</h2>
+        <p>Expose job semantics, not lock semantics.</p>
+        <ul>
+          <li>claim job</li>
+          <li>heartbeat claim</li>
+          <li>inspect current owner</li>
+          <li>release job</li>
+          <li>recover automatically on failure</li>
+        </ul>
+        <p>The underlying implementation can still be sessions, leases, and fencing tokens.</p>
+      </section>
+
+      <section>
+        <h2>API shape</h2>
+        <p>The existing API already supports this pattern. One practical wrapper layer would look like:</p>
+        <pre><code>claim_job(job_id, owner, metadata, ttl=120)
+heartbeat_job(job_id, lease_id)
+release_job(job_id, lease_id)
+get_job_owner(job_id)
+list_claimed_jobs(prefix=None)</code></pre>
+        <p>That keeps the implementation grounded in OctoStore’s lock semantics while presenting a clearer job-oriented interface.</p>
+      </section>
+
+      <section>
+        <h2>What OctoStore is not</h2>
+        <ul>
+          <li>not a giant workflow engine</li>
+          <li>not a scheduler replacement</li>
+          <li>not a DAG authoring system</li>
+          <li>not a generic “platform for everything”</li>
+        </ul>
+        <p>It is the runtime coordination layer.</p>
+      </section>
+
+      <p class="footer-note">Read the <a href="/docs/">API docs</a> for endpoints, or go back to the <a href="/">homepage</a>.</p>
+    </main>
+  </div>
+</body>
+</html>
