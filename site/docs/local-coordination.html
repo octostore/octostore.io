@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Local coordination with OctoStore</title>
+  <meta name="description" content="Use OctoStore on one machine to coordinate local scripts, workers, cron jobs, and agents." />
+  <style>
+    :root { --bg:#0a0a0b; --panel:#111111; --panel2:#1a1a1b; --text:#e5e5e5; --muted:#a1a1aa; --white:#fff; --accent:#6366f1; --border:rgba(255,255,255,0.08); }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif; background:var(--bg); color:var(--text); line-height:1.7; }
+    .container { max-width:980px; margin:0 auto; padding:0 24px; }
+    nav { display:flex; justify-content:space-between; align-items:center; padding:16px 0; border-bottom:1px solid var(--border); margin-bottom:48px; gap:16px; }
+    .brand { color:var(--white); text-decoration:none; font-weight:700; }
+    .nav-links { display:flex; gap:12px; flex-wrap:wrap; }
+    .nav-links a { color:var(--muted); text-decoration:none; padding:8px 14px; border-radius:8px; }
+    .nav-links a:hover, .nav-links a.active { color:var(--white); background:rgba(255,255,255,0.06); }
+    header { padding:32px 0 36px; }
+    h1 { font-size:3rem; line-height:1.08; letter-spacing:-0.03em; color:var(--white); margin-bottom:18px; }
+    .lede { font-size:1.18rem; color:var(--muted); max-width:840px; }
+    section { background:var(--panel); border:1px solid var(--border); border-radius:18px; padding:32px; margin:24px 0; }
+    h2 { color:var(--white); font-size:1.8rem; margin-bottom:12px; }
+    p { margin:12px 0; }
+    ul, ol { margin:12px 0 12px 22px; }
+    li { margin:8px 0; }
+    pre { background:#0d1117; border:1px solid rgba(99,102,241,0.15); border-radius:12px; padding:18px; overflow-x:auto; margin-top:14px; }
+    .pager { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:16px; margin:28px 0 56px; }
+    .pager a { display:block; background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:18px; color:var(--text); text-decoration:none; }
+    .pager a span { display:block; color:var(--muted); font-size:0.9rem; margin-bottom:4px; }
+    .pager a strong { color:var(--white); font-size:1.02rem; }
+    .pager a:hover { border-color:rgba(99,102,241,0.35); background:rgba(255,255,255,0.03); }
+    @media (max-width:900px){ h1{font-size:2.3rem;} .lede{font-size:1.05rem;} }
+    @media (max-width:700px){ .pager{grid-template-columns:1fr;} }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <nav>
+      <a class="brand" href="/">🐙 OctoStore</a>
+      <div class="nav-links">
+        <a href="/">Home</a>
+        <a href="/docs/" class="active">Docs</a>
+        <a href="/docs/coordination-patterns.html">Coordination guide</a>
+      </div>
+    </nav>
+
+    <header>
+      <h1>Local coordination with OctoStore</h1>
+      <p class="lede">One of the simplest ways to use OctoStore is on a single machine. If multiple local processes can pick up the same task, run a local OctoStore server and have each process claim work through it.</p>
+    </header>
+
+    <section>
+      <h2>When this helps</h2>
+      <ul>
+        <li>several agents on one box</li>
+        <li>multiple cron jobs</li>
+        <li>worker pools</li>
+        <li>local daemons</li>
+        <li>dev and demo environments</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Basic pattern</h2>
+      <ol>
+        <li>start a local OctoStore server</li>
+        <li>choose one stable lock name per task</li>
+        <li>have each worker try to claim that task</li>
+        <li>renew while working</li>
+        <li>release when finished</li>
+        <li>let TTL expiry recover from crashes</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>Example metadata</h2>
+      <pre><code>{
+  "owner": "thumb-worker-2",
+  "host": "media-box-01",
+  "service": "thumbnailer",
+  "task_id": "img-123",
+  "job": "generate thumbnail",
+  "claimed_at": "2026-04-01T04:02:00Z"
+}</code></pre>
+    </section>
+
+    <section>
+      <h2>Why local mode is attractive</h2>
+      <ul>
+        <li>dead simple</li>
+        <li>self-hosted</li>
+        <li>private</li>
+        <li>low latency</li>
+        <li>easy to debug</li>
+        <li>no external dependency</li>
+      </ul>
+    </section>
+
+    <div class="pager">
+      <a href="/docs/coordination-patterns.html"><span>Previous</span><strong>Coordination patterns</strong></a>
+      <a href="/docs/multi-machine-coordination.html"><span>Next</span><strong>Multi-machine coordination</strong></a>
+    </div>
+  </div>
+</body>
+</html>

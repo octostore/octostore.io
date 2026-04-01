@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OctoStore examples</title>
+  <meta name="description" content="Examples of local, multi-machine, CI, cron, and agent coordination patterns with OctoStore." />
+  <style>
+    :root { --bg:#0a0a0b; --panel:#111111; --panel2:#1a1a1b; --text:#e5e5e5; --muted:#a1a1aa; --white:#fff; --accent:#6366f1; --border:rgba(255,255,255,0.08); }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif; background:var(--bg); color:var(--text); line-height:1.7; }
+    .container { max-width:980px; margin:0 auto; padding:0 24px; }
+    nav { display:flex; justify-content:space-between; align-items:center; padding:16px 0; border-bottom:1px solid var(--border); margin-bottom:48px; gap:16px; }
+    .brand { color:var(--white); text-decoration:none; font-weight:700; }
+    .nav-links { display:flex; gap:12px; flex-wrap:wrap; }
+    .nav-links a { color:var(--muted); text-decoration:none; padding:8px 14px; border-radius:8px; }
+    .nav-links a:hover, .nav-links a.active { color:var(--white); background:rgba(255,255,255,0.06); }
+    header { padding:32px 0 36px; }
+    h1 { font-size:3rem; line-height:1.08; letter-spacing:-0.03em; color:var(--white); margin-bottom:18px; }
+    .lede { font-size:1.18rem; color:var(--muted); max-width:840px; }
+    section { background:var(--panel); border:1px solid var(--border); border-radius:18px; padding:32px; margin:24px 0; }
+    h2 { color:var(--white); font-size:1.8rem; margin-bottom:12px; }
+    p { margin:12px 0; }
+    ul, ol { margin:12px 0 12px 22px; }
+    li { margin:8px 0; }
+    .pager { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:16px; margin:28px 0 56px; }
+    .pager a { display:block; background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:18px; color:var(--text); text-decoration:none; }
+    .pager a span { display:block; color:var(--muted); font-size:0.9rem; margin-bottom:4px; }
+    .pager a strong { color:var(--white); font-size:1.02rem; }
+    .pager a:hover { border-color:rgba(99,102,241,0.35); background:rgba(255,255,255,0.03); }
+    @media (max-width:900px){ h1{font-size:2.3rem;} .lede{font-size:1.05rem;} }
+    @media (max-width:700px){ .pager{grid-template-columns:1fr;} }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <nav>
+      <a class="brand" href="/">🐙 OctoStore</a>
+      <div class="nav-links">
+        <a href="/">Home</a>
+        <a href="/docs/" class="active">Docs</a>
+        <a href="/docs/coordination-patterns.html">Coordination guide</a>
+      </div>
+    </nav>
+
+    <header>
+      <h1>OctoStore examples</h1>
+      <p class="lede">Simple examples that show how a distributed lock and lease service becomes a practical coordination layer.</p>
+    </header>
+
+    <section>
+      <h2>Two local workers, one task</h2>
+      <p>Two workers on one machine can both see <code>images/thumbnail/img-123</code>. Both try to claim it. One succeeds. The other reads the owner metadata and skips the task.</p>
+    </section>
+
+    <section>
+      <h2>Five workers, one winner</h2>
+      <p>Five workers all try to claim the same job at once. One wins. Four lose immediately. If the winner stops renewing, the claim expires and another worker can take over.</p>
+    </section>
+
+    <section>
+      <h2>Deploy lock across CI runners</h2>
+      <p>Several CI runners can all deploy production. Use <code>deploy/prod</code> as the stable job name so only one release runs at once.</p>
+    </section>
+
+    <section>
+      <h2>Cross-machine cron dedup</h2>
+      <p>Three servers all run the same hourly job for redundancy. Claim <code>cron/hourly-rollup/2026-04-01T04</code>. One wins. The others exit.</p>
+    </section>
+
+    <section>
+      <h2>Global visibility into current work</h2>
+      <p>Attach host, service, task id, claimed time, and run URL to claims. Now a status view can answer what is currently active, who owns it, and where it is running.</p>
+    </section>
+
+    <div class="pager">
+      <a href="/docs/agent-coordination.html"><span>Previous</span><strong>Agent coordination</strong></a>
+      <a href="/docs/"><span>Back to</span><strong>Docs index</strong></a>
+    </div>
+  </div>
+</body>
+</html>

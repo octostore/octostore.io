@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>What is OctoStore?</title>
+  <meta name="description" content="OctoStore is a self-hostable distributed lock and lease service over HTTP for local and multi-machine coordination." />
+  <style>
+    :root { --bg:#0a0a0b; --panel:#111111; --panel2:#1a1a1b; --text:#e5e5e5; --muted:#a1a1aa; --white:#fff; --accent:#6366f1; --border:rgba(255,255,255,0.08); }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif; background:var(--bg); color:var(--text); line-height:1.7; }
+    .container { max-width:980px; margin:0 auto; padding:0 24px; }
+    nav { display:flex; justify-content:space-between; align-items:center; padding:16px 0; border-bottom:1px solid var(--border); margin-bottom:48px; gap:16px; }
+    .brand { color:var(--white); text-decoration:none; font-weight:700; }
+    .nav-links { display:flex; gap:12px; flex-wrap:wrap; }
+    .nav-links a { color:var(--muted); text-decoration:none; padding:8px 14px; border-radius:8px; }
+    .nav-links a:hover, .nav-links a.active { color:var(--white); background:rgba(255,255,255,0.06); }
+    header { padding:32px 0 36px; }
+    h1 { font-size:3rem; line-height:1.08; letter-spacing:-0.03em; color:var(--white); margin-bottom:18px; }
+    .lede { font-size:1.18rem; color:var(--muted); max-width:840px; }
+    section { background:var(--panel); border:1px solid var(--border); border-radius:18px; padding:32px; margin:24px 0; }
+    h2 { color:var(--white); font-size:1.8rem; margin-bottom:12px; }
+    p { margin:12px 0; }
+    ul, ol { margin:12px 0 12px 22px; }
+    li { margin:8px 0; }
+    pre { background:#0d1117; border:1px solid rgba(99,102,241,0.15); border-radius:12px; padding:18px; overflow-x:auto; margin-top:14px; }
+    .quote { font-size:1.18rem; color:var(--white); border-left:3px solid var(--accent); padding-left:16px; }
+    .pager { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:16px; margin:28px 0 56px; }
+    .pager a { display:block; background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:18px; color:var(--text); text-decoration:none; }
+    .pager a span { display:block; color:var(--muted); font-size:0.9rem; margin-bottom:4px; }
+    .pager a strong { color:var(--white); font-size:1.02rem; }
+    .pager a:hover { border-color:rgba(99,102,241,0.35); background:rgba(255,255,255,0.03); }
+    @media (max-width:900px){ h1{font-size:2.3rem;} .lede{font-size:1.05rem;} }
+    @media (max-width:700px){ .pager{grid-template-columns:1fr;} }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <nav>
+      <a class="brand" href="/">🐙 OctoStore</a>
+      <div class="nav-links">
+        <a href="/">Home</a>
+        <a href="/docs/" class="active">Docs</a>
+        <a href="/docs/coordination-patterns.html">Coordination guide</a>
+      </div>
+    </nav>
+
+    <header>
+      <h1>What is OctoStore?</h1>
+      <p class="lede">OctoStore is a self-hostable distributed lock and lease service over HTTP. Use it locally or across many machines to coordinate work with visible ownership and automatic recovery.</p>
+    </header>
+
+    <section>
+      <h2>Core idea</h2>
+      <p>When several workers can all see the same task, one of them should claim it and the others should back off.</p>
+      <p>OctoStore provides the primitive for that:</p>
+      <ul>
+        <li>create a lock or lease for a stable job name</li>
+        <li>renew it while the owner is alive</li>
+        <li>release it when done</li>
+        <li>let it expire automatically if the owner dies</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Why this matters</h2>
+      <p>Without a shared lock or lease layer, distributed systems drift into the same failures:</p>
+      <ul>
+        <li>duplicate work</li>
+        <li>invisible ownership</li>
+        <li>blind retries</li>
+        <li>stuck work after crashes</li>
+        <li>ad hoc coordination logic scattered across services</li>
+      </ul>
+      <p>OctoStore gives you one clean coordination primitive instead.</p>
+    </section>
+
+    <section>
+      <h2>Local or global</h2>
+      <p>You can use OctoStore in two natural modes.</p>
+      <h3 style="color:#fff; margin-top:18px;">Local coordination</h3>
+      <p>Run it on one machine and let local scripts, cron jobs, workers, services, or agents coordinate through it.</p>
+      <h3 style="color:#fff; margin-top:18px;">Multi-machine coordination</h3>
+      <p>Run one shared OctoStore deployment and let workers across many machines coordinate through the same API.</p>
+    </section>
+
+    <section>
+      <h2>What it is not</h2>
+      <p>OctoStore is not trying to be:</p>
+      <ul>
+        <li>a workflow engine</li>
+        <li>a queue</li>
+        <li>a scheduler</li>
+        <li>a giant orchestration control plane</li>
+      </ul>
+      <p class="quote">It is the coordination primitive underneath those higher-level patterns.</p>
+    </section>
+
+    <div class="pager">
+      <a href="/docs/coordination-patterns.html"><span>Next</span><strong>Coordination patterns</strong></a>
+      <a href="/docs/local-coordination.html"><span>Then</span><strong>Local coordination</strong></a>
+    </div>
+  </div>
+</body>
+</html>

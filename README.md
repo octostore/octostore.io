@@ -1,15 +1,90 @@
 # 🐙 OctoStore
 
-Distributed locking as a service. One binary, simple HTTP API, SQLite persistence.
+**Self-hostable coordination over HTTP**
+
+OctoStore is a self-hostable distributed lock and lease service over HTTP.
+Use it locally or across many machines to coordinate work with visible ownership and automatic recovery.
 
 > **Alpha software.** API may change. AI-assisted development. No SLA.
 
-## What it does
+## What it is
 
-OctoStore gives you distributed locks over HTTP with monotonically increasing
-fencing tokens. No etcd, no ZooKeeper, no Consul — just a single Rust binary.
+OctoStore is a narrow primitive:
+- claim a stable job name
+- renew while the owner is alive
+- release when done
+- let ownership expire automatically on failure
 
-Sign up with GitHub → get a bearer token → start locking.
+That makes it useful for:
+- local scripts and cron jobs
+- background workers
+- CI/CD deploy serialization
+- multi-machine services
+- agent runtimes
+
+## Why it exists
+
+Without a shared lock or lease layer, distributed systems tend to drift into the same failures:
+- duplicate work
+- invisible ownership
+- blind retries
+- stuck work after crashes
+- ad hoc coordination logic spread across many services
+
+OctoStore gives you one clean coordination primitive instead.
+
+## Local and multi-machine coordination
+
+### Local coordination
+Run OctoStore on one machine and let local processes coordinate through it.
+
+Good for:
+- several workers on one box
+- cron dedup
+- local agents
+- dev and demo environments
+
+### Multi-machine coordination
+Run one shared OctoStore deployment and let workers across many servers coordinate through the same API.
+
+Good for:
+- shared job processing
+- deploy locks
+- cross-machine cron dedup
+- fleet-wide visibility into what is running where
+
+## Coordination pattern
+
+The practical pattern is simple:
+1. choose one stable name for one logical unit of work
+2. have all workers try to claim the same name
+3. attach metadata about the owner
+4. renew while active
+5. release on completion
+6. let TTL expiry recover from crashes
+
+Recommended metadata includes:
+- `owner`
+- `host`
+- `service`
+- `task_id`
+- `job`
+- `claimed_at`
+- `run_id`
+- `run_url`
+
+## Example
+
+Five workers can all see `github/issues/123`.
+Only one should do the work.
+
+With OctoStore:
+1. each worker tries to claim the same stable job name
+2. one worker wins
+3. the others inspect the owner metadata and back off
+4. the winner renews while working
+5. if the winner crashes, the claim expires
+6. another worker can take over
 
 ## Quick start
 
@@ -19,14 +94,11 @@ Sign up with GitHub → get a bearer token → start locking.
 # Sign in with GitHub (opens browser)
 open https://api.octostore.io/auth/github
 
-# Acquire a lock (60s TTL)
+# Acquire a lock / claim (60s TTL)
 curl -X POST https://api.octostore.io/locks/my-service/acquire \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"ttl_seconds": 60}'
-
-# Response:
-# {"status":"acquired","lease_id":"...","fencing_token":1,"expires_at":"..."}
 ```
 
 ### Self-host
@@ -51,46 +123,13 @@ All lock endpoints require `Authorization: Bearer <token>`.
 |--------|----------|-------------|
 | `GET` | `/auth/github` | Start GitHub OAuth flow |
 | `POST` | `/auth/token/rotate` | Rotate bearer token |
-| `POST` | `/locks/{name}/acquire` | Acquire a lock |
+| `POST` | `/locks/{name}/acquire` | Acquire a lock / job claim |
 | `POST` | `/locks/{name}/release` | Release a lock |
 | `POST` | `/locks/{name}/renew` | Extend lock TTL |
-| `GET` | `/locks/{name}` | Check lock status |
+| `GET` | `/locks/{name}` | Check current owner / lock status |
 | `GET` | `/locks` | List your locks |
 | `GET` | `/docs` | Interactive API docs |
 | `GET` | `/health` | Health check + storage details |
-
-### Acquire
-
-```bash
-curl -X POST https://api.octostore.io/locks/leader/acquire \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"ttl_seconds": 60}'
-```
-
-**Lock acquired:**
-```json
-{"status": "acquired", "lease_id": "uuid", "fencing_token": 42, "expires_at": "..."}
-```
-
-**Already held:**
-```json
-{"status": "held", "holder_id": "other-uuid", "expires_at": "..."}
-```
-
-### Release / Renew
-
-```bash
-# Release
-curl -X POST .../locks/leader/release \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"lease_id": "your-lease-uuid"}'
-
-# Renew
-curl -X POST .../locks/leader/renew \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"lease_id": "your-lease-uuid", "ttl_seconds": 60}'
-```
 
 ## Fencing tokens
 
@@ -102,6 +141,25 @@ UPDATE state SET data = ?, fence = ? WHERE fence < ?
 ```
 
 This is what makes the locking actually safe, unlike Redlock.
+
+## Good fit
+
+OctoStore works well for:
+- local coordination on one machine
+- multi-machine workers sharing jobs
+- deploy serialization
+- background workers on shared queues
+- agent systems that need one owner per task
+
+## What it is not
+
+OctoStore is not trying to be:
+- a workflow engine
+- a queue
+- a scheduler
+- a giant orchestration control plane
+
+It is the coordination primitive underneath those higher-level patterns.
 
 ## Constraints
 
@@ -122,31 +180,18 @@ Single process. Locks live in memory for speed, replayed from SQLite on restart.
 ## Testing & Quality
 
 ```bash
-cargo test                           # Run all unit + integration tests  
-cargo bench                          # Run criterion benchmarks
-cargo tarpaulin --skip-clean         # Generate coverage report
-cargo +nightly fuzz run fuzz_lock_name  # Run fuzz testing
+cargo test
+cargo bench
+cargo tarpaulin --skip-clean
+cargo +nightly fuzz run fuzz_lock_name
 ```
 
-### Code Coverage
-![Coverage](https://img.shields.io/badge/coverage-pending-yellow)
+See `BENCHMARKS.md` for detailed performance results and system specifications.
 
-Coverage analysis using `cargo-tarpaulin` to ensure comprehensive test coverage across all modules.
+## Release notes
 
-### Fuzz Testing
-Three dedicated fuzz targets test input handling robustness:
-- `fuzz_lock_name` — Lock name validation with arbitrary strings
-- `fuzz_auth_header` — Authorization header parsing edge cases  
-- `fuzz_json_body` — JSON request body parsing with malformed data
-
-### Benchmarks
-Comprehensive performance testing with Criterion.rs:
-- Single-operation latency (acquire/release)
-- Lock contention under load (2-10 threads)
-- Database persistence overhead
-- HTTP stack performance
-
-See `BENCHMARKS.md` for detailed results and system specifications.
+- `v0.10.0` — coordination-first positioning, broader docs set, docs-first navigation
+- `v0.9.x` — namespace safety, WAL-backed recovery, remaining namespace test cleanup
 
 ## License
 

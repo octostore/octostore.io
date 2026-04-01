@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OctoStore releases</title>
+  <meta name="description" content="Release notes and changelog highlights for OctoStore." />
+  <style>
+    :root { --bg:#0a0a0b; --panel:#111111; --text:#e5e5e5; --muted:#a1a1aa; --white:#fff; --accent:#6366f1; --border:rgba(255,255,255,0.08); }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif; background:var(--bg); color:var(--text); line-height:1.7; }
+    .container { max-width:980px; margin:0 auto; padding:0 24px; }
+    nav { display:flex; justify-content:space-between; align-items:center; padding:16px 0; border-bottom:1px solid var(--border); margin-bottom:48px; gap:16px; }
+    .brand { color:var(--white); text-decoration:none; font-weight:700; }
+    .nav-links { display:flex; gap:12px; flex-wrap:wrap; }
+    .nav-links a { color:var(--muted); text-decoration:none; padding:8px 14px; border-radius:8px; }
+    .nav-links a:hover, .nav-links a.active { color:var(--white); background:rgba(255,255,255,0.06); }
+    header { padding:32px 0 36px; }
+    h1 { font-size:3rem; line-height:1.08; letter-spacing:-0.03em; color:var(--white); margin-bottom:18px; }
+    .lede { font-size:1.18rem; color:var(--muted); max-width:840px; }
+    section { background:var(--panel); border:1px solid var(--border); border-radius:18px; padding:32px; margin:24px 0; }
+    h2 { color:var(--white); font-size:1.8rem; margin-bottom:12px; }
+    p { margin:12px 0; }
+    ul { margin:12px 0 12px 22px; }
+    li { margin:8px 0; }
+    .version { display:inline-block; padding:8px 12px; border-radius:999px; background:rgba(99,102,241,0.15); color:#c4b5fd; font-weight:700; margin-bottom:14px; }
+    @media (max-width:900px){ h1{font-size:2.3rem;} .lede{font-size:1.05rem;} }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <nav>
+      <a class="brand" href="/">🐙 OctoStore</a>
+      <div class="nav-links">
+        <a href="/">Home</a>
+        <a href="/docs/" class="active">Docs</a>
+        <a href="/docs/coordination-patterns.html">Coordination guide</a>
+      </div>
+    </nav>
+
+    <header>
+      <h1>OctoStore releases</h1>
+      <p class="lede">Version notes for product positioning, docs, and API safety features.</p>
+    </header>
+
+    <section>
+      <div class="version">v0.10.0</div>
+      <h2>Coordination-first positioning</h2>
+      <p>This release reframes OctoStore around the real primitive: self-hostable distributed locks and leases over HTTP for local and multi-machine coordination.</p>
+      <ul>
+        <li>homepage updated to lead with coordination, not just agents</li>
+        <li>docs index reorganized so the conceptual guides come before the API reference</li>
+        <li>new narrative docs added for overview, coordination patterns, local coordination, multi-machine coordination, agent coordination, and examples</li>
+        <li>README rewritten to match the broader product story</li>
+      </ul>
+    </section>
+
+    <section>
+      <div class="version">v0.9.x</div>
+      <h2>Safety and durability groundwork</h2>
+      <ul>
+        <li>namespace-scoped lock access enforcement</li>
+        <li>WAL-backed lock recovery and health storage telemetry</li>
+        <li>remaining namespace test cleanup</li>
+      </ul>
+    </section>
+  </div>
+</body>
+</html>

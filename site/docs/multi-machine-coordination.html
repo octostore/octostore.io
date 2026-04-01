@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Multi-machine coordination with OctoStore</title>
+  <meta name="description" content="Use one OctoStore deployment to coordinate workers across many machines and see what is running where." />
+  <style>
+    :root { --bg:#0a0a0b; --panel:#111111; --panel2:#1a1a1b; --text:#e5e5e5; --muted:#a1a1aa; --white:#fff; --accent:#6366f1; --border:rgba(255,255,255,0.08); }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif; background:var(--bg); color:var(--text); line-height:1.7; }
+    .container { max-width:980px; margin:0 auto; padding:0 24px; }
+    nav { display:flex; justify-content:space-between; align-items:center; padding:16px 0; border-bottom:1px solid var(--border); margin-bottom:48px; gap:16px; }
+    .brand { color:var(--white); text-decoration:none; font-weight:700; }
+    .nav-links { display:flex; gap:12px; flex-wrap:wrap; }
+    .nav-links a { color:var(--muted); text-decoration:none; padding:8px 14px; border-radius:8px; }
+    .nav-links a:hover, .nav-links a.active { color:var(--white); background:rgba(255,255,255,0.06); }
+    header { padding:32px 0 36px; }
+    h1 { font-size:3rem; line-height:1.08; letter-spacing:-0.03em; color:var(--white); margin-bottom:18px; }
+    .lede { font-size:1.18rem; color:var(--muted); max-width:840px; }
+    section { background:var(--panel); border:1px solid var(--border); border-radius:18px; padding:32px; margin:24px 0; }
+    h2 { color:var(--white); font-size:1.8rem; margin-bottom:12px; }
+    p { margin:12px 0; }
+    ul, ol { margin:12px 0 12px 22px; }
+    li { margin:8px 0; }
+    pre { background:#0d1117; border:1px solid rgba(99,102,241,0.15); border-radius:12px; padding:18px; overflow-x:auto; margin-top:14px; }
+    .pager { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:16px; margin:28px 0 56px; }
+    .pager a { display:block; background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:18px; color:var(--text); text-decoration:none; }
+    .pager a span { display:block; color:var(--muted); font-size:0.9rem; margin-bottom:4px; }
+    .pager a strong { color:var(--white); font-size:1.02rem; }
+    .pager a:hover { border-color:rgba(99,102,241,0.35); background:rgba(255,255,255,0.03); }
+    @media (max-width:900px){ h1{font-size:2.3rem;} .lede{font-size:1.05rem;} }
+    @media (max-width:700px){ .pager{grid-template-columns:1fr;} }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <nav>
+      <a class="brand" href="/">🐙 OctoStore</a>
+      <div class="nav-links">
+        <a href="/">Home</a>
+        <a href="/docs/" class="active">Docs</a>
+        <a href="/docs/coordination-patterns.html">Coordination guide</a>
+      </div>
+    </nav>
+
+    <header>
+      <h1>Multi-machine coordination with OctoStore</h1>
+      <p class="lede">A shared OctoStore deployment lets workers across many servers coordinate through one simple HTTP API and gives them a shared view of who owns what.</p>
+    </header>
+
+    <section>
+      <h2>The problem</h2>
+      <ul>
+        <li>duplicate work across servers</li>
+        <li>no shared view of ownership</li>
+        <li>hard-to-debug collisions</li>
+        <li>orphaned work after machine failure</li>
+        <li>unclear answers to “what is running where?”</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>The pattern</h2>
+      <p>Every worker, on every machine:</p>
+      <ul>
+        <li>claims work using the same stable job name</li>
+        <li>publishes structured metadata</li>
+        <li>renews while healthy</li>
+        <li>releases on completion</li>
+        <li>relies on TTL expiry for crash recovery</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Example metadata</h2>
+      <pre><code>{
+  "owner": "research-worker",
+  "host": "server-c",
+  "service": "market-intel",
+  "task_id": "acct-acme",
+  "job": "refresh account summary",
+  "claimed_at": "2026-04-01T04:05:00Z",
+  "run_id": "run-9921",
+  "run_url": "https://ops.example/runs/9921",
+  "note": "phase 2 enrichment"
+}</code></pre>
+      <p>Now every machine can answer who owns a job, which host is running it, and where to inspect the run.</p>
+    </section>
+
+    <section>
+      <h2>Good fits</h2>
+      <ul>
+        <li>shared job processing</li>
+        <li>deploy serialization</li>
+        <li>cross-machine cron dedup</li>
+        <li>agent fleets spread across servers</li>
+      </ul>
+    </section>
+
+    <div class="pager">
+      <a href="/docs/local-coordination.html"><span>Previous</span><strong>Local coordination</strong></a>
+      <a href="/docs/agent-coordination.html"><span>Next</span><strong>Agent coordination</strong></a>
+    </div>
+  </div>
+</body>
+</html>

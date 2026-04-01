@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OctoStore — Distributed locking as a service</title>
+    <title>OctoStore — Self-hostable coordination over HTTP</title>
+    <meta name="description" content="OctoStore is a self-hostable distributed lock and lease service over HTTP. Use it locally or across many machines to coordinate work with visible ownership and automatic recovery.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-dark.min.css">
     <style>
         :root {
             --bg-primary: #0a0a0b;
@@ -19,27 +19,11 @@
             --accent: #6366f1;
             --accent-hover: #5b5ce8;
             --border: rgba(255, 255, 255, 0.08);
-            --border-hover: rgba(255, 255, 255, 0.12);
-            --gradient: linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(168,85,247,0.06) 100%);
-            --c-indigo: #6366f1;
-            --c-violet: #a855f7;
-            --c-sky:    #38bdf8;
-            --c-emerald:#10b981;
-            --c-amber:  #f59e0b;
-            --c-rose:   #f43f5e;
+            --border-hover: rgba(255, 255, 255, 0.14);
             --shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
             --shadow-lg: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
         }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        a { color: #a1a1aa; text-decoration: none; }
-        a:hover { color: var(--text-primary, #ffffff); }
-
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             background: var(--bg-primary);
@@ -47,657 +31,275 @@
             line-height: 1.6;
             overflow-x: hidden;
         }
-
-        /* Background glow */
         body::before {
             content: '';
             position: fixed;
-            top: 0; left: 50%;
-            transform: translateX(-50%);
-            width: 900px; height: 600px;
-            background: radial-gradient(ellipse at 40% 30%, rgba(99,102,241,0.12) 0%, transparent 60%),
+            top: 0; left: 50%; transform: translateX(-50%);
+            width: 920px; height: 620px;
+            background: radial-gradient(ellipse at 40% 30%, rgba(99,102,241,0.14) 0%, transparent 60%),
                         radial-gradient(ellipse at 70% 60%, rgba(168,85,247,0.08) 0%, transparent 55%);
             z-index: -1;
             pointer-events: none;
         }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 0 24px;
+        a { color: #a1a1aa; text-decoration: none; }
+        a:hover { color: var(--text-primary); }
+        .container { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+        nav {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 16px 0; border-bottom: 1px solid var(--border); margin-bottom: 40px;
         }
-
-        /* Header */
-        header {
-            padding: 80px 0 120px;
-            text-align: center;
-            position: relative;
+        .brand { display: flex; align-items: center; gap: 8px; color: #fff; font-weight: 600; font-size: 1.25rem; }
+        .nav-links { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+        .nav-links a { color: #a1a1aa; font-weight: 500; padding: 8px 14px; border-radius: 8px; transition: all 0.2s; }
+        .nav-links a:hover, .nav-links a.active { color: #e5e5e5; background: rgba(255,255,255,0.05); }
+        header { padding: 56px 0 88px; text-align: center; }
+        .hero-icon { font-size: 5rem; margin-bottom: 18px; display: block; }
+        .eyebrow {
+            display: inline-block; padding: 8px 14px; border: 1px solid rgba(99,102,241,0.25);
+            border-radius: 999px; background: rgba(99,102,241,0.08); color: #c4b5fd; font-weight: 600; margin-bottom: 24px;
         }
-
-        .hero-content {
-            animation: fadeInUp 0.8s ease-out;
-        }
-
-        @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(30px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .hero-logo {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-bottom: 32px;
-            gap: 20px;
-        }
-
-        .hero-icon {
-            width: 120px;
-            height: 120px;
-            filter: drop-shadow(0 0 30px rgba(99, 102, 241, 0.4));
-        }
-
-        .hero-headline {
-            font-size: 5rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            letter-spacing: -0.03em;
-            line-height: 1.05;
-            margin: 0 0 24px;
-        }
-
-        .hero-headline .highlight {
-            background: linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #6366f1 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
         h1 {
-            font-size: 4.5rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            background: linear-gradient(135deg, #ffffff 0%, #e5e5e5 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            margin: 0;
-            display: none;
+            font-size: 4.2rem; font-weight: 700; color: var(--text-primary);
+            letter-spacing: -0.04em; line-height: 1.02; max-width: 980px; margin: 0 auto 24px;
         }
-
         .tagline {
-            font-size: 1.25rem;
-            color: var(--text-muted);
-            margin: 0 0 48px;
-            font-weight: 400;
-            max-width: 480px;
-            margin-left: auto;
-            margin-right: auto;
+            font-size: 1.26rem; color: var(--text-muted); max-width: 900px; margin: 0 auto 36px;
         }
-
-        .cta-buttons {
-            display: flex;
-            gap: 24px;
-            justify-content: center;
-            align-items: center;
-            flex-wrap: wrap;
+        .cta-buttons { display: flex; gap: 18px; justify-content: center; flex-wrap: wrap; }
+        .primary-btn, .secondary-btn {
+            display: inline-flex; align-items: center; gap: 10px; padding: 16px 28px; border-radius: 12px;
+            font-weight: 600; transition: all 0.2s ease; box-shadow: var(--shadow);
         }
-
-        .github-auth-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 12px;
-            background: #24292f;
-            border: 1px solid #30363d;
-            color: #ffffff;
-            text-decoration: none;
-            padding: 16px 32px;
-            border-radius: 12px;
-            font-weight: 600;
-            font-size: 1.1rem;
-            transition: all 0.2s ease;
-            box-shadow: var(--shadow);
-            position: relative;
-            overflow: hidden;
+        .primary-btn {
+            background: var(--accent); color: #fff; border: 1px solid rgba(99,102,241,0.55);
         }
-
-        .github-auth-btn::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, transparent 50%);
-            opacity: 0;
-            transition: opacity 0.2s ease;
-        }
-
-        .github-auth-btn:hover::before {
-            opacity: 1;
-        }
-
-        .github-auth-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-lg);
-            border-color: #4c5861;
-        }
-
-        .github-icon {
-            width: 24px;
-            height: 24px;
-            fill: currentColor;
-        }
-
+        .primary-btn:hover { background: var(--accent-hover); transform: translateY(-2px); box-shadow: var(--shadow-lg); }
         .secondary-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            background: transparent;
-            border: 1px solid var(--border);
-            color: var(--text-secondary);
-            text-decoration: none;
-            padding: 16px 32px;
-            border-radius: 12px;
-            font-weight: 500;
-            font-size: 1.1rem;
-            transition: all 0.2s ease;
-            backdrop-filter: blur(10px);
+            background: transparent; color: var(--text-secondary); border: 1px solid var(--border);
         }
-
-        .secondary-btn:hover {
-            border-color: var(--border-hover);
-            background: rgba(255, 255, 255, 0.05);
-            transform: translateY(-1px);
+        .secondary-btn:hover { background: rgba(255,255,255,0.05); border-color: var(--border-hover); transform: translateY(-1px); }
+        .statement {
+            margin: 44px auto 0; max-width: 940px; background: rgba(99,102,241,0.06);
+            border: 1px solid rgba(99,102,241,0.2); border-radius: 16px; padding: 20px 24px; color: #e9e7ff;
         }
-
-        /* Disclaimer */
-        .disclaimer {
-            background: rgba(99,102,241,0.06);
-            border: 1px solid rgba(99,102,241,0.2);
-            border-radius: 16px;
-            padding: 24px 32px;
-            margin: 80px 0;
-            text-align: center;
-            animation: fadeIn 0.8s ease-out 0.3s both;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-
-        .disclaimer p {
-            color: var(--text-muted);
-            font-size: 1.2rem;
-            font-weight: 500;
-        }
-
-        /* Sections */
-        section {
-            margin: 100px 0;
-            animation: fadeIn 0.8s ease-out both;
-        }
-
-        section:nth-child(even) {
-            animation-delay: 0.1s;
-        }
-
-        section:nth-child(odd) {
-            animation-delay: 0.2s;
-        }
-
-        h2 {
-            font-size: 2.5rem;
-            margin-bottom: 24px;
-            color: var(--text-primary);
-            font-weight: 700;
-            text-align: center;
-        }
-
+        section { margin: 82px 0; }
+        h2 { font-size: 2.35rem; margin-bottom: 18px; color: #fff; text-align: center; }
         .section-subtitle {
-            text-align: center;
-            font-size: 1.2rem;
-            color: var(--text-muted);
-            margin-bottom: 60px;
-            max-width: 600px;
-            margin-left: auto;
-            margin-right: auto;
+            text-align: center; font-size: 1.14rem; color: var(--text-muted); max-width: 800px; margin: 0 auto 42px;
         }
-
-        /* Feature grid */
-        .features-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 24px;
-            margin: 60px 0;
+        .grid { display: grid; gap: 24px; }
+        .problem-grid, .feature-grid, .modes-grid, .guides-grid { grid-template-columns: repeat(3, 1fr); }
+        .card {
+            background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 16px; padding: 28px;
+            box-shadow: var(--shadow); transition: transform 0.2s ease, border-color 0.2s ease;
         }
-
-        @media (max-width: 900px) {
-            .features-grid { grid-template-columns: repeat(2, 1fr) !important; }
+        .card:hover { transform: translateY(-3px); border-color: rgba(99,102,241,0.35); }
+        .card h3 { color: #fff; font-size: 1.3rem; margin-bottom: 12px; }
+        .card p { color: var(--text-muted); }
+        .kicker { font-size: 1.8rem; margin-bottom: 14px; display: inline-block; }
+        .example {
+            background: linear-gradient(180deg, rgba(99,102,241,0.08), rgba(17,17,17,0.95));
+            border: 1px solid rgba(99,102,241,0.18); border-radius: 20px; padding: 36px;
         }
-
-        .feature-card {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-top: 2px solid var(--card-color, var(--accent));
-            border-radius: 12px;
-            padding: 28px;
-            transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
-            position: relative;
+        .example-quote {
+            font-size: 1.5rem; line-height: 1.5; color: #fff; font-weight: 600; margin-bottom: 24px;
         }
-
-        .feature-card:hover {
-            transform: translateY(-3px);
-            border-color: var(--card-color, var(--accent));
-            box-shadow: 0 0 0 1px var(--card-color, var(--accent)), var(--shadow);
+        .example ol { margin-left: 22px; color: var(--text-secondary); }
+        .example li { margin: 10px 0; }
+        .footer-cta {
+            text-align: center; padding: 44px 28px; border: 1px solid var(--border); border-radius: 20px; background: var(--bg-secondary);
         }
-
-        .feature-icon {
-            display: inline-flex; align-items: center; justify-content: center;
-            width: 44px; height: 44px; border-radius: 10px;
-            background: color-mix(in srgb, var(--card-color, var(--accent)) 15%, transparent);
-            font-size: 1.4rem; margin-bottom: 16px;
+        footer { text-align: center; margin: 90px 0 60px; padding-top: 32px; border-top: 1px solid var(--border); color: var(--text-muted); }
+        @media (max-width: 920px) {
+            h1 { font-size: 3rem; }
+            .problem-grid, .feature-grid, .modes-grid, .guides-grid { grid-template-columns: 1fr; }
         }
-
-
-
-        .feature-title {
-            font-size: 1.5rem;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin-bottom: 16px;
-        }
-
-        .feature-description {
-            color: var(--text-muted);
-            line-height: 1.6;
-        }
-
-        /* API section */
-        .api-section {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 20px;
-            padding: 48px;
-            margin: 60px 0;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .api-section::before {
-            content: '';
-            position: absolute;
-            inset: 0; border-radius: 20px;
-            background: linear-gradient(135deg, rgba(99,102,241,0.04) 0%, transparent 60%);
-            pointer-events: none;
-        }
-
-        .api-endpoints {
-            display: grid;
-            gap: 32px;
-            margin-top: 40px;
-        }
-
-        .endpoint-group {
-            background: var(--bg-primary);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 24px;
-        }
-
-        .endpoint-title {
-            font-weight: 600;
-            color: var(--text-primary);
-            margin-bottom: 16px;
-            font-size: 1.3rem;
-        }
-
-        .code-block {
-            background: #0d1117;
-            border: 1px solid rgba(99, 102, 241, 0.15);
-            border-radius: 8px;
-            padding: 24px;
-            overflow-x: auto;
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-            font-size: 14px;
-            line-height: 1.7;
-        }
-
-        .code-block code {
-            color: #e6edf3;
-        }
-
-        .code-block .cmd { color: #79c0ff; }
-        .code-block .flag { color: #d2a8ff; }
-        .code-block .url { color: #a5d6ff; }
-        .code-block .header { color: #7ee787; }
-        .code-block .string { color: #ffa657; }
-        .code-block .comment { color: #8b949e; font-style: italic; }
-
-        /* Constraints */
-        .constraints {
-            background: var(--bg-secondary);
-            border-left: 4px solid var(--accent);
-            border-radius: 12px;
-            padding: 32px;
-            margin: 40px 0;
-        }
-
-        .constraints h3 {
-            color: var(--text-primary);
-            margin-bottom: 20px;
-            font-size: 1.4rem;
-        }
-
-        .constraints ul {
-            margin-left: 20px;
-        }
-
-        .constraints li {
-            margin-bottom: 12px;
-            color: var(--text-muted);
-        }
-
-        /* Footer */
-        footer {
-            text-align: center;
-            margin: 120px 0 80px;
-            padding: 40px 0;
-            border-top: 1px solid var(--border);
-            color: var(--text-muted);
-        }
-
-        footer p {
-            font-size: 1.1rem;
-        }
-
-        /* Responsive */
-        @media (max-width: 768px) {
-            .container {
-                padding: 0 16px;
-            }
-
-            h1 {
-                font-size: 3rem;
-            }
-
-            .hero-headline {
-                font-size: 3.2rem;
-            }
-
-            .hero-icon {
-                width: 90px;
-                height: 90px;
-            }
-
-            .tagline {
-                font-size: 1.1rem;
-            }
-
-            .cta-buttons {
-                flex-direction: column;
-                align-items: stretch;
-            }
-
-            .github-auth-btn,
-            .secondary-btn {
-                justify-content: center;
-            }
-
-            .features-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .api-section {
-                padding: 32px 24px;
-            }
-
-            .code-block {
-                font-size: 12px;
-            }
-        }
-
-        @media (max-width: 480px) {
-            header {
-                padding: 60px 0 80px;
-            }
-
-            h1 {
-                font-size: 2.5rem;
-            }
-
-            .hero-headline {
-                font-size: 2.5rem;
-            }
-
-            .hero-icon {
-                width: 70px;
-                height: 70px;
-            }
+        @media (max-width: 640px) {
+            .container { padding: 0 16px; }
+            nav { flex-direction: column; gap: 14px; }
+            .nav-links { gap: 10px; justify-content: center; }
+            h1 { font-size: 2.35rem; }
+            .tagline { font-size: 1.06rem; }
+            .cta-buttons { flex-direction: column; }
+            .primary-btn, .secondary-btn { justify-content: center; }
+            .example-quote { font-size: 1.22rem; }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <nav style="display: flex; justify-content: space-between; align-items: center; padding: 16px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08); margin-bottom: 40px;">
-            <a href="/" style="display: flex; align-items: center; gap: 8px; text-decoration: none;">
-                <span style="font-size: 1.5rem;">🐙</span>
-                <span style="font-size: 1.25rem; font-weight: 600; color: #ffffff;">OctoStore</span>
-            </a>
-            <div style="display: flex; gap: 24px; align-items: center;">
-                <a href="/" style="color: #e5e5e5; text-decoration: none; font-weight: 500; padding: 8px 16px; border-radius: 6px; transition: all 0.2s;">Home</a>
-                <a href="/dashboard.html" style="color: #a1a1aa; text-decoration: none; font-weight: 500; padding: 8px 16px; border-radius: 6px; transition: all 0.2s;">Dashboard</a>
-                <a href="https://api.octostore.io/docs" style="color: #a1a1aa; text-decoration: none; font-weight: 500; padding: 8px 16px; border-radius: 6px; transition: all 0.2s;">API Docs</a>
+        <nav>
+            <a href="/" class="brand"><span>🐙</span><span>OctoStore</span></a>
+            <div class="nav-links">
+                <a href="/" class="active">Home</a>
+                <a href="/docs/coordination-patterns.html">Coordination guide</a>
+                <a href="/docs/">Docs</a>
+                <a href="/dashboard.html">Dashboard</a>
             </div>
         </nav>
+
         <header>
-            <div class="hero-content">
-                <svg class="hero-icon" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-                  <!-- Octopus body -->
-                  <ellipse cx="100" cy="72" rx="58" ry="52" fill="url(#octoGrad)"/>
-                  <!-- Eyes -->
-                  <ellipse cx="78" cy="64" rx="14" ry="16" fill="#fff"/>
-                  <ellipse cx="122" cy="64" rx="14" ry="16" fill="#fff"/>
-                  <circle cx="82" cy="66" r="7" fill="#1a1a2e"/>
-                  <circle cx="118" cy="66" r="7" fill="#1a1a2e"/>
-                  <circle cx="84" cy="63" r="2.5" fill="#fff"/>
-                  <circle cx="120" cy="63" r="2.5" fill="#fff"/>
-                  <!-- Smile -->
-                  <path d="M88 82 Q100 92 112 82" stroke="#1a1a2e" stroke-width="2.5" fill="none" stroke-linecap="round"/>
-                  <!-- Tentacles -->
-                  <path d="M52 105 Q30 130 38 160 Q42 168 48 158 Q52 140 60 120" fill="url(#octoGrad)" opacity="0.9">
-                    <animateTransform attributeName="transform" type="rotate" values="-2 52 105;2 52 105;-2 52 105" dur="3s" repeatCount="indefinite"/>
-                  </path>
-                  <path d="M65 112 Q50 145 55 172 Q58 180 64 170 Q68 148 72 125" fill="url(#octoGrad)" opacity="0.85">
-                    <animateTransform attributeName="transform" type="rotate" values="1 65 112;-2 65 112;1 65 112" dur="3.5s" repeatCount="indefinite"/>
-                  </path>
-                  <path d="M82 118 Q75 155 80 178 Q84 186 88 176 Q88 152 86 128" fill="url(#octoGrad)" opacity="0.9">
-                    <animateTransform attributeName="transform" type="rotate" values="-1 82 118;1 82 118;-1 82 118" dur="4s" repeatCount="indefinite"/>
-                  </path>
-                  <path d="M100 120 Q100 158 102 180 Q104 188 108 178 Q106 155 104 128" fill="url(#octoGrad)" opacity="0.85">
-                    <animateTransform attributeName="transform" type="rotate" values="0.5 100 120;-0.5 100 120;0.5 100 120" dur="3.2s" repeatCount="indefinite"/>
-                  </path>
-                  <path d="M118 118 Q125 155 120 178 Q116 186 112 176 Q112 152 114 128" fill="url(#octoGrad)" opacity="0.9">
-                    <animateTransform attributeName="transform" type="rotate" values="1 118 118;-1 118 118;1 118 118" dur="3.8s" repeatCount="indefinite"/>
-                  </path>
-                  <path d="M135 112 Q150 145 145 172 Q142 180 136 170 Q132 148 128 125" fill="url(#octoGrad)" opacity="0.85">
-                    <animateTransform attributeName="transform" type="rotate" values="-1 135 112;2 135 112;-1 135 112" dur="3.3s" repeatCount="indefinite"/>
-                  </path>
-                  <path d="M148 105 Q170 130 162 160 Q158 168 152 158 Q148 140 140 120" fill="url(#octoGrad)" opacity="0.9">
-                    <animateTransform attributeName="transform" type="rotate" values="2 148 105;-2 148 105;2 148 105" dur="3.6s" repeatCount="indefinite"/>
-                  </path>
-                  <!-- Lock held in front tentacle -->
-                  <g transform="translate(148, 148) scale(0.7)">
-                    <rect x="0" y="12" width="24" height="20" rx="3" fill="#fbbf24" stroke="#d97706" stroke-width="1.5"/>
-                    <path d="M6 12 V8 Q6 0 12 0 Q18 0 18 8 V12" fill="none" stroke="#d97706" stroke-width="2.5" stroke-linecap="round"/>
-                    <circle cx="12" cy="22" r="3" fill="#92400e"/>
-                  </g>
-                  <defs>
-                    <linearGradient id="octoGrad" x1="0" y1="0" x2="1" y2="1">
-                      <stop offset="0%" stop-color="#6366f1"/>
-                      <stop offset="100%" stop-color="#a855f7"/>
-                    </linearGradient>
-                  </defs>
-                </svg>
-                <div class="hero-headline">Lock. <span class="highlight">Ship.</span></div>
-                <p class="tagline">Distributed locking with fencing tokens. One binary, simple HTTP API, free to use.</p>
-                <div class="cta-buttons">
-                    <a id="auth-btn" href="https://api.octostore.io/auth/github" class="github-auth-btn">
-                        <svg class="github-icon" viewBox="0 0 16 16">
-                            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
-                        </svg>
-                        Sign in with GitHub
-                    </a>
-                    <a href="https://api.octostore.io/docs" class="secondary-btn">
-                        View API Docs
-                        <span>→</span>
-                    </a>
-                </div>
+            <span class="eyebrow">Self-hostable coordination over HTTP</span>
+            <span class="hero-icon">🐙</span>
+            <h1>Distributed locks and leases for local and multi-machine coordination</h1>
+            <p class="tagline">OctoStore is a self-hostable distributed lock and lease service over HTTP. Use it on one machine or across many machines to coordinate work with visible ownership and automatic recovery.</p>
+            <div class="cta-buttons">
+                <a href="/docs/coordination-patterns.html" class="primary-btn">See coordination patterns →</a>
+                <a href="/docs/" class="secondary-btn">Read the docs</a>
             </div>
+            <div class="statement"><strong>Primitive first:</strong> OctoStore is the lock and lease layer. On top of it, you can build simple coordination for scripts, workers, services, CI jobs, and agents.</div>
         </header>
 
-        <div class="disclaimer">
-            <p>⚠️ Alpha software. No SLA, no business model. Just an octopus holding your locks. 🐙</p>
-        </div>
-
         <section>
-            <h2>What it does</h2>
-            <p class="section-subtitle">Distributed locking via a simple HTTP API. Sign up with GitHub, get a bearer token, start locking.</p>
-            
-            <div class="features-grid">
-                <div class="feature-card" style="--card-color: var(--c-indigo)">
-                    <span class="feature-icon">🔒</span>
-                    <h3 class="feature-title">Distributed Locking</h3>
-                    <p class="feature-description">Acquire exclusive locks with automatic expiration and monotonic fencing tokens for safe distributed coordination.</p>
+            <h2>Why it exists</h2>
+            <p class="section-subtitle">When multiple workers can all see the same task, one of them should claim it and the others should back off.</p>
+            <div class="grid problem-grid">
+                <div class="card">
+                    <div class="kicker">⚠️</div>
+                    <h3>Duplicate work</h3>
+                    <p>Several workers, services, or agents all pick up the same task because they can all see the same backlog.</p>
                 </div>
-                <div class="feature-card" style="--card-color: var(--c-violet)">
-                    <span class="feature-icon">🛡️</span>
-                    <h3 class="feature-title">Fencing Tokens</h3>
-                    <p class="feature-description">Every acquire returns a strictly increasing token. Use it to prevent stale holders from corrupting shared state.</p>
+                <div class="card">
+                    <div class="kicker">👀</div>
+                    <h3>Invisible ownership</h3>
+                    <p>Nobody can tell who owns a job, where it is running, or what it is doing right now.</p>
                 </div>
-                <div class="feature-card" style="--card-color: var(--c-sky)">
-                    <span class="feature-icon">⚡</span>
-                    <h3 class="feature-title">Simple HTTP API</h3>
-                    <p class="feature-description">Pure REST with JSON responses. No client libraries needed — curl works fine from any language.</p>
-                </div>
-                <div class="feature-card" style="--card-color: var(--c-emerald)">
-                    <span class="feature-icon">📦</span>
-                    <h3 class="feature-title">One Binary, Zero Deps</h3>
-                    <p class="feature-description">No etcd, no ZooKeeper, no Consul. Self-host with a single binary and a SQLite file. Done in 60 seconds.</p>
-                </div>
-                <div class="feature-card" style="--card-color: var(--c-amber)">
-                    <span class="feature-icon">⏱️</span>
-                    <h3 class="feature-title">Auto-Expiry</h3>
-                    <p class="feature-description">Locks expire automatically via configurable TTLs. Crashed holders never block your system forever.</p>
-                </div>
-                <div class="feature-card" style="--card-color: var(--c-rose)">
-                    <span class="feature-icon">🏠</span>
-                    <h3 class="feature-title">Self-Hostable</h3>
-                    <p class="feature-description">Use octostore.io or run your own. Optional GitHub OAuth — or bring static tokens for fully air-gapped deployments.</p>
+                <div class="card">
+                    <div class="kicker">♻️</div>
+                    <h3>Stuck work after crashes</h3>
+                    <p>A process dies and leaves the system looking busy forever unless ownership expires automatically.</p>
                 </div>
             </div>
         </section>
 
         <section>
-            <h2>API Overview</h2>
-            <div class="api-section">
-                <div class="api-endpoints">
-                    <div class="endpoint-group">
-                        <h3 class="endpoint-title">🔐 Authentication</h3>
-                        <div class="code-block">
-<pre><code><span class="comment"># Sign in with GitHub OAuth</span>
-<span class="cmd">curl</span> <span class="url">https://api.octostore.io/auth/github</span>
-
-<span class="comment"># Rotate your bearer token</span>
-<span class="cmd">curl</span> <span class="flag">-X POST</span> <span class="url">https://api.octostore.io/auth/token/rotate</span> \
-  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span></code></pre>
-                        </div>
-                    </div>
-
-                    <div class="endpoint-group">
-                        <h3 class="endpoint-title">🔒 Acquire a Lock</h3>
-                        <div class="code-block">
-<pre><code><span class="cmd">curl</span> <span class="flag">-X POST</span> <span class="url">https://api.octostore.io/locks/my-resource/acquire</span> \
-  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span> \
-  <span class="flag">-H</span> <span class="header">"Content-Type: application/json"</span> \
-  <span class="flag">-d</span> <span class="string">'{"ttl_seconds": 300, "metadata": "service-8i192"}'</span></code></pre>
-                        </div>
-                    </div>
-
-                    <div class="endpoint-group">
-                        <h3 class="endpoint-title">🔓 Release a Lock</h3>
-                        <div class="code-block">
-<pre><code><span class="cmd">curl</span> <span class="flag">-X POST</span> <span class="url">https://api.octostore.io/locks/my-resource/release</span> \
-  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span> \
-  <span class="flag">-H</span> <span class="header">"Content-Type: application/json"</span> \
-  <span class="flag">-d</span> <span class="string">'{"lease_id": "uuid-from-acquire"}'</span></code></pre>
-                        </div>
-                    </div>
-
-                    <div class="endpoint-group">
-                        <h3 class="endpoint-title">👀 Check Lock Status</h3>
-                        <div class="code-block">
-<pre><code><span class="cmd">curl</span> <span class="url">https://api.octostore.io/locks/my-resource</span> \
-  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span></code></pre>
-                        </div>
-                    </div>
-
-                    <div class="endpoint-group">
-                        <h3 class="endpoint-title">📋 List Your Locks</h3>
-                        <div class="code-block">
-<pre><code><span class="cmd">curl</span> <span class="url">https://api.octostore.io/locks</span> \
-  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span></code></pre>
-                        </div>
-                    </div>
-
-                    <div class="endpoint-group">
-                        <h3 class="endpoint-title">🔄 Renew a Lock</h3>
-                        <div class="code-block">
-<pre><code><span class="cmd">curl</span> <span class="flag">-X POST</span> <span class="url">https://api.octostore.io/locks/my-resource/renew</span> \
-  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span> \
-  <span class="flag">-H</span> <span class="header">"Content-Type: application/json"</span> \
-  <span class="flag">-d</span> <span class="string">'{"lease_id": "uuid-from-acquire", "ttl_seconds": 300}'</span></code></pre>
-                        </div>
-                    </div>
+            <h2>Two natural ways to use it</h2>
+            <p class="section-subtitle">The model stays the same. The deployment changes.</p>
+            <div class="grid modes-grid">
+                <div class="card">
+                    <div class="kicker">💻</div>
+                    <h3>Local coordination</h3>
+                    <p>Run OctoStore on one machine and let local scripts, cron jobs, workers, or agents coordinate through it.</p>
+                </div>
+                <div class="card">
+                    <div class="kicker">🌐</div>
+                    <h3>Multi-machine coordination</h3>
+                    <p>Point workers on several servers at one shared OctoStore deployment and give them a shared ownership view.</p>
+                </div>
+                <div class="card">
+                    <div class="kicker">🧩</div>
+                    <h3>General coordination patterns</h3>
+                    <p>Use the same claim, renew, release, and inspect pattern from Python, TypeScript, shell, CI, or any agent runtime.</p>
                 </div>
             </div>
         </section>
 
-        <div class="constraints">
-            <h3>Constraints</h3>
-            <ul>
-                <li>🔒 100 locks per user</li>
-                <li>⏱️ 1 hour max TTL (auto-expires)</li>
-                <li>📛 Lock names: alphanumeric + hyphens + dots, max 128 chars</li>
-                <li>💾 Locks persist to SQLite, survive restarts</li>
-                <li>🆓 Free, no rate limits</li>
-            </ul>
-        </div>
+        <section>
+            <h2>What OctoStore gives you</h2>
+            <p class="section-subtitle">A narrow primitive with real operational value.</p>
+            <div class="grid feature-grid">
+                <div class="card">
+                    <div class="kicker">🏆</div>
+                    <h3>One owner per job</h3>
+                    <p>Only one worker successfully claims a stable job name at a time.</p>
+                </div>
+                <div class="card">
+                    <div class="kicker">📋</div>
+                    <h3>Visible ownership metadata</h3>
+                    <p>Attach host, service, run id, task id, and other details so anyone can inspect what is running where.</p>
+                </div>
+                <div class="card">
+                    <div class="kicker">❤️</div>
+                    <h3>Heartbeat while running</h3>
+                    <p>Keep ownership alive while the worker is healthy and actively processing.</p>
+                </div>
+                <div class="card">
+                    <div class="kicker">♻️</div>
+                    <h3>Automatic recovery</h3>
+                    <p>If the owner dies, the lease expires and another worker can safely take over.</p>
+                </div>
+                <div class="card">
+                    <div class="kicker">🔢</div>
+                    <h3>Fencing tokens</h3>
+                    <p>Protect downstream writes from stale lock holders with monotonic tokens.</p>
+                </div>
+                <div class="card">
+                    <div class="kicker">🌍</div>
+                    <h3>Simple HTTP API</h3>
+                    <p>Use it from any runtime without dragging in a heavyweight client or platform dependency.</p>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <div class="example">
+                <h2 style="text-align:left; margin-bottom: 18px;">The coordination pattern</h2>
+                <div class="example-quote">Stable job name. Claim. Attach metadata. Renew while active. Release when done. Expire on failure.</div>
+                <ol>
+                    <li>Choose one stable name for one logical unit of work.</li>
+                    <li>Have all workers try to claim the same name.</li>
+                    <li>One wins and publishes metadata.</li>
+                    <li>The others inspect the current owner and back off.</li>
+                    <li>The owner renews while healthy.</li>
+                    <li>If it dies, the lease expires and another worker can take over.</li>
+                </ol>
+            </div>
+        </section>
+
+        <section>
+            <h2>Start with guides, then use the API</h2>
+            <p class="section-subtitle">v0.10.0 should make the product easier to understand before anyone opens the endpoint reference.</p>
+            <div class="grid guides-grid">
+                <div class="card">
+                    <div class="kicker">🧠</div>
+                    <h3>Coordination patterns</h3>
+                    <p>How locks and leases become shared work ownership with stable names and metadata.</p>
+                    <p style="margin-top:16px;"><a href="/docs/coordination-patterns.html" style="color:#fff;">Read the guide →</a></p>
+                </div>
+                <div class="card">
+                    <div class="kicker">🏠</div>
+                    <h3>Local coordination</h3>
+                    <p>Simple self-hosted coordination on one machine for scripts, cron jobs, workers, and agents.</p>
+                    <p style="margin-top:16px;"><a href="/docs/local-coordination.html" style="color:#fff;">Read the guide →</a></p>
+                </div>
+                <div class="card">
+                    <div class="kicker">🛰️</div>
+                    <h3>Multi-machine coordination</h3>
+                    <p>Shared ownership and visibility across several servers using one OctoStore deployment.</p>
+                    <p style="margin-top:16px;"><a href="/docs/multi-machine-coordination.html" style="color:#fff;">Read the guide →</a></p>
+                </div>
+                <div class="card">
+                    <div class="kicker">📝</div>
+                    <h3>Release notes</h3>
+                    <p>What changed in the coordination-first documentation release and recent safety work.</p>
+                    <p style="margin-top:16px;"><a href="/docs/releases.html" style="color:#fff;">Read release notes →</a></p>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <div class="footer-cta">
+                <h2 style="margin-bottom: 14px;">Agent coordination is one use case, not the whole product</h2>
+                <p class="section-subtitle" style="margin-bottom: 28px;">OpenClaw can use OctoStore. So can Python workers, shell scripts, CI jobs, and services on multiple servers.</p>
+                <div class="cta-buttons">
+                    <a href="/docs/agent-coordination.html" class="primary-btn">Read the agent guide</a>
+                    <a href="/docs/examples.html" class="secondary-btn">View examples</a>
+                </div>
+            </div>
+        </section>
 
         <footer>
-            <p>Made with 🦀 and questionable judgment</p>
+            <p>Made with 🦀 and a strong opinion about visible work ownership.</p>
         </footer>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
     <script>
     (function() {
         try {
             var auth = JSON.parse(localStorage.getItem('octostore_auth'));
             if (auth && auth.token) {
-                var btn = document.getElementById('auth-btn');
-                if (btn) {
-                    btn.href = '/dashboard.html';
-                    btn.innerHTML = '<svg class="github-icon" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg> Go to Dashboard';
-                }
+                var dash = document.querySelector('a[href="/dashboard.html"]');
+                if (dash) dash.textContent = 'Dashboard';
             }
         } catch (_) {}
     })();
