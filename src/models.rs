@@ -351,7 +351,6 @@ mod tests {
     use super::*;
     use crate::error::AppError;
     use chrono::{Duration, Utc};
-    use serde_json;
 
     #[test]
     fn test_lock_is_expired() {

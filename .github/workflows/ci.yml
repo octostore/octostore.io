@@ -3,6 +3,8 @@ name: CI
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
 
 jobs:
   build:
@@ -12,8 +14,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Check
-        run: cargo check
+        run: cargo check --all-targets --all-features --locked
       - name: Test
-        run: cargo test
+        run: RUST_TEST_THREADS=1 cargo test --all-targets --all-features --locked
       - name: Clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --all-targets --all-features --locked -- -D warnings
