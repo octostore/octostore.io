@@ -669,7 +669,8 @@ mod tests {
         thread::sleep(Duration::from_millis(1));
         
         let snapshot = metrics.snapshot();
-        assert!(snapshot["uptime_seconds"].as_u64().unwrap() >= 0);
+        let uptime = snapshot["uptime_seconds"].as_u64().unwrap();
+        assert!(uptime < 60);
         assert_eq!(snapshot["total_requests"].as_u64().unwrap(), 1);
         assert!(snapshot["requests_per_second"].as_f64().unwrap() >= 0.0);
         assert_eq!(snapshot["endpoints"]["acquire"]["count"].as_u64().unwrap(), 1);
@@ -745,11 +746,9 @@ mod tests {
     #[test]
     fn test_get_memory_usage() {
         let memory = get_memory_usage();
-        // Should either return a reasonable value or 0 if /proc/self/status is not available
-        // On systems where this file exists, it should be > 0
-        // On systems where it doesn't exist, it should be 0
-        // We can't assert a specific range as memory usage varies
-        assert!(memory >= 0);
+        let snapshot = Metrics::new().snapshot();
+        assert!(snapshot["memory_bytes"].as_u64().is_some());
+        let _ = memory;
     }
 
     #[test]

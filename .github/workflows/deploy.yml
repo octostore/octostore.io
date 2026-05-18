@@ -3,6 +3,18 @@ name: Release & Deploy
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to deploy (defaults to current ref/release tag)"
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -13,34 +25,95 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build release binary
-        run: cargo build --release
+        run: cargo build --release --locked
 
       - name: Upload binary to release
+        if: ${{ github.event_name == 'release' }}
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: target/release/octostore
           asset_name: octostore-linux-amd64
           tag: ${{ github.ref }}
+          overwrite: true
+
+      - name: Upload binary artifact
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: octostore-linux-amd64
+          path: target/release/octostore
 
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    env:
+      DEPLOY_SERVICE: octostore-lock
+      HEALTH_URL: https://api.octostore.io/health
     steps:
+      - name: Download manual-dispatch binary artifact
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: octostore-linux-amd64
+          path: /tmp/octostore-artifact
+
       - name: Deploy to production
         uses: appleboy/ssh-action@v1
         with:
-          host: 77.42.29.236
+          host: ${{ secrets.DEPLOY_HOST }}
           username: daaronch
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
-            cd /opt/octostore-lock
-            git pull origin main
-            RELEASE_TAG="${{ github.event.release.tag_name }}"
-            curl -sL -o /tmp/octostore-new "https://github.com/octostore/octostore.io/releases/download/${RELEASE_TAG}/octostore-linux-amd64"
-            chmod +x /tmp/octostore-new
-            sudo /usr/bin/systemctl stop octostore
-            mv -f /tmp/octostore-new target/release/octostore
-            sudo /usr/bin/systemctl start octostore
-            sleep 2
-            curl -sf http://localhost:3030/docs > /dev/null && echo "Deploy successful" || echo "DEPLOY FAILED"
+            set -euo pipefail
+
+            RELEASE_TAG="${{ github.event.release.tag_name || inputs.release_tag || github.ref_name }}"
+            SERVICE="${{ env.DEPLOY_SERVICE }}"
+            APP_DIR="/opt/octostore-lock"
+            BIN_PATH="${APP_DIR}/octostore"
+            TMP_BIN="/tmp/octostore-new-${RELEASE_TAG}"
+            HEALTH_URL="${{ env.HEALTH_URL }}"
+
+            echo "=== Pulling latest source (${RELEASE_TAG}) ==="
+            cd "${APP_DIR}"
+            git fetch origin main
+            git checkout main
+            git pull --ff-only origin main
+
+            echo "=== Installing release binary atomically ==="
+            if [ "${{ github.event_name }}" = "release" ]; then
+              curl --fail --location --show-error --silent \
+                -o "${TMP_BIN}" \
+                "https://github.com/octostore/octostore.io/releases/download/${RELEASE_TAG}/octostore-linux-amd64"
+            else
+              echo "Manual dispatch deploys require a published release asset; aborting before service changes."
+              exit 1
+            fi
+            chmod +x "${TMP_BIN}"
+
+            echo "=== Stop → swap → start ${SERVICE} ==="
+            sudo /usr/bin/systemctl stop "${SERVICE}"
+            sudo /usr/bin/install -m 0755 "${TMP_BIN}" "${BIN_PATH}"
+            rm -f "${TMP_BIN}"
+            sudo /usr/bin/systemctl start "${SERVICE}"
+
+            echo "=== Verifying systemd and DNS health ==="
+            for i in $(seq 1 30); do
+              STATUS=$(systemctl is-active "${SERVICE}" 2>/dev/null || true)
+              HTTP_CODE=$(curl --fail --silent --show-error --max-time 10 \
+                --output /tmp/octostore-health \
+                --write-out '%{http_code}' \
+                "${HEALTH_URL}" || echo "000")
+              BODY=$(tr -d '\r\n' < /tmp/octostore-health 2>/dev/null || true)
+              echo "  attempt ${i}: service=${STATUS} health=${HTTP_CODE}/${BODY}"
+              if [ "${STATUS}" = "active" ] && [ "${HTTP_CODE}" = "200" ] && [ "${BODY}" = "OK" ]; then
+                echo "Deploy successful: ${RELEASE_TAG} is live"
+                exit 0
+              fi
+              sleep 2
+            done
+
+            echo "DEPLOY FAILED — service or DNS health did not recover"
+            systemctl status "${SERVICE}" --no-pager || true
+            journalctl -u "${SERVICE}" --no-pager -n 120 || true
+            exit 1

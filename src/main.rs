@@ -331,7 +331,6 @@ async fn main() -> anyhow::Result<()> {
                     "https://octostore.io".parse().unwrap(),
                     "https://www.octostore.io".parse().unwrap(),
                     "http://localhost:3000".parse().unwrap(),
-                    "http://127.0.0.1:3000".parse().unwrap(),
                 ])
                 .allow_methods([
                     axum::http::Method::GET,
