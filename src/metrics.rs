@@ -42,6 +42,28 @@ impl Default for EndpointMetrics {
     }
 }
 
+
+#[derive(Debug, Clone)]
+pub struct InteractionEvent {
+    pub timestamp: u64,
+    pub action: String,
+    pub endpoint: String,
+    pub ok: bool,
+    pub duration_ms: f64,
+}
+
+impl InteractionEvent {
+    fn to_json(&self) -> Value {
+        json!({
+            "timestamp": self.timestamp,
+            "action": self.action,
+            "endpoint": self.endpoint,
+            "ok": self.ok,
+            "duration_ms": format!("{:.1}", self.duration_ms)
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MetricsBucket {
     pub timestamp: u64,  // Unix timestamp in seconds
@@ -281,6 +303,7 @@ pub struct Metrics {
     pub cache_hits: AtomicU64,
     pub cache_misses: AtomicU64,
     pub timeseries: TimeSeriesMetrics,
+    recent_interactions: RwLock<VecDeque<InteractionEvent>>,
 }
 
 impl Default for Metrics {
@@ -300,6 +323,7 @@ impl Default for Metrics {
             cache_hits: AtomicU64::new(0),
             cache_misses: AtomicU64::new(0),
             timeseries: TimeSeriesMetrics::default(),
+            recent_interactions: RwLock::new(VecDeque::with_capacity(100)),
         }
     }
 }
@@ -335,6 +359,48 @@ impl Metrics {
         self.total_requests.fetch_add(1, Ordering::Relaxed);
         self.timeseries.record_request();
         endpoint_metrics.record(duration_ms, is_error);
+        self.record_interaction(endpoint, duration_ms, !is_error);
+    }
+
+    fn record_interaction(&self, endpoint: &str, duration_ms: f64, ok: bool) {
+        let action = match endpoint {
+            "acquire" => "lock acquired",
+            "release" => "lock released",
+            "renew" => "lease renewed",
+            "status" => "lock inspected",
+            "list" => "locks listed",
+            "auth" => "auth request",
+            _ => "request",
+        };
+
+        let event = InteractionEvent {
+            timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            action: action.to_string(),
+            endpoint: endpoint.to_string(),
+            ok,
+            duration_ms,
+        };
+
+        if let Ok(mut interactions) = self.recent_interactions.write() {
+            interactions.push_front(event);
+            while interactions.len() > 100 {
+                interactions.pop_back();
+            }
+        }
+    }
+
+    pub fn recent_interactions(&self, limit: usize) -> Value {
+        let limit = limit.clamp(1, 100);
+        if let Ok(interactions) = self.recent_interactions.read() {
+            let events: Vec<Value> = interactions
+                .iter()
+                .take(limit)
+                .map(InteractionEvent::to_json)
+                .collect();
+            json!(events)
+        } else {
+            json!([])
+        }
     }
     
     pub fn record_lock_operation(&self, operation: &str) {
@@ -402,7 +468,8 @@ impl Metrics {
                 "cache_hits": self.cache_hits.load(Ordering::Relaxed),
                 "cache_misses": self.cache_misses.load(Ordering::Relaxed),
             },
-            "memory_bytes": memory_bytes
+            "memory_bytes": memory_bytes,
+            "recent_interactions": self.recent_interactions(20)
         })
     }
 }

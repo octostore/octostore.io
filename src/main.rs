@@ -312,8 +312,9 @@ async fn main() -> anyhow::Result<()> {
         // Health check
         .route("/health", get(health_check))
         .fallback(api_docs)
-        // Public status endpoint (no auth)
+        // Public status endpoints (no auth)
         .route("/status", get(status_check))
+        .route("/interactions", get(interactions_check))
         // Admin routes
         .route("/admin/status", get(admin_status))
         .route("/admin/metrics/timeseries", get(timeseries_endpoint))
@@ -389,7 +390,23 @@ async fn status_check(State(state): State<AppState>) -> Json<serde_json::Value> 
         "active_locks": active_locks.len(),
         "total_users": users.len(),
         "total_acquires": total_acquires,
-        "total_releases": total_releases
+        "total_releases": total_releases,
+        "recent_interactions": state.metrics.recent_interactions(10)
+    }))
+}
+
+async fn interactions_check(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Json<serde_json::Value> {
+    let limit = params
+        .get("limit")
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(20);
+
+    Json(serde_json::json!({
+        "status": "ok",
+        "interactions": state.metrics.recent_interactions(limit)
     }))
 }
 
