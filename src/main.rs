@@ -366,8 +366,16 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn health_check() -> &'static str {
-    "OK"
+async fn health_check(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let db_size_bytes = std::fs::metadata(&state.config.database_url)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
+
+    Json(serde_json::json!({
+        "status": "ok",
+        "storage": "wal",
+        "db_size_bytes": db_size_bytes,
+    }))
 }
 
 async fn status_check(State(state): State<AppState>) -> Json<serde_json::Value> {
@@ -570,7 +578,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_health_check() {
+    async fn test_health_check_reports_wal_storage_details() {
         let app = create_test_app().await;
 
         let response = app
@@ -588,8 +596,10 @@ mod tests {
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
-        let body_str = std::str::from_utf8(&body).unwrap();
-        assert_eq!(body_str, "OK");
+        let body_json: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body_json["status"], "ok");
+        assert_eq!(body_json["storage"], "wal");
+        assert!(body_json["db_size_bytes"].as_u64().is_some());
     }
 
     #[tokio::test]
