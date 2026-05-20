@@ -21,6 +21,12 @@ use uuid::Uuid;
 /// [`crate::auth::AuthService`] so the process opens only one file handle.
 pub type DbConn = Arc<Mutex<Connection>>;
 
+pub fn configure_sqlite_connection(db: &DbConn) -> Result<()> {
+    let conn = db.lock().unwrap();
+    conn.pragma_update(None, "journal_mode", "WAL")?;
+    Ok(())
+}
+
 /// In-memory lock store backed by SQLite for durability.
 ///
 /// Locks live in a `DashMap` for fast concurrent access. Every mutation is
@@ -79,6 +85,8 @@ impl AcquireLockOptions {
 
 impl LockStore {
     pub fn new(db: DbConn, initial_fencing_token: u64) -> Result<Self> {
+        configure_sqlite_connection(&db)?;
+
         // Create locks table if it doesn't exist
         {
             let conn = db.lock().unwrap();
@@ -703,6 +711,21 @@ mod tests {
 
     fn create_test_store_with_path(db_path: &str) -> LockStore {
         LockStore::new(make_db(db_path), 1).expect("Failed to create store")
+    }
+
+    #[test]
+    fn test_lock_store_enables_wal_mode() {
+        let temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        let db_path = temp_file.path().to_string_lossy().to_string();
+        let db = make_db(&db_path);
+
+        let _store = LockStore::new(db.clone(), 1).expect("Failed to create store");
+
+        let conn = db.lock().unwrap();
+        let mode: String = conn
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .expect("Failed to read journal mode");
+        assert_eq!(mode.to_lowercase(), "wal");
     }
 
     #[tokio::test]
