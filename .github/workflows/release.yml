@@ -30,6 +30,24 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
 
+      - name: Validate release tag matches Cargo.toml
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [[ "$TAG" != v* ]]; then
+            echo "ERROR: expected release tag to start with 'v', got '$TAG'."
+            exit 1
+          fi
+
+          TAG_VERSION="${TAG#v}"
+          CARGO_VERSION="$(python3 -c "import tomllib; print(tomllib.load(open('Cargo.toml', 'rb'))['package']['version'])")"
+
+          if [[ "$TAG_VERSION" != "$CARGO_VERSION" ]]; then
+            echo "ERROR: tag version '$TAG_VERSION' does not match Cargo.toml version '$CARGO_VERSION'."
+            exit 1
+          fi
+
+          echo "Release tag '$TAG' matches Cargo.toml version '$CARGO_VERSION'."
+
       - name: Build
         run: cargo build --release --bin octostore --target ${{ matrix.target }}
 
@@ -63,15 +81,27 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      - name: Patch Cargo.toml version from tag
+      - name: Validate release tag matches Cargo.toml
         run: |
-          VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#v}"
-          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
-          echo "Publishing version: $VERSION"
+          TAG="${GITHUB_REF_NAME}"
+          if [[ "$TAG" != v* ]]; then
+            echo "ERROR: expected release tag to start with 'v', got '$TAG'."
+            exit 1
+          fi
+
+          TAG_VERSION="${TAG#v}"
+          CARGO_VERSION="$(python3 -c "import tomllib; print(tomllib.load(open('Cargo.toml', 'rb'))['package']['version'])")"
+
+          if [[ "$TAG_VERSION" != "$CARGO_VERSION" ]]; then
+            echo "ERROR: tag version '$TAG_VERSION' does not match Cargo.toml version '$CARGO_VERSION'."
+            exit 1
+          fi
+
+          git diff --exit-code
+          echo "Release tag '$TAG' matches Cargo.toml version '$CARGO_VERSION' and tree is clean."
 
       - name: Publish to crates.io
-        run: cargo publish --no-verify --allow-dirty
+        run: cargo publish --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 

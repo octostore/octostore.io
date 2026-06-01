@@ -2,6 +2,13 @@
 
 All notable changes to Octostore will be documented in this file.
 
+## v0.10.2 - 2026-05-31
+
+### Fixed
+
+- Corrected release versioning after v0.10.1 built binaries reported `0.10.0`.
+- Updated the release workflow to verify the tag matches `Cargo.toml` before building and publishing, and to publish from a clean tree.
+
 ## v0.10.1 - 2026-05-31
 
 This release updates the public-facing site and docs to describe Octostore as distributed locking over HTTP, with clearer paths for hosted agents and developers getting started with the lock API.
