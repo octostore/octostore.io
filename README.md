@@ -1,162 +1,198 @@
-# 🐙 OctoStore
+# OctoStore
 
-**Hosted coordination for agent swarms**
+Distributed locks over HTTP.
 
-OctoStore gives distributed workers and agent swarms one owner per job, visible ownership metadata, and automatic recovery when a worker disappears.
+OctoStore is a small coordination service for shared work. Use it when several processes, jobs, or hosted workers can all see the same task but only one should own it at a time.
 
-If multiple agents can run the same skill against the same task, only one of them should do the work.
+The core loop is simple:
 
-That is what OctoStore is for.
+1. acquire a named lock with a TTL
+2. do the protected work if you acquired it
+3. renew the lease while work is still running
+4. release the lock on completion
+5. rely on expiry if the worker disappears
 
-> **Alpha software.** API may change. AI-assisted development. No SLA.
+> Alpha software. APIs and deployment details may change.
 
-## Why it exists
+## What it is good for
 
-Once agents share reusable skills, runtime contention becomes inevitable.
+- deploy serialization
+- singleton cron jobs
+- queue or backlog workers that need a visible owner
+- hosted agents claiming issues, tickets, or evaluation tasks
+- cache rebuilds and migrations that should not overlap
+- simple cross-language coordination from scripts and services
 
-Without a coordination layer, multi-agent systems tend to produce:
-- duplicate work
-- invisible ownership
-- blind retries
-- stuck jobs after worker crashes
+OctoStore is not a scheduler, workflow engine, queue, or DAG system. It is a focused lease service.
 
-OctoStore solves that with simple execution ownership.
+## API model
 
-## The model
+Lock names should be single path segments such as `deploy-main`, `issue-1842`, or `customer-sync-72`.
 
-The stack is straightforward:
+Acquire a lock:
 
-- **Skills** provide capabilities
-- **The marketplace** distributes those capabilities
-- **OctoStore** coordinates execution
+```http
+POST /locks/:name/acquire
+```
 
-In practice, that means:
-- claim a job
-- heartbeat while working
-- inspect the current owner
-- release on completion
-- recover automatically on failure
+Request body:
 
-## Core properties
+```json
+{
+  "ttl_seconds": 60,
+  "metadata": "runner=host-7 job=https://ci.example/runs/1842"
+}
+```
 
-### One owner per job
-Only one worker successfully claims a task.
+`metadata` is optional and is intended for operator-visible context. Keep it small.
 
-### Visible ownership
-Attach metadata so anyone can see who owns a job and what they are doing.
+Acquire responses use two primary statuses:
 
-### Heartbeat while running
-Workers keep claims alive while they are healthy.
+- `acquired` — you own the lease and may proceed
+- `held` — another holder owns the lock; back off, retry later, or inspect status
 
-### Automatic recovery
-If a worker dies, its claim expires and the job becomes available again.
+Renew a lock:
 
-## Example
+```http
+POST /locks/:name/renew
+```
 
-Five agents can all run the same GitHub issue skill on the same issue.
-Only one should own the job.
+Request body:
 
-With OctoStore:
-1. each agent tries to claim the same stable job name
-2. one agent wins
-3. the others can inspect the owner metadata
-4. if the winning worker crashes, the claim expires
-5. another agent can take over
+```json
+{
+  "lease_id": "...",
+  "ttl_seconds": 60
+}
+```
 
-## Quick start
+Renew returns:
 
-### Hosted version
+```json
+{
+  "lease_id": "...",
+  "expires_at": "..."
+}
+```
+
+Release a lock:
+
+```http
+POST /locks/:name/release
+```
+
+Request body:
+
+```json
+{
+  "lease_id": "..."
+}
+```
+
+Release returns:
+
+```json
+null
+```
+
+## Getting started
+
+### 1. Run locally with a static token
 
 ```bash
-# Sign in with GitHub (opens browser)
-open https://api.octostore.io/auth/github
+cargo run
+```
 
-# Acquire a job claim / lock (60s TTL)
-curl -X POST https://api.octostore.io/locks/my-service/acquire \
-  -H "Authorization: Bearer YOUR_TOKEN" \
+For local development, configure a static bearer token:
+
+```bash
+export STATIC_TOKENS='alice:devtoken'
+cargo run
+```
+
+Then use:
+
+```bash
+export OCTOSTORE_TOKEN='devtoken'
+```
+
+### 2. Acquire a lock
+
+```bash
+curl -X POST http://localhost:3000/locks/deploy-main/acquire \
+  -H "Authorization: Bearer ***" \
   -H "Content-Type: application/json" \
-  -d '{"ttl_seconds": 60}'
-
-# Response:
-# {"status":"acquired","lease_id":"...","fencing_token":1,"expires_at":"..."}
+  -d '{"ttl_seconds":60,"metadata":"local smoke test"}'
 ```
 
-### Self-host
+If the response contains `"status":"acquired"`, this process owns the lease until `expires_at`.
+
+If the response contains `"status":"held"`, another holder owns the lock. Do not run the protected work.
+
+### 3. Renew while work continues
 
 ```bash
-# Build from source
+curl -X POST http://localhost:3000/locks/deploy-main/renew \
+  -H "Authorization: Bearer ***" \
+  -H "Content-Type: application/json" \
+  -d '{"lease_id":"YOUR_LEASE_ID","ttl_seconds":60}'
+```
+
+The response contains the same `lease_id` and the new `expires_at` timestamp.
+
+### 4. Release when done
+
+```bash
+curl -X POST http://localhost:3000/locks/deploy-main/release \
+  -H "Authorization: Bearer ***" \
+  -H "Content-Type: application/json" \
+  -d '{"lease_id":"YOUR_LEASE_ID"}'
+```
+
+A successful release returns `null`.
+
+### 5. Inspect lock status
+
+```bash
+curl http://localhost:3000/locks/deploy-main \
+  -H "Authorization: Bearer ***"
+```
+
+Use status and metadata to understand who owns the work and when the lease expires.
+
+## Hosted API
+
+The hosted API is available at:
+
+```text
+https://api.octostore.io
+```
+
+Interactive docs are published at:
+
+```text
+https://octostore.io/docs/
+```
+
+The website and docs source live at:
+
+```text
+https://github.com/octostore/octostore.io
+```
+
+## Development
+
+```bash
+cargo test
 cargo build --release
-
-# Configure (needs GitHub OAuth app credentials)
-export GITHUB_CLIENT_ID=...
-export GITHUB_CLIENT_SECRET=...
-
-# Run
-./target/release/octostore
 ```
 
-## API
+Useful files:
 
-All lock endpoints require `Authorization: Bearer <token>`.
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/auth/github` | Start GitHub OAuth flow |
-| `POST` | `/auth/token/rotate` | Rotate bearer token |
-| `POST` | `/locks/{name}/acquire` | Acquire a lock / job claim |
-| `POST` | `/locks/{name}/release` | Release a lock |
-| `POST` | `/locks/{name}/renew` | Extend lock TTL |
-| `GET` | `/locks/{name}` | Check current owner / lock status |
-| `GET` | `/locks` | List your locks |
-| `GET` | `/docs` | Interactive API docs |
-| `GET` | `/health` | Health check + storage details |
-
-## Fencing tokens
-
-Every acquire returns a fencing token — a monotonically increasing integer.
-Use it to guard writes against stale lock holders:
-
-```sql
-UPDATE state SET data = ?, fence = ? WHERE fence < ?
-```
-
-This is what makes the locking actually safe, unlike Redlock.
-
-## Good fit
-
-OctoStore works well for:
-- agent swarms
-- coding agents claiming issues or PR tasks
-- CI/CD deploy serialization
-- background workers on shared queues
-- human-plus-agent workflows with inspectable ownership
-
-## Constraints
-
-- **100 locks** per user
-- **1 hour** max TTL (auto-expires)
-- Lock names: `[a-zA-Z0-9.-]`, max 128 chars
-- Metadata: max 1 KB per lock
-
-## Architecture
-
-- **Rust** — Axum + Tokio
-- **DashMap** — concurrent in-memory lock storage
-- **SQLite** — user accounts, fencing counter, lock persistence
-- **GitHub OAuth** — authentication
-
-Single process. Locks live in memory for speed, replayed from SQLite on restart.
-
-## Testing & Quality
-
-```bash
-cargo test                           # Run all unit + integration tests
-cargo bench                          # Run criterion benchmarks
-cargo tarpaulin --skip-clean         # Generate coverage report
-cargo +nightly fuzz run fuzz_lock_name  # Run fuzz testing
-```
-
-See `BENCHMARKS.md` for detailed performance results and system specifications.
+- `src/models.rs` — request and response types
+- `src/store.rs` — lock storage and lease logic
+- `openapi.yaml` — API reference source
+- `site/` — static website
 
 ## License
 
