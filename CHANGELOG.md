@@ -2,6 +2,18 @@
 
 All notable changes to Octostore will be documented in this file.
 
+## v0.11.0 - 2026-05-31
+
+This release frames Octostore's public site and documentation around distributed locking over HTTP, with clearer guidance for hosted agents, developers, and release automation.
+
+### Changed
+
+- Reframed the website around distributed locking over HTTP.
+- Added an agents use-case page for hosted agent coordination.
+- Added a blog post explaining distributed locking for hosted agents.
+- Refreshed the README and getting-started documentation with current lock API examples.
+- Hardened the release workflow after v0.10.2 by verifying release tags match `Cargo.toml` and publishing from a clean tree.
+
 ## v0.10.2 - 2026-05-31
 
 ### Fixed
