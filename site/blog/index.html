@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OctoStore Blog</title>
+  <meta name="description" content="OctoStore notes on distributed locking, leases, and coordination for hosted workers." />
+  <style>
+    :root{--bg:#0b0d10;--panel:#11151b;--text:#f4f7fb;--muted:#9aa7b7;--line:rgba(255,255,255,.1);--accent:#78d4ff}*{box-sizing:border-box}body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0b0d10;color:var(--text);line-height:1.65}a{color:inherit;text-decoration:none}.wrap{width:min(900px,calc(100% - 40px));margin:0 auto}nav{display:flex;justify-content:space-between;gap:18px;align-items:center;padding:22px 0;border-bottom:1px solid var(--line)}.brand{font-weight:800}.links{display:flex;gap:8px;flex-wrap:wrap}.links a{color:var(--muted);padding:8px 11px;border-radius:9px}.links a:hover,.links .active{color:var(--text);background:rgba(255,255,255,.055)}header{padding:72px 0 34px}.eyebrow{color:var(--accent);text-transform:uppercase;letter-spacing:.12em;font-weight:750;font-size:.9rem}h1{font-size:clamp(2.6rem,6vw,5rem);line-height:.96;letter-spacing:-.06em;margin:14px 0 16px}.lede{color:#c6d0dc;max-width:680px;font-size:1.15rem}.post{display:block;background:rgba(17,21,27,.78);border:1px solid var(--line);border-radius:18px;padding:24px;margin:22px 0}.post:hover{border-color:rgba(120,212,255,.35)}.post h2{margin:0 0 8px}.meta{color:var(--muted);font-size:.94rem;margin-bottom:12px}.post p{color:var(--muted);margin:0}footer{margin-top:54px;padding:28px 0 44px;border-top:1px solid var(--line);color:var(--muted)}@media(max-width:760px){nav{align-items:flex-start;flex-direction:column}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav>
+      <a class="brand" href="../index.html">🐙 OctoStore</a>
+      <div class="links"><a href="../index.html">Home</a><a href="../docs/">Docs</a><a href="../agents/">Agents</a><a class="active" href="index.html">Blog</a><a href="https://github.com/octostore/octostore.io">GitHub</a></div>
+    </nav>
+    <header>
+      <div class="eyebrow">Blog</div>
+      <h1>Notes on coordination.</h1>
+      <p class="lede">Short, practical writing about locks, leases, failure recovery, and shared work ownership.</p>
+    </header>
+    <main>
+      <a class="post" href="distributed-locking-for-hosted-agents.html">
+        <div class="meta">Hosted agents · Distributed locks</div>
+        <h2>Distributed locking for hosted agents</h2>
+        <p>Hosted workers make duplicate task execution easy. A small HTTP lease gives each task one visible owner and a recovery path when the worker disappears.</p>
+      </a>
+    </main>
+    <footer>OctoStore — distributed locks over HTTP.</footer>
+  </div>
+</body>
+</html>
