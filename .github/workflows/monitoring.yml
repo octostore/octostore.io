@@ -72,9 +72,11 @@ jobs:
           CODE=$(awk '{print $1}' <<<"$TIMING")
           TIME_S=$(awk '{print $2}' <<<"$TIMING")
           BODY=$(tr -d '\r\n' < "$BODY_FILE")
+          STATUS=$(jq -r '.status // empty' "$BODY_FILE" 2>/dev/null || true)
           MS=$(awk "BEGIN{printf \"%d\", $TIME_S * 1000}")
           echo "code=$CODE"      >> "$GITHUB_OUTPUT"
           echo "body=$BODY"      >> "$GITHUB_OUTPUT"
+          echo "status=$STATUS"  >> "$GITHUB_OUTPUT"
           echo "response_ms=$MS" >> "$GITHUB_OUTPUT"
 
       - name: Check unauthenticated /locks returns 401
@@ -152,7 +154,9 @@ jobs:
         run: |
           status="ok"
           [[ "${{ steps.health.outputs.code }}" != "200" ]] && status="fail"
-          [[ "${{ steps.health.outputs.body }}" != "OK"  ]] && status="fail"
+          if [[ "${{ steps.health.outputs.body }}" != "OK" && "${{ steps.health.outputs.status }}" != "ok" ]]; then
+            status="fail"
+          fi
           [[ "${{ steps.locks.outputs.code }}"  != "401" ]] && status="fail"
           [[ "${{ steps.version.outputs.value }}" == "none" ]] && status="fail"
           [[ "${{ steps.site.outputs.code }}" != "200" ]] && status="fail"
