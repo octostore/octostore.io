@@ -2,6 +2,12 @@
 
 All notable changes to Octostore will be documented in this file.
 
+## v0.13.1 - 2026-07-18
+
+### Fixed
+
+- Restore authenticated lock acquisition for static-token and local users without a namespace. Namespace checks now treat a SQL `NULL` as the intended unrestricted namespace instead of returning `500 Internal Server Error`.
+
 ## v0.13.0 - 2026-07-18
 
 OctoStore now leads with its smallest useful promise: elect one leader from any process in two HTTP calls, without an account, API key, SDK, or cluster to operate. Agent fleets and self-hosted task coordination remain dedicated paths rather than prerequisites.
