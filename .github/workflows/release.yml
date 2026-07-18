@@ -15,6 +15,9 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             name: octostore-linux-amd64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            name: octostore-linux-arm64
           - target: x86_64-apple-darwin
             os: macos-latest
             name: octostore-macos-amd64
@@ -49,7 +52,7 @@ jobs:
           echo "Release tag '$TAG' matches Cargo.toml version '$CARGO_VERSION'."
 
       - name: Build
-        run: cargo build --release --bin octostore --target ${{ matrix.target }}
+        run: cargo build --release --locked --bin octostore --target ${{ matrix.target }}
 
       - name: Rename binary
         run: cp target/${{ matrix.target }}/release/octostore ${{ matrix.name }}
@@ -67,10 +70,15 @@ jobs:
         with:
           merge-multiple: true
 
+      - name: Generate release checksums
+        run: sha256sum octostore-* > SHA256SUMS
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: octostore-*
+          files: |
+            octostore-*
+            SHA256SUMS
           generate_release_notes: true
 
   publish:
@@ -106,9 +114,14 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
   deploy:
-    needs: release
+    needs: [release, publish]
     runs-on: ubuntu-latest
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
     steps:
+      - uses: actions/checkout@v5
+
       - name: Refuse pre-release tags
         run: |
           TAG="${{ github.ref_name }}"
@@ -127,6 +140,7 @@ jobs:
 
       - name: Deploy to production
         run: |
+          RELEASE_TAG="${{ github.ref_name }}"
           ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes \
             daaronch@${{ secrets.DEPLOY_HOST }} \
-            bash /opt/octostore-lock/deploy/deploy.sh ${{ github.ref_name }}
+            bash -s -- "$RELEASE_TAG" < deploy/deploy.sh

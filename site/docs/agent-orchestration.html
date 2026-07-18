@@ -1,25 +1,32 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>OctoStore agent guide</title>
-  <meta name="description" content="OctoStore guide for using HTTP leases to coordinate hosted agents." />
-  <style>
-    body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0b0d10;color:#f4f7fb;line-height:1.65}a{color:#78d4ff;text-decoration:none}.wrap{width:min(860px,calc(100% - 40px));margin:0 auto}nav{display:flex;justify-content:space-between;gap:16px;align-items:center;padding:22px 0;border-bottom:1px solid rgba(255,255,255,.1)}.brand{color:#f4f7fb;font-weight:800}.links{display:flex;gap:12px;flex-wrap:wrap}.links a{color:#9aa7b7}main{padding:72px 0}h1{font-size:clamp(2.4rem,6vw,4.5rem);line-height:1;letter-spacing:-.06em;margin:0 0 18px}p{color:#c6d0dc;font-size:1.1rem}.button{display:inline-flex;margin-top:14px;padding:12px 15px;border-radius:12px;background:#f4f7fb;color:#081018;font-weight:800}.panel{margin-top:30px;padding:22px;border:1px solid rgba(255,255,255,.1);border-radius:18px;background:rgba(17,21,27,.78)}code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;color:#e0f2fe}@media(max-width:760px){nav{align-items:flex-start;flex-direction:column}}
-  </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OctoStore agent orchestration guide</title>
+  <meta name="description" content="Route to OctoStore's current agent orchestration and leader election guides.">
+  <meta name="theme-color" content="#171224">
+  <link rel="canonical" href="https://octostore.io/agents/">
+  <link rel="stylesheet" href="/assets/site.css">
 </head>
 <body>
+  <a class="skip-link" href="#main">Skip to content</a>
   <div class="wrap">
-    <nav><a class="brand" href="../index.html">🐙 OctoStore</a><div class="links"><a href="../index.html">Home</a><a href="index.html">Docs</a><a href="../agents/">Agents</a><a href="../blog/">Blog</a></div></nav>
-    <main>
-      <h1>Agent coordination moved to a dedicated guide.</h1>
-      <p>OctoStore is first a distributed lock service over HTTP. The agent guide shows how to apply the same lease primitive to hosted workers: stable task names, <code>metadata</code> for visibility, renewal while work runs, and expiry for crash recovery.</p>
-      <a class="button" href="../agents/">Read the agents guide</a>
-      <div class="panel">
-        <p>For endpoint details, use the <a href="index.html">API docs</a>. For the deeper hosted-agent discussion, read <a href="../blog/distributed-locking-for-hosted-agents.html">Distributed locking for hosted agents</a>.</p>
-      </div>
-    </main>
+    <nav class="site-nav" aria-label="Primary navigation">
+      <a class="brand" href="/"><span class="brand-signal" aria-hidden="true"></span>OctoStore</a>
+      <div class="nav-links"><a href="/agents/" aria-current="page">Agents</a><a href="/docs/">Docs</a><a href="/blog/">Blog</a><a class="nav-cta" href="/#live-race">Try it live</a></div>
+    </nav>
   </div>
+  <main id="main" class="reading-wrap">
+    <header class="page-header">
+      <div class="signal-label">Guide moved</div>
+      <h1>Agent orchestration now has two paths.</h1>
+      <p class="lede">Use durable task locks when agents need authenticated ownership. Use account-free leader election when a fleet needs one current coordinator across the public internet.</p>
+      <div class="button-row">
+        <a class="button primary" href="/agents/">Open the agent guide</a>
+        <a class="button" href="/docs/#leader-election">Read the election API</a>
+      </div>
+    </header>
+  </main>
 </body>
 </html>

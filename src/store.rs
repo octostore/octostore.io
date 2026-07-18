@@ -37,6 +37,8 @@ pub struct LockStore {
     locks: Arc<DashMap<String, Lock>>,
     fencing_counter: Arc<AtomicU64>,
     db: DbConn,
+    /// Serializes admission checks that depend on an active-lock count.
+    admission_guard: Arc<Mutex<()>>,
     /// Registry of broadcast channels for lock status watchers.
     watch_channels: Arc<DashMap<String, broadcast::Sender<LockEvent>>>,
     /// Tracks locks in their grace/cooldown period after release or expiry.
@@ -52,6 +54,12 @@ pub struct AcquireLockOptions {
     pub session_id: Option<Uuid>,
     pub ephemeral: bool,
     pub lock_delay_seconds: u32,
+}
+
+#[derive(Debug, Clone)]
+pub enum AcquireLockOutcome {
+    Acquired(Lock),
+    Held(Lock),
 }
 
 impl AcquireLockOptions {
@@ -87,7 +95,10 @@ impl LockStore {
     pub fn new(db: DbConn, initial_fencing_token: u64) -> Result<Self> {
         configure_sqlite_connection(&db)?;
 
-        // Create locks table if it doesn't exist
+        // Create the lock and fencing tables if they do not exist. LockStore
+        // owns fencing-token durability because every successful acquisition
+        // must reserve its token before it is returned to a client.
+        let persisted_fencing_token;
         {
             let conn = db.lock().unwrap();
             conn.execute(
@@ -133,6 +144,25 @@ impl LockStore {
                     [],
                 )?;
             }
+
+            conn.execute(
+                r#"
+                CREATE TABLE IF NOT EXISTS fencing_counter (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    counter INTEGER NOT NULL DEFAULT 1
+                )
+                "#,
+                [],
+            )?;
+            conn.execute(
+                "INSERT OR IGNORE INTO fencing_counter (id, counter) VALUES (1, 1)",
+                [],
+            )?;
+            persisted_fencing_token = conn.query_row(
+                "SELECT counter FROM fencing_counter WHERE id = 1",
+                [],
+                |row| row.get::<_, u64>(0),
+            )?;
         }
 
         info!("Locks table initialized");
@@ -140,8 +170,11 @@ impl LockStore {
         // Create the store instance
         let store = Self {
             locks: Arc::new(DashMap::new()),
-            fencing_counter: Arc::new(AtomicU64::new(initial_fencing_token)),
+            fencing_counter: Arc::new(AtomicU64::new(
+                initial_fencing_token.max(persisted_fencing_token).max(1),
+            )),
             db,
+            admission_guard: Arc::new(Mutex::new(())),
             watch_channels: Arc::new(DashMap::new()),
             cooling_locks: Arc::new(DashMap::new()),
             webhook_store: Arc::new(OnceLock::new()),
@@ -276,11 +309,42 @@ impl LockStore {
             self.fencing_counter.load(Ordering::SeqCst),
         );
         self.fencing_counter.store(new_counter, Ordering::SeqCst);
+        self.persist_fencing_counter(new_counter)?;
 
         info!(
             "Updated fencing counter to {} based on existing locks",
             new_counter
         );
+        Ok(())
+    }
+
+    fn next_fencing_token(&self) -> Result<u64> {
+        let token = self
+            .fencing_counter
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
+                current.checked_add(1)
+            })
+            .map_err(|_| {
+                crate::error::AppError::Internal(anyhow::anyhow!("fencing token space exhausted"))
+            })?;
+
+        // MAX prevents a slower concurrent acquisition from overwriting a
+        // newer persisted value. The stored counter is always the next term.
+        self.persist_fencing_counter(token + 1)?;
+        Ok(token)
+    }
+
+    fn persist_fencing_counter(&self, counter: u64) -> Result<()> {
+        let counter = i64::try_from(counter).map_err(|_| {
+            crate::error::AppError::Internal(anyhow::anyhow!(
+                "fencing token exceeds SQLite integer range"
+            ))
+        })?;
+        let db = self.db.lock().unwrap();
+        db.execute(
+            "UPDATE fencing_counter SET counter = MAX(counter, ?) WHERE id = 1",
+            params![counter],
+        )?;
         Ok(())
     }
 
@@ -319,34 +383,47 @@ impl LockStore {
         }
 
         for lock_name in expired_locks {
-            if let Some((_, lock)) = self.locks.remove(&lock_name) {
-                // Start cooling period if lock has a delay
-                if lock.lock_delay_seconds > 0 {
-                    let available_at =
-                        now + chrono::Duration::seconds(lock.lock_delay_seconds as i64);
-                    self.cooling_locks
-                        .insert(lock_name.clone(), (available_at, lock.lock_delay_seconds));
-                }
-
-                debug!("Expired lock: {} (holder: {})", lock_name, lock.holder_id);
-
-                // Broadcast expiration event
-                self.broadcast_event(LockEvent {
-                    event: LockEventType::Expired,
-                    lock_name: lock_name.clone(),
-                    lock: None, // Lock is gone
-                    timestamp: now,
-                });
-
-                // Also remove from database
-                if let Err(e) = self.delete_lock_from_database(&lock_name) {
-                    warn!(
-                        "Failed to delete expired lock {} from database: {}",
-                        lock_name, e
-                    );
-                }
-            }
+            self.cleanup_expired_lock(&lock_name, &now);
         }
+    }
+
+    fn cleanup_expired_lock(&self, lock_name: &str, now: &DateTime<Utc>) {
+        let dashmap::mapref::entry::Entry::Occupied(entry) =
+            self.locks.entry(lock_name.to_string())
+        else {
+            return;
+        };
+
+        // The name may have been reacquired after the expiry scan. Re-check
+        // under the per-entry write lock and keep that lock until SQLite has
+        // deleted the same lease, so cleanup cannot delete a newer row.
+        if entry.get().expires_at > *now {
+            return;
+        }
+        if let Err(error) = self.delete_lock_from_database(lock_name) {
+            warn!(
+                "Failed to delete expired lock {} from database: {}",
+                lock_name, error
+            );
+            return;
+        }
+
+        let lock = entry.remove();
+        if lock.lock_delay_seconds > 0 {
+            let available_at = *now + chrono::Duration::seconds(lock.lock_delay_seconds as i64);
+            self.cooling_locks.insert(
+                lock_name.to_string(),
+                (available_at, lock.lock_delay_seconds),
+            );
+        }
+
+        debug!("Expired lock: {} (holder: {})", lock_name, lock.holder_id);
+        self.broadcast_event(LockEvent {
+            event: LockEventType::Expired,
+            lock_name: lock_name.to_string(),
+            lock: None,
+            timestamp: *now,
+        });
     }
 
     /// Sets the webhook store for dispatching lock events to registered webhooks.
@@ -384,6 +461,20 @@ impl LockStore {
         holder_id: Uuid,
         options: AcquireLockOptions,
     ) -> Result<(Uuid, u64, DateTime<Utc>)> {
+        match self.acquire_lock_outcome(name, holder_id, options)? {
+            AcquireLockOutcome::Acquired(lock) => {
+                Ok((lock.lease_id, lock.fencing_token, lock.expires_at))
+            }
+            AcquireLockOutcome::Held(_) => Err(crate::error::AppError::LockHeld),
+        }
+    }
+
+    fn acquire_lock_outcome(
+        &self,
+        name: String,
+        holder_id: Uuid,
+        options: AcquireLockOptions,
+    ) -> Result<AcquireLockOutcome> {
         let AcquireLockOptions {
             ttl_seconds,
             metadata,
@@ -394,12 +485,11 @@ impl LockStore {
 
         let now = Utc::now();
         let expires_at = now + chrono::Duration::seconds(ttl_seconds as i64);
-        let lease_id = Uuid::new_v4();
-        let fencing_token = self.fencing_counter.fetch_add(1, Ordering::SeqCst);
-
         // Try to insert if not present, or update if held by same user
         match self.locks.entry(name.clone()) {
             dashmap::mapref::entry::Entry::Vacant(entry) => {
+                let lease_id = Uuid::new_v4();
+                let fencing_token = self.next_fencing_token()?;
                 let lock = Lock {
                     name: name.clone(),
                     holder_id,
@@ -412,28 +502,26 @@ impl LockStore {
                     ephemeral,
                     lock_delay_seconds,
                 };
+                self.save_lock_to_database(&lock)?;
                 entry.insert(lock.clone());
-
-                // Persist to database
-                if let Err(e) = self.save_lock_to_database(&lock) {
-                    warn!("Failed to save lock {} to database: {}", name, e);
-                }
 
                 // Broadcast acquisition
                 self.broadcast_event(LockEvent {
                     event: LockEventType::Acquired,
                     lock_name: name.clone(),
-                    lock: Some(lock),
+                    lock: Some(lock.clone()),
                     timestamp: now,
                 });
 
-                Ok((lease_id, fencing_token, expires_at))
+                Ok(AcquireLockOutcome::Acquired(lock))
             }
             dashmap::mapref::entry::Entry::Occupied(mut entry) => {
                 let existing_lock = entry.get();
 
                 // If expired, replace it
                 if existing_lock.is_expired() {
+                    let lease_id = Uuid::new_v4();
+                    let fencing_token = self.next_fencing_token()?;
                     let lock = Lock {
                         name: name.clone(),
                         holder_id,
@@ -446,45 +534,74 @@ impl LockStore {
                         ephemeral,
                         lock_delay_seconds,
                     };
+                    self.save_lock_to_database(&lock)?;
                     entry.insert(lock.clone());
-
-                    // Persist to database
-                    if let Err(e) = self.save_lock_to_database(&lock) {
-                        warn!("Failed to save lock {} to database: {}", name, e);
-                    }
 
                     // Broadcast new acquisition
                     self.broadcast_event(LockEvent {
                         event: LockEventType::Acquired,
                         lock_name: name.clone(),
-                        lock: Some(lock),
+                        lock: Some(lock.clone()),
                         timestamp: now,
                     });
 
-                    Ok((lease_id, fencing_token, expires_at))
+                    Ok(AcquireLockOutcome::Acquired(lock))
                 }
                 // If held by same user, return existing lease info (idempotent)
                 else if existing_lock.holder_id == holder_id {
-                    Ok((
-                        existing_lock.lease_id,
-                        existing_lock.fencing_token,
-                        existing_lock.expires_at,
-                    ))
+                    Ok(AcquireLockOutcome::Acquired(existing_lock.clone()))
                 }
                 // Otherwise, lock is held by someone else
                 else {
-                    Err(crate::error::AppError::LockHeld)
+                    Ok(AcquireLockOutcome::Held(existing_lock.clone()))
                 }
             }
         }
     }
 
+    /// Acquires a lock while enforcing a strict active-lock limit for a
+    /// namespace. The count and acquisition share one admission guard, so
+    /// concurrent first campaigns cannot both pass the limit check.
+    pub fn acquire_lock_with_prefix_limit(
+        &self,
+        name: String,
+        holder_id: Uuid,
+        options: AcquireLockOptions,
+        prefix: &str,
+        max_active: usize,
+    ) -> Result<AcquireLockOutcome> {
+        debug_assert!(name.starts_with(prefix));
+        let _admission = self.admission_guard.lock().unwrap();
+        let target_is_active = self.locks.get(&name).is_some_and(|lock| !lock.is_expired());
+
+        if !target_is_active {
+            let active = self
+                .locks
+                .iter()
+                .filter(|entry| entry.key().starts_with(prefix) && !entry.value().is_expired())
+                .count();
+            if active >= max_active {
+                return Err(crate::error::AppError::Conflict(
+                    "Public election capacity reached; retry later or self-host OctoStore"
+                        .to_string(),
+                ));
+            }
+        }
+
+        self.acquire_lock_outcome(name, holder_id, options)
+    }
+
     pub fn release_lock(&self, name: &str, lease_id: Uuid, holder_id: Uuid) -> Result<()> {
-        match self.locks.get(name) {
-            Some(lock) if lock.holder_id == holder_id && lock.lease_id == lease_id => {
-                let lock_delay = lock.lock_delay_seconds;
-                drop(lock); // Release the reference before removing
-                self.locks.remove(name);
+        match self.locks.entry(name.to_string()) {
+            dashmap::mapref::entry::Entry::Occupied(entry)
+                if entry.get().holder_id == holder_id && entry.get().lease_id == lease_id =>
+            {
+                let lock_delay = entry.get().lock_delay_seconds;
+
+                // Durability is part of the API contract. Do not remove the
+                // in-memory lease or report success until SQLite accepted it.
+                self.delete_lock_from_database(name)?;
+                entry.remove();
 
                 // Start cooling period if lock has a delay
                 if lock_delay > 0 {
@@ -501,15 +618,12 @@ impl LockStore {
                     timestamp: Utc::now(),
                 });
 
-                // Also remove from database
-                if let Err(e) = self.delete_lock_from_database(name) {
-                    warn!("Failed to delete lock {} from database: {}", name, e);
-                }
-
                 Ok(())
             }
-            Some(_) => Err(crate::error::AppError::InvalidLeaseId),
-            None => Err(crate::error::AppError::LockNotFound {
+            dashmap::mapref::entry::Entry::Occupied(_) => {
+                Err(crate::error::AppError::InvalidLeaseId)
+            }
+            dashmap::mapref::entry::Entry::Vacant(_) => Err(crate::error::AppError::LockNotFound {
                 name: name.to_string(),
             }),
         }
@@ -521,17 +635,23 @@ impl LockStore {
         lease_id: Uuid,
         holder_id: Uuid,
         ttl_seconds: u32,
-    ) -> Result<DateTime<Utc>> {
+    ) -> Result<Lock> {
         match self.locks.get_mut(name) {
             Some(mut lock) if lock.holder_id == holder_id && lock.lease_id == lease_id => {
                 let now = Utc::now();
-                let new_expires_at = now + chrono::Duration::seconds(ttl_seconds as i64);
-                lock.expires_at = new_expires_at;
-
-                // Update database with new expiry time
-                if let Err(e) = self.save_lock_to_database(&lock.clone()) {
-                    warn!("Failed to update lock {} in database: {}", name, e);
+                if lock.expires_at <= now {
+                    return Err(crate::error::AppError::LockNotFound {
+                        name: name.to_string(),
+                    });
                 }
+                let new_expires_at = now + chrono::Duration::seconds(ttl_seconds as i64);
+                let mut renewed_lock = lock.clone();
+                renewed_lock.expires_at = new_expires_at;
+
+                // Persist first so a successful response can never describe a
+                // renewal that would disappear after a process restart.
+                self.save_lock_to_database(&renewed_lock)?;
+                *lock = renewed_lock;
 
                 // Broadcast renewal
                 self.broadcast_event(LockEvent {
@@ -541,7 +661,7 @@ impl LockStore {
                     timestamp: now,
                 });
 
-                Ok(new_expires_at)
+                Ok(lock.clone())
             }
             Some(_) => Err(crate::error::AppError::InvalidLeaseId),
             None => Err(crate::error::AppError::LockNotFound {
@@ -614,30 +734,42 @@ impl LockStore {
             .collect();
 
         for lock_name in to_remove {
-            if let Some((_, lock)) = self.locks.remove(&lock_name) {
-                if lock.lock_delay_seconds > 0 {
-                    let available_at =
-                        Utc::now() + chrono::Duration::seconds(lock.lock_delay_seconds as i64);
-                    self.cooling_locks
-                        .insert(lock_name.clone(), (available_at, lock.lock_delay_seconds));
-                }
-                debug!(
-                    "Released lock {} (session {} expired)",
-                    lock_name, session_id
-                );
-                self.broadcast_event(LockEvent {
-                    event: LockEventType::Released,
-                    lock_name: lock_name.clone(),
-                    lock: None,
-                    timestamp: Utc::now(),
-                });
-                if let Err(e) = self.delete_lock_from_database(&lock_name) {
-                    warn!(
-                        "Failed to delete session lock {} from database: {}",
-                        lock_name, e
-                    );
-                }
+            let dashmap::mapref::entry::Entry::Occupied(entry) =
+                self.locks.entry(lock_name.clone())
+            else {
+                continue;
+            };
+            if entry.get().session_id != Some(session_id) {
+                continue;
             }
+
+            // Keep the entry locked until SQLite accepts the delete. A new
+            // lease with the same name cannot be persisted and then erased by
+            // this session cleanup.
+            if let Err(error) = self.delete_lock_from_database(&lock_name) {
+                warn!(
+                    "Failed to delete session lock {} from database: {}",
+                    lock_name, error
+                );
+                continue;
+            }
+            let lock = entry.remove();
+            if lock.lock_delay_seconds > 0 {
+                let available_at =
+                    Utc::now() + chrono::Duration::seconds(lock.lock_delay_seconds as i64);
+                self.cooling_locks
+                    .insert(lock_name.clone(), (available_at, lock.lock_delay_seconds));
+            }
+            debug!(
+                "Released lock {} (session {} expired)",
+                lock_name, session_id
+            );
+            self.broadcast_event(LockEvent {
+                event: LockEventType::Released,
+                lock_name,
+                lock: None,
+                timestamp: Utc::now(),
+            });
         }
     }
 
@@ -691,7 +823,7 @@ impl LockStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
+    use std::sync::{Arc, Barrier};
     use std::thread;
     use std::time::Duration;
     use tempfile::NamedTempFile;
@@ -861,6 +993,151 @@ mod tests {
                 store2.acquire_lock(lock_name.clone(), holder_id, AcquireLockOptions::new(300));
             assert!(result.is_ok());
         }
+    }
+
+    #[test]
+    fn test_expired_lock_cannot_be_renewed() {
+        let (store, _temp_file) = create_test_store();
+        let holder_id = Uuid::new_v4();
+        let lock_name = "expired-renewal".to_string();
+        let (lease_id, _, _) = store
+            .acquire_lock(lock_name.clone(), holder_id, AcquireLockOptions::new(0))
+            .expect("initial acquire should succeed");
+
+        let result = store.renew_lock(&lock_name, lease_id, holder_id, 30);
+        assert!(matches!(
+            result,
+            Err(crate::error::AppError::LockNotFound { .. })
+        ));
+    }
+
+    #[test]
+    fn test_stale_expiry_scan_cannot_delete_reacquired_lock() {
+        let temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        let db_path = temp_file.path().to_string_lossy().to_string();
+        let store = create_test_store_with_path(&db_path);
+        let lock_name = "expiry-race".to_string();
+
+        store
+            .acquire_lock(
+                lock_name.clone(),
+                Uuid::new_v4(),
+                AcquireLockOptions::new(0),
+            )
+            .expect("expired seed lock should be persisted");
+        let stale_scan_time = Utc::now();
+
+        let replacement_holder = Uuid::new_v4();
+        let (replacement_lease, replacement_term, _) = store
+            .acquire_lock(
+                lock_name.clone(),
+                replacement_holder,
+                AcquireLockOptions::new(300),
+            )
+            .expect("expired lock should be replaceable");
+
+        // Simulate cleanup acting on the name collected by its earlier scan.
+        store.cleanup_expired_lock(&lock_name, &stale_scan_time);
+        let current = store
+            .get_lock(&lock_name)
+            .expect("replacement must remain in memory");
+        assert_eq!(current.lease_id, replacement_lease);
+
+        drop(store);
+        let restored = create_test_store_with_path(&db_path)
+            .get_lock(&lock_name)
+            .expect("replacement must remain durable across restart");
+        assert_eq!(restored.lease_id, replacement_lease);
+        assert_eq!(restored.fencing_token, replacement_term);
+    }
+
+    #[test]
+    fn test_prefix_limit_is_strict_under_concurrent_acquisition() {
+        let (store, _temp_file) = create_test_store();
+        let store = Arc::new(store);
+        let barrier = Arc::new(Barrier::new(16));
+        let mut handles = Vec::new();
+
+        for index in 0..16 {
+            let store = Arc::clone(&store);
+            let barrier = Arc::clone(&barrier);
+            handles.push(thread::spawn(move || {
+                barrier.wait();
+                store.acquire_lock_with_prefix_limit(
+                    format!("__election/room-{index}"),
+                    Uuid::new_v4(),
+                    AcquireLockOptions::new(30),
+                    "__election/",
+                    1,
+                )
+            }));
+        }
+
+        let results: Vec<_> = handles
+            .into_iter()
+            .map(|handle| handle.join().expect("campaign thread panicked"))
+            .collect();
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(
+            results
+                .iter()
+                .filter(|result| matches!(result, Err(crate::error::AppError::Conflict(_))))
+                .count(),
+            15
+        );
+    }
+
+    #[test]
+    fn test_prefix_acquisition_returns_an_atomic_leader_snapshot() {
+        let (store, _temp_file) = create_test_store();
+        let lock_name = "__election/snapshot-room".to_string();
+        let leader_id = Uuid::new_v4();
+        let (leader_lease, _, _) = store
+            .acquire_lock(
+                lock_name.clone(),
+                leader_id,
+                AcquireLockOptions::new(30).with_metadata(Some("leader".to_string())),
+            )
+            .expect("leader should acquire the room");
+
+        let outcome = store
+            .acquire_lock_with_prefix_limit(
+                lock_name.clone(),
+                Uuid::new_v4(),
+                AcquireLockOptions::new(30),
+                "__election/",
+                1,
+            )
+            .expect("follower should observe the current leader");
+        let AcquireLockOutcome::Held(snapshot) = outcome else {
+            panic!("contender should receive a held snapshot");
+        };
+
+        store
+            .release_lock(&lock_name, leader_lease, leader_id)
+            .expect("leader should be able to resign");
+        assert_eq!(snapshot.holder_id, leader_id);
+        assert_eq!(snapshot.metadata.as_deref(), Some("leader"));
+    }
+
+    #[test]
+    fn test_renew_returns_snapshot_even_if_lock_is_immediately_released() {
+        let (store, _temp_file) = create_test_store();
+        let lock_name = "renew-snapshot".to_string();
+        let holder_id = Uuid::new_v4();
+        let (lease_id, term, _) = store
+            .acquire_lock(lock_name.clone(), holder_id, AcquireLockOptions::new(30))
+            .expect("leader should acquire the lock");
+
+        let renewed = store
+            .renew_lock(&lock_name, lease_id, holder_id, 60)
+            .expect("renewal should return the persisted snapshot");
+        store
+            .release_lock(&lock_name, lease_id, holder_id)
+            .expect("release should succeed after renewal");
+
+        assert_eq!(renewed.fencing_token, term);
+        assert!(renewed.expires_at > Utc::now());
     }
 
     #[tokio::test]
@@ -1078,10 +1355,18 @@ mod tests {
             // No locks should be restored (all were released)
             assert_eq!(store2.get_all_active_locks().len(), 0);
 
-            // Note: Current implementation resets fencing counter when no locks exist
-            // In a production system, you might want to persist the max fencing token separately
-            // For now, we test the current behavior
-            assert_eq!(store2.get_fencing_counter(), 1);
+            // The next fencing token remains monotonic even when every lock
+            // was released before restart.
+            assert_eq!(store2.get_fencing_counter(), 11);
+
+            let (_, token, _) = store2
+                .acquire_lock(
+                    "after-restart".to_string(),
+                    Uuid::new_v4(),
+                    AcquireLockOptions::new(60),
+                )
+                .expect("acquire after restart should succeed");
+            assert_eq!(token, 11);
         }
     }
 

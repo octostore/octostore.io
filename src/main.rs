@@ -1,6 +1,7 @@
 mod app;
 mod auth;
 mod config;
+mod elections;
 mod error;
 mod locks;
 mod metrics;
@@ -20,6 +21,7 @@ use axum::{
     Json, Router,
 };
 use config::Config;
+use elections::{campaign, create_election, election_status, renew_leadership, resign_leadership};
 use locks::{
     acquire_lock, get_lock_status, list_locks, release_lock, renew_lock, watch_lock, LockHandlers,
 };
@@ -33,6 +35,30 @@ use tokio::signal;
 use tower_http::cors::CorsLayer;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+fn cors_layer() -> CorsLayer {
+    CorsLayer::new()
+        .allow_origin([
+            "https://octostore.io".parse().unwrap(),
+            "https://www.octostore.io".parse().unwrap(),
+            "http://localhost:3000".parse().unwrap(),
+            "http://localhost:4173".parse().unwrap(),
+            "http://127.0.0.1:4173".parse().unwrap(),
+        ])
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::PUT,
+            axum::http::Method::DELETE,
+        ])
+        .max_age(std::time::Duration::from_secs(600))
+        .allow_headers([
+            axum::http::header::AUTHORIZATION,
+            axum::http::header::CONTENT_TYPE,
+            axum::http::HeaderName::from_static("x-admin-key"),
+            axum::http::HeaderName::from_static("x-octostore-admin-key"),
+        ])
+}
 
 static VERSIONED_SPEC: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
@@ -299,6 +325,12 @@ async fn main() -> anyhow::Result<()> {
         .route("/locks/:name/watch", get(watch_lock))
         .route("/locks/:name", get(get_lock_status))
         .route("/locks", get(list_locks))
+        // Public, account-free leader election routes
+        .route("/elections", post(create_election))
+        .route("/elections/:id", get(election_status))
+        .route("/elections/:id/campaign", post(campaign))
+        .route("/elections/:id/renew", post(renew_leadership))
+        .route("/elections/:id/resign", post(resign_leadership))
         // Webhook routes
         .route("/webhooks", post(create_webhook_handler).get(list_webhooks))
         .route(
@@ -325,27 +357,7 @@ async fn main() -> anyhow::Result<()> {
             metrics_middleware,
         ))
         // Add CORS layer
-        .layer(
-            CorsLayer::new()
-                .allow_origin([
-                    "https://octostore.io".parse().unwrap(),
-                    "https://www.octostore.io".parse().unwrap(),
-                    "http://localhost:3000".parse().unwrap(),
-                ])
-                .allow_methods([
-                    axum::http::Method::GET,
-                    axum::http::Method::POST,
-                    axum::http::Method::PUT,
-                    axum::http::Method::DELETE,
-                ])
-                .max_age(std::time::Duration::from_secs(600))
-                .allow_headers([
-                    axum::http::header::AUTHORIZATION,
-                    axum::http::header::CONTENT_TYPE,
-                    axum::http::HeaderName::from_static("x-admin-key"),
-                    axum::http::HeaderName::from_static("x-octostore-admin-key"),
-                ]),
-        )
+        .layer(cors_layer())
         // Add state
         .with_state(app_state);
 
@@ -525,6 +537,8 @@ mod tests {
             admin_username: None,
             static_tokens: None,
             static_tokens_file: None,
+            public_elections_enabled: true,
+            max_public_elections: 100,
         };
 
         let db: DbConn = Arc::new(Mutex::new(
@@ -564,6 +578,11 @@ mod tests {
             .route("/locks/:name/watch", get(watch_lock))
             .route("/locks/:name", get(get_lock_status))
             .route("/locks", get(list_locks))
+            .route("/elections", post(create_election))
+            .route("/elections/:id", get(election_status))
+            .route("/elections/:id/campaign", post(campaign))
+            .route("/elections/:id/renew", post(renew_leadership))
+            .route("/elections/:id/resign", post(resign_leadership))
             .route("/openapi.yaml", get(openapi_spec))
             .route("/docs", get(api_docs))
             .route("/health", get(health_check))
@@ -850,26 +869,36 @@ mod tests {
 
     #[tokio::test]
     async fn test_cors_headers() {
-        let app = create_test_app().await;
+        let app = create_test_app().await.layer(cors_layer());
 
         // Make an OPTIONS request to check CORS
         let response = app
             .oneshot(
                 Request::builder()
-                    .uri("/health")
+                    .uri("/elections")
                     .method("OPTIONS")
                     .header("origin", "https://octostore.io")
-                    .header("access-control-request-method", "GET")
+                    .header("access-control-request-method", "POST")
+                    .header("access-control-request-headers", "content-type")
                     .body(Body::empty())
                     .unwrap(),
             )
             .await
             .unwrap();
 
-        // CORS layer should handle OPTIONS requests
-        assert!(
-            response.status().is_success() || response.status() == StatusCode::METHOD_NOT_ALLOWED
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .and_then(|value| value.to_str().ok()),
+            Some("https://octostore.io")
         );
+        assert!(response
+            .headers()
+            .get(axum::http::header::ACCESS_CONTROL_ALLOW_METHODS)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.split(',').any(|method| method.trim() == "POST")));
     }
 
     #[tokio::test]

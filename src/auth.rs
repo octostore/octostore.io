@@ -516,7 +516,7 @@ impl AuthService {
     pub fn save_fencing_counter(&self, counter: u64) -> Result<()> {
         let conn = self.db.lock().unwrap();
         conn.execute(
-            "UPDATE fencing_counter SET counter = ? WHERE id = 1",
+            "UPDATE fencing_counter SET counter = MAX(counter, ?) WHERE id = 1",
             params![counter],
         )?;
         Ok(())
@@ -664,6 +664,8 @@ mod tests {
             admin_username: None,
             static_tokens: None,
             static_tokens_file: None,
+            public_elections_enabled: true,
+            max_public_elections: 100,
         }
     }
 

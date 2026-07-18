@@ -1,163 +1,250 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>OctoStore — Distributed locks over HTTP</title>
-  <meta name="description" content="OctoStore is a small HTTP service for distributed locking: acquire a lease, renew it while work runs, release it when done, and recover automatically on expiry." />
-  <style>
-    :root {
-      --bg: #0b0d10;
-      --panel: #11151b;
-      --panel-2: #151b23;
-      --text: #f4f7fb;
-      --muted: #9aa7b7;
-      --line: rgba(255,255,255,.10);
-      --accent: #78d4ff;
-      --accent-2: #a78bfa;
-      --good: #73e6a6;
-      --code: #080a0d;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background:
-        radial-gradient(circle at 18% 0%, rgba(120,212,255,.14), transparent 34rem),
-        radial-gradient(circle at 82% 12%, rgba(167,139,250,.12), transparent 32rem),
-        linear-gradient(180deg, #0b0d10 0%, #0a0c0f 100%);
-      color: var(--text);
-      line-height: 1.6;
-    }
-    a { color: inherit; text-decoration: none; }
-    .wrap { width: min(1120px, calc(100% - 40px)); margin: 0 auto; }
-    nav {
-      display: flex; align-items: center; justify-content: space-between; gap: 24px;
-      padding: 22px 0; border-bottom: 1px solid var(--line);
-    }
-    .brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 750; letter-spacing: -.02em; }
-    .brand-mark { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 9px; background: rgba(255,255,255,.04); }
-    .nav-links { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
-    .nav-links a { color: var(--muted); font-size: .94rem; padding: 8px 11px; border-radius: 9px; }
-    .nav-links a:hover { color: var(--text); background: rgba(255,255,255,.055); }
-    .hero { display: grid; grid-template-columns: 1.08fr .92fr; gap: 48px; align-items: center; padding: 86px 0 58px; }
-    .eyebrow { color: var(--accent); font-weight: 700; font-size: .9rem; letter-spacing: .12em; text-transform: uppercase; }
-    h1 { margin: 16px 0 20px; font-size: clamp(3rem, 7vw, 6.35rem); line-height: .92; letter-spacing: -.075em; max-width: 820px; }
-    .lede { margin: 0 0 30px; max-width: 690px; color: #c6d0dc; font-size: clamp(1.08rem, 1.65vw, 1.28rem); }
-    .actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
-    .button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 16px; border-radius: 12px; font-weight: 700; border: 1px solid var(--line); }
-    .primary { background: var(--text); color: #081018; border-color: transparent; }
-    .secondary { color: var(--text); background: rgba(255,255,255,.04); }
-    .secondary:hover, .button:hover { transform: translateY(-1px); }
-    .note { margin-top: 20px; color: var(--muted); font-size: .96rem; }
-    .note a { color: var(--accent); }
-    .terminal {
-      background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.02));
-      border: 1px solid var(--line); border-radius: 20px; overflow: hidden;
-      box-shadow: 0 24px 70px rgba(0,0,0,.36);
-    }
-    .terminal-head { display: flex; gap: 7px; padding: 14px 16px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.035); }
-    .dot { width: 10px; height: 10px; border-radius: 50%; background: #4b5563; }
-    pre { margin: 0; padding: 22px; overflow-x: auto; color: #dbeafe; background: var(--code); font-size: .9rem; line-height: 1.65; }
-    code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
-    .blue { color: #7dd3fc; } .green { color: #86efac; } .gray { color: #94a3b8; }
-    section { padding: 54px 0; }
-    h2 { margin: 0 0 14px; font-size: clamp(2rem, 3.8vw, 3.2rem); line-height: 1; letter-spacing: -.045em; }
-    .section-lede { margin: 0 0 28px; max-width: 760px; color: var(--muted); font-size: 1.08rem; }
-    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-    .card { background: rgba(17,21,27,.78); border: 1px solid var(--line); border-radius: 18px; padding: 22px; }
-    .card h3 { margin: 0 0 9px; font-size: 1.12rem; }
-    .card p { margin: 0; color: var(--muted); }
-    .flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; counter-reset: step; }
-    .step { position: relative; padding: 20px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,.035); }
-    .step::before { counter-increment: step; content: counter(step); display: inline-grid; place-items: center; width: 28px; height: 28px; margin-bottom: 18px; border-radius: 9px; color: #061018; background: var(--good); font-weight: 800; }
-    .split { display: grid; grid-template-columns: .9fr 1.1fr; gap: 22px; align-items: stretch; }
-    .callout { border: 1px solid rgba(120,212,255,.28); background: rgba(120,212,255,.075); border-radius: 20px; padding: 26px; }
-    .callout p { color: #cfeeff; margin: 0 0 18px; }
-    footer { margin-top: 40px; padding: 34px 0 48px; border-top: 1px solid var(--line); color: var(--muted); display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; }
-    footer a { color: #d8e2ee; }
-    @media (max-width: 900px) { .hero, .split { grid-template-columns: 1fr; } .grid, .flow { grid-template-columns: 1fr; } nav { align-items: flex-start; flex-direction: column; } }
-  </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OctoStore — One agent moves. The rest wait.</title>
+  <meta name="description" content="The open coordination plane for agent fleets. Self-host OctoStore or use account-free remote leader election over plain HTTP.">
+  <meta name="theme-color" content="#171224">
+  <meta property="og:title" content="OctoStore — One agent moves. The rest wait.">
+  <meta property="og:description" content="Self-hosted agent coordination plus remote leader election with no account, API key, or SDK.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://octostore.io/">
+  <meta property="og:image" content="https://octostore.io/assets/octostore-og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="OctoStore signal board showing one elected agent leader and two followers waiting">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="OctoStore — One agent moves. The rest wait.">
+  <meta name="twitter:description" content="Self-host the coordination plane or elect one remote leader with zero signup.">
+  <meta name="twitter:image" content="https://octostore.io/assets/octostore-og.png">
+  <link rel="canonical" href="https://octostore.io/">
+  <link rel="stylesheet" href="/assets/site.css">
+  <script defer src="/assets/site.js"></script>
 </head>
 <body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
   <div class="wrap">
-    <nav>
-      <a class="brand" href="index.html"><span class="brand-mark">🐙</span><span>OctoStore</span></a>
+    <nav class="site-nav" aria-label="Primary navigation">
+      <a class="brand" href="/" aria-label="OctoStore home">
+        <span class="brand-signal" aria-hidden="true"></span>
+        OctoStore
+      </a>
       <div class="nav-links">
-        <a href="docs/">Docs</a>
-        <a href="agents/">Agents</a>
-        <a href="blog/">Blog</a>
-        <a href="dashboard.html">Dashboard</a>
+        <a href="/agents/">Agents</a>
+        <a href="/docs/">Docs</a>
+        <a href="/blog/">Blog</a>
         <a href="https://github.com/octostore/octostore.io">GitHub</a>
+        <a class="nav-cta" href="#live-race">Try it live</a>
       </div>
     </nav>
-
-    <main>
-      <section class="hero">
-        <div>
-          <div class="eyebrow">Distributed locking over HTTP</div>
-          <h1>One live lease for shared work.</h1>
-          <p class="lede">OctoStore is a small coordination service for systems that need a single owner at a time. Acquire a named lock, attach metadata, renew the lease while work is active, and let expiry handle abandoned work.</p>
-          <div class="actions">
-            <a class="button primary" href="docs/">Read the docs</a>
-            <a class="button secondary" href="https://github.com/octostore/octostore.io">View on GitHub</a>
-            <a class="button secondary" href="agents/">Use it for agents →</a>
-          </div>
-          <p class="note">No scheduler, no workflow DSL, no client runtime. Just leases, ownership, and JSON.</p>
-        </div>
-        <div class="terminal" aria-label="OctoStore API example">
-          <div class="terminal-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
-          <pre><code><span class="gray"># Try to own a unit of work for 60 seconds</span>
-curl -X POST https://api.octostore.io/locks/deploy-main/acquire \
-  -H <span class="green">"Authorization: Bearer ***"</span> \
-  -H <span class="green">"Content-Type: application/json"</span> \
-  -d <span class="green">'{
-    "ttl_seconds": 60,
-    "metadata": "host=runner-7 build=1842"
-  }'</span>
-
-<span class="gray"># acquired: proceed; held: back off and inspect owner</span>
-{ <span class="blue">"status"</span>: <span class="green">"acquired"</span>, <span class="blue">"lease_id"</span>: <span class="green">"..."</span>, <span class="blue">"expires_at"</span>: <span class="green">"..."</span> }</code></pre>
-        </div>
-      </section>
-
-      <section>
-        <h2>A lock service with sharp edges removed.</h2>
-        <p class="section-lede">The primitive is intentionally boring: a single-segment lock name maps to one active lease. That is enough to serialize deploys, protect cron jobs, coordinate queue consumers, and make ownership visible.</p>
-        <div class="grid">
-          <div class="card"><h3>Lease-based ownership</h3><p>Locks expire automatically if a holder stops renewing. Crashed workers do not leave permanent tombstones.</p></div>
-          <div class="card"><h3>Inspectable metadata</h3><p>Store the runner, job URL, host, trace ID, or reason with the lock so operators can see what is happening.</p></div>
-          <div class="card"><h3>HTTP from anywhere</h3><p>Use curl, fetch, requests, Go, Rust, shell scripts, or whatever already runs in your environment.</p></div>
-        </div>
-      </section>
-
-      <section>
-        <h2>The operating loop.</h2>
-        <div class="flow">
-          <div class="step"><strong>Acquire</strong><p>POST a lock name with a TTL and optional metadata.</p></div>
-          <div class="step"><strong>Work</strong><p>If the status is <code>acquired</code>, you own the lease.</p></div>
-          <div class="step"><strong>Renew</strong><p>Heartbeat before expiry to keep long-running work alive.</p></div>
-          <div class="step"><strong>Release</strong><p>Return the lock when the protected section is complete.</p></div>
-        </div>
-      </section>
-
-      <section class="split">
-        <div class="callout">
-          <h2>Running hosted agents?</h2>
-          <p>OctoStore works well when many hosted workers can see the same backlog and only one should claim a task. Use a stable lock name per task, attach run metadata, and let the lease expire if the worker disappears.</p>
-          <a class="button primary" href="agents/">Use OctoStore for agents</a>
-        </div>
-        <div class="card">
-          <h3>Good fits</h3>
-          <p>Deploy serialization, singleton cron, expensive cache rebuilds, issue/PR claim checks, migration guards, human-visible task ownership, and any short critical section where a lease is simpler than a full coordinator.</p>
-        </div>
-      </section>
-    </main>
-
-    <footer>
-      <span>OctoStore — distributed locks over HTTP.</span>
-      <span><a href="docs/">Docs</a> · <a href="blog/">Blog</a> · <a href="https://github.com/octostore/octostore.io">GitHub</a></span>
-    </footer>
   </div>
+
+  <main id="main">
+    <section class="hero wrap">
+      <div>
+        <div class="signal-label">v0.12 · public leader election</div>
+        <h1>One agent <span class="signal-word">moves.</span> The rest wait.</h1>
+        <p class="hero-copy">OctoStore is the open coordination plane for agent fleets. Self-host the single binary for durable orchestration, or use the public referee when you need one remote leader without a login, API key, or SDK.</p>
+        <div class="button-row">
+          <a class="button primary" href="#live-race">Run a three-agent race</a>
+          <a class="button" href="/docs/#self-host">Self-host in 60 seconds</a>
+        </div>
+        <p class="hero-note">MIT licensed · Rust + SQLite · one binary · plain HTTP</p>
+      </div>
+
+      <div class="signal-tower" aria-label="One leader receives a green signal while two candidates hold">
+        <div class="tower-head"><span>REMOTE REFEREE</span><span>ROOM 7F2A</span></div>
+        <div class="lamp-stack">
+          <div class="lamp-row">
+            <span class="lamp go" aria-hidden="true"></span>
+            <span class="lamp-copy"><strong>Agent Atlas</strong><span>AUTHORIZED TO MOVE</span></span>
+            <span class="term">TERM 1842</span>
+          </div>
+          <div class="lamp-row">
+            <span class="lamp hold" aria-hidden="true"></span>
+            <span class="lamp-copy"><strong>Agent Comet</strong><span>LEADER OBSERVED</span></span>
+            <span class="term">HOLD</span>
+          </div>
+          <div class="lamp-row">
+            <span class="lamp hold" aria-hidden="true"></span>
+            <span class="lamp-copy"><strong>Agent Mako</strong><span>RETRY ON EXPIRY</span></span>
+            <span class="term">HOLD</span>
+          </div>
+        </div>
+        <div class="tower-foot"><span>NO ACCOUNT</span><span>15S LEASE</span></div>
+      </div>
+    </section>
+
+    <div class="proof-strip">
+      <div class="proof-list wrap" aria-label="Product facts">
+        <span>Self-hosted by default</span>
+        <span>Hosted elections, zero signup</span>
+        <span>Monotonic fencing terms</span>
+        <span>Crash-safe lease expiry</span>
+      </div>
+    </div>
+
+    <section class="section wrap" id="live-race">
+      <div class="section-intro">
+        <div class="signal-label">The 15-second proof</div>
+        <h2>Three agents enter. One gets the green light.</h2>
+        <p>This is the production API, not a canned animation. OctoStore opens an anonymous room, races three candidates, and returns one leader plus two followers who agree on who won.</p>
+      </div>
+
+      <div class="race-board" data-election-demo data-api-base="https://api.octostore.io">
+        <div class="race-toolbar">
+          <span class="race-room" data-election-room>no room yet</span>
+          <button class="button primary small" type="button" data-run-election>Run the race</button>
+        </div>
+        <div class="candidate-list">
+          <div class="candidate" data-candidate="agent-atlas" data-route="sea">
+            <span class="candidate-light" aria-hidden="true"></span>
+            <span class="candidate-name">Atlas</span>
+            <span class="candidate-route">us-west / task-1842</span>
+            <span class="candidate-state" data-candidate-state>Ready</span>
+          </div>
+          <div class="candidate" data-candidate="agent-comet" data-route="iad">
+            <span class="candidate-light" aria-hidden="true"></span>
+            <span class="candidate-name">Comet</span>
+            <span class="candidate-route">us-east / task-1842</span>
+            <span class="candidate-state" data-candidate-state>Ready</span>
+          </div>
+          <div class="candidate" data-candidate="agent-mako" data-route="fra">
+            <span class="candidate-light" aria-hidden="true"></span>
+            <span class="candidate-name">Mako</span>
+            <span class="candidate-route">eu-central / task-1842</span>
+            <span class="candidate-state" data-candidate-state>Ready</span>
+          </div>
+        </div>
+        <p class="race-status" role="status" aria-live="polite" aria-atomic="true" data-race-status>Click “Run the race.” No credentials will be sent or created.</p>
+      </div>
+    </section>
+
+    <section class="section wrap">
+      <div class="split">
+        <div>
+          <div class="signal-label">The whole API</div>
+          <h2>No auth ceremony. Just campaign.</h2>
+          <p class="lede">Create an opaque room, share its ID with your agents, and let each candidate make the same request. The winner receives a secret leader capability. Everyone else sees the winner and exactly when to retry.</p>
+          <div class="fact-line">
+            <span class="fact">5–300s leases</span>
+            <span class="fact">256-bit leader capability</span>
+            <span class="fact">public status</span>
+          </div>
+        </div>
+
+        <div class="code-window">
+          <div class="code-head">
+            <span>shell · account-free election</span>
+            <button class="copy-button" type="button" data-copy-target="#election-code">Copy</button>
+          </div>
+          <pre id="election-code"><code><span class="code-comment"># 1. Open a room. No login. No token.</span>
+ROOM=$(curl -s -X POST \
+  https://api.octostore.io/elections \
+  | jq -r .election_id)
+
+<span class="code-comment"># 2. Every agent campaigns in the same room.</span>
+curl -s -X POST \
+  "https://api.octostore.io/elections/$ROOM/campaign" \
+  -H "Content-Type: application/json" \
+  -d '{"candidate_id":"agent-atlas","ttl_seconds":30}'
+
+<span class="code-comment"># winner → status: leader + leader_token</span>
+<span class="code-comment"># others → status: follower + retry_after_ms</span></code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="section wrap">
+      <div class="section-intro">
+        <div class="signal-label">Orchestration without the empire</div>
+        <h2>Your agents already know how to work. Give them shared truth.</h2>
+        <p>OctoStore does not execute prompts or own your workflow. It settles the hard coordination questions: who owns this task, who is leader now, whether a lease is still alive, and which fencing term is newest.</p>
+      </div>
+
+      <div class="orchestration-map" role="img" aria-label="Many agents coordinate through OctoStore to claim shared tasks">
+        <div class="agent-bank">
+          <div class="map-node active">agent-atlas / term 1842</div>
+          <div class="map-node">agent-comet / observing</div>
+          <div class="map-node">agent-mako / observing</div>
+        </div>
+        <div class="referee">Octo<br>Store</div>
+        <div class="task-bank">
+          <div class="map-node active">task-1842 / owned</div>
+          <div class="map-node">deploy-main / available</div>
+          <div class="map-node">customer-72 / available</div>
+        </div>
+      </div>
+
+      <div class="mode-list">
+        <div class="mode">
+          <div class="mode-name">Claim</div>
+          <p>Give every issue, ticket, queue item, migration, or deployment one current owner. Leases expire when an agent disappears, so abandoned work becomes available again.</p>
+        </div>
+        <div class="mode">
+          <div class="mode-name">Elect</div>
+          <p>Choose one active coordinator across machines and clouds. Every term carries a monotonic fencing number so downstream systems can reject stale leaders.</p>
+        </div>
+        <div class="mode">
+          <div class="mode-name">Observe</div>
+          <p>Attach small operator-readable metadata, inspect current ownership over HTTP, and react to changes without coupling your fleet to a language-specific SDK.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section wrap" id="self-host">
+      <div class="split">
+        <div class="code-window">
+          <div class="code-head">
+            <span>shell · local control plane</span>
+            <button class="copy-button" type="button" data-copy-target="#self-host-code">Copy</button>
+          </div>
+          <pre id="self-host-code"><code>curl -fsSL \
+  https://raw.githubusercontent.com/octostore/octostore.io/main/install.sh \
+  | sh
+
+export STATIC_TOKENS='ops:change-me'
+export DATABASE_URL='./octostore.db'
+octostore
+
+<span class="code-comment"># API listening on :3000</span>
+<span class="code-comment"># state persisted in SQLite WAL</span></code></pre>
+        </div>
+        <div>
+          <div class="signal-label">Own the referee</div>
+          <h2>One binary. One database file. Your network.</h2>
+          <p class="lede">Run the full lock, session, webhook, and election service wherever your agents live. Static tokens are enough for private deployments. GitHub OAuth remains optional. Public elections can be disabled with one environment variable.</p>
+          <div class="button-row">
+            <a class="button primary" href="/docs/#self-host">Read the self-host guide</a>
+            <a class="button" href="https://github.com/octostore/octostore.io/releases/latest">Download a release</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="closing">
+      <div class="wrap">
+        <h2>Agents are cheap. Collisions are expensive.</h2>
+        <p>Put one small referee between “I found work” and “I changed production.” Use the hosted election API now, or self-host the complete coordination plane.</p>
+        <div class="button-row">
+          <a class="button primary" href="#live-race">Race three agents</a>
+          <a class="button" href="https://github.com/octostore/octostore.io">Star OctoStore on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer wrap">
+    <span>© <span data-current-year>2026</span> OctoStore · MIT licensed</span>
+    <span class="footer-links">
+      <a href="/docs/">Docs</a>
+      <a href="/agents/">Agents</a>
+      <a href="/blog/">Blog</a>
+      <a href="/status.html">Status</a>
+      <a href="https://github.com/octostore/octostore.io">GitHub</a>
+    </span>
+  </footer>
 </body>
 </html>
