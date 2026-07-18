@@ -26,6 +26,8 @@ pub struct Config {
     pub public_elections_enabled: bool,
     /// Maximum number of simultaneously active public election rooms.
     pub max_public_elections: usize,
+    /// Maximum room-creation and campaign requests accepted per client per minute.
+    pub public_election_requests_per_minute: u32,
 }
 
 impl Config {
@@ -49,6 +51,11 @@ impl Config {
                 .and_then(|value| value.parse::<usize>().ok())
                 .filter(|value| *value > 0)
                 .unwrap_or(10_000),
+            public_election_requests_per_minute: env::var("PUBLIC_ELECTION_REQUESTS_PER_MINUTE")
+                .ok()
+                .and_then(|value| value.parse::<u32>().ok())
+                .filter(|value| *value > 0)
+                .unwrap_or(600),
         })
     }
 
@@ -145,6 +152,7 @@ mod tests {
                 ("STATIC_TOKENS_FILE", None),
                 ("PUBLIC_ELECTIONS", None),
                 ("MAX_PUBLIC_ELECTIONS", None),
+                ("PUBLIC_ELECTION_REQUESTS_PER_MINUTE", None),
             ],
             || {
                 let c = Config::from_env().unwrap();
@@ -156,6 +164,7 @@ mod tests {
                 assert!(c.static_tokens_file.is_none());
                 assert!(c.public_elections_enabled);
                 assert_eq!(c.max_public_elections, 10_000);
+                assert_eq!(c.public_election_requests_per_minute, 600);
                 assert!(!c.is_github_enabled());
             },
         );
@@ -167,11 +176,13 @@ mod tests {
             vec![
                 ("PUBLIC_ELECTIONS", Some("false")),
                 ("MAX_PUBLIC_ELECTIONS", Some("250")),
+                ("PUBLIC_ELECTION_REQUESTS_PER_MINUTE", Some("42")),
             ],
             || {
                 let c = Config::from_env().unwrap();
                 assert!(!c.public_elections_enabled);
                 assert_eq!(c.max_public_elections, 250);
+                assert_eq!(c.public_election_requests_per_minute, 42);
             },
         );
     }

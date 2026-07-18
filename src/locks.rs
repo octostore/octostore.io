@@ -439,6 +439,7 @@ mod tests {
             admin_username: None,
             public_elections_enabled: true,
             max_public_elections: 100,
+            public_election_requests_per_minute: 600,
         };
 
         // Share one DbConn between both services (#19)
@@ -465,6 +466,7 @@ mod tests {
             auth_service,
             config: config.clone(),
             metrics: crate::metrics::Metrics::new(),
+            public_election_rate_limiter: crate::rate_limit::PublicElectionRateLimiter::new(600),
             session_store,
             webhook_store,
         };

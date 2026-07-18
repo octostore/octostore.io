@@ -109,9 +109,27 @@ jobs:
           echo "Release tag '$TAG' matches Cargo.toml version '$CARGO_VERSION' and tree is clean."
 
       - name: Publish to crates.io
-        run: cargo publish --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          STATUS=$(curl --retry 3 --retry-all-errors --silent --show-error \
+            --user-agent 'octostore-release-check (+https://github.com/octostore/octostore.io)' \
+            --output /dev/null --write-out '%{http_code}' \
+            "https://crates.io/api/v1/crates/octostore/$VERSION")
+
+          case "$STATUS" in
+            200)
+              echo "octostore $VERSION is already published; skipping upload."
+              ;;
+            404)
+              cargo publish --locked
+              ;;
+            *)
+              echo "ERROR: crates.io version check returned HTTP $STATUS."
+              exit 1
+              ;;
+          esac
 
   deploy:
     needs: [release, publish]

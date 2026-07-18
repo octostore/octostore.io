@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Leader election in two HTTP calls — OctoStore</title>
+  <meta name="description" content="A 60-second guide to simple leader election over HTTP. Create a room, campaign from every process, renew the winner, and recover automatically after crashes.">
+  <meta name="theme-color" content="#171224">
+  <meta property="og:title" content="Leader election in two HTTP calls — OctoStore">
+  <meta property="og:description" content="No account. No API key. No SDK. One short-lived leader from any process that speaks HTTP.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://octostore.io/leader-election/">
+  <meta property="og:image" content="https://octostore.io/assets/octostore-og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="OctoStore signal board showing one process elected leader while two processes wait">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Leader election in two HTTP calls — OctoStore">
+  <meta name="twitter:description" content="No account. No API key. No SDK. Any language.">
+  <meta name="twitter:image" content="https://octostore.io/assets/octostore-og.png">
+  <link rel="canonical" href="https://octostore.io/leader-election/">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/site.css">
+  <script defer src="/assets/site.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="wrap">
+    <nav class="site-nav" aria-label="Primary navigation">
+      <a class="brand" href="/"><span class="brand-signal" aria-hidden="true"></span>OctoStore</a>
+      <div class="nav-links">
+        <a href="/leader-election/" aria-current="page">Leader election</a>
+        <a href="/agents/">Agents</a>
+        <a href="/coordination/">Coordination</a>
+        <a href="/docs/">Docs</a>
+        <a href="https://github.com/octostore/octostore.io">GitHub</a>
+        <a class="nav-cta" href="/#live-race">Try it live</a>
+      </div>
+    </nav>
+  </div>
+
+  <main id="main" class="reading-wrap">
+    <header class="page-header guide-hero">
+      <div class="signal-label">The 60-second guide</div>
+      <h1>Leader election in two HTTP calls.</h1>
+      <p class="lede">Create a room once. Let every candidate campaign. One process receives a short lease and a secret leader token. Everyone else receives the leader and when to try again.</p>
+      <div class="button-row">
+        <a class="button primary" href="#quickstart">Copy the quickstart</a>
+        <a class="button" href="/#live-race">Watch a live election</a>
+      </div>
+    </header>
+
+    <section class="content-section" id="quickstart">
+      <h2>Copy this. You have a leader.</h2>
+      <div class="code-window">
+        <div class="code-head"><span>shell · hosted API</span><button class="copy-button" type="button" data-copy-target="#leader-quickstart">Copy</button></div>
+        <pre id="leader-quickstart"><code>ROOM=$(curl -s -X POST https://api.octostore.io/elections \
+  | jq -r .election_id)
+
+curl -s -X POST \
+  "https://api.octostore.io/elections/$ROOM/campaign" \
+  -H "Content-Type: application/json" \
+  -d '{"candidate_id":"worker-a","ttl_seconds":30}'</code></pre>
+      </div>
+      <p>Run the campaign call from every candidate. The first live winner gets <code>status: "leader"</code>. The others get <code>status: "follower"</code>. They all see the same candidate ID, term, expiry, and retry timing.</p>
+    </section>
+
+    <section class="content-section">
+      <h2>The response tells you what to do next.</h2>
+      <div class="response-pair">
+        <div>
+          <h3>If you won</h3>
+          <pre><code>{
+  "status": "leader",
+  "leader": {
+    "candidate_id": "worker-a",
+    "term": 1842,
+    "expires_at": "..."
+  },
+  "leader_token": "...",
+  "renew_after_ms": 15000
+}</code></pre>
+          <p>Save the token, start leader-only work, and renew around <code>renew_after_ms</code>.</p>
+        </div>
+        <div>
+          <h3>If someone else won</h3>
+          <pre><code>{
+  "status": "follower",
+  "leader": {
+    "candidate_id": "worker-a",
+    "term": 1842,
+    "expires_at": "..."
+  },
+  "retry_after_ms": 29876
+}</code></pre>
+          <p>Do not perform leader-only work. Wait for the returned delay, then campaign again.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="content-section">
+      <h2>Keep the lease while you are healthy.</h2>
+      <p>The leader token is a bearer capability. It can renew or resign the current term, but it does not create an account and it grants no authority over another room.</p>
+      <div class="code-window">
+        <div class="code-head"><span>shell · renew</span><button class="copy-button" type="button" data-copy-target="#leader-renew">Copy</button></div>
+        <pre id="leader-renew"><code>curl -s -X POST \
+  "https://api.octostore.io/elections/$ROOM/renew" \
+  -H "Content-Type: application/json" \
+  -d "{\"leader_token\":\"$LEADER_TOKEN\",\"ttl_seconds\":30}"</code></pre>
+      </div>
+      <p>Public leases can last from 5 to 300 seconds. Renewing keeps the same term. If renewal stops because the leader crashes or loses the network, the lease expires and a later campaign can create a higher term.</p>
+    </section>
+
+    <section class="content-section">
+      <h2>Resign when you are done.</h2>
+      <p>A clean shutdown does not need to make followers wait for expiry.</p>
+      <div class="code-window">
+        <div class="code-head"><span>shell · resign</span><button class="copy-button" type="button" data-copy-target="#leader-resign">Copy</button></div>
+        <pre id="leader-resign"><code>curl -s -X POST \
+  "https://api.octostore.io/elections/$ROOM/resign" \
+  -H "Content-Type: application/json" \
+  -d "{\"leader_token\":\"$LEADER_TOKEN\"}"</code></pre>
+      </div>
+    </section>
+
+    <section class="content-section">
+      <h2>Why the term matters.</h2>
+      <p>A lease tells candidates who should be leader now. It cannot erase an old process's memory. A paused leader can wake up after its lease expires and still believe it is in charge.</p>
+      <div class="term-story" aria-label="Fencing term example">
+        <span><strong>Term 1842</strong> Worker A pauses</span>
+        <span aria-hidden="true">→</span>
+        <span><strong>Term 1843</strong> Worker B wins</span>
+        <span aria-hidden="true">→</span>
+        <span><strong>Reject 1842</strong> Old write is stale</span>
+      </div>
+      <p>Carry the returned term into downstream writes when the destination can remember the newest value. Once it has accepted 1843, it can reject a late write from 1842. Leases solve liveness. Fencing terms solve stale authority.</p>
+    </section>
+
+    <section class="content-section">
+      <h2>Use it from anything.</h2>
+      <div class="plain-list">
+        <p><strong>Cron and scheduled jobs.</strong> Let one machine run the cleanup even when the schedule fires everywhere.</p>
+        <p><strong>Controllers and reconcilers.</strong> Keep one active coordinator while warm standbys observe.</p>
+        <p><strong>Migrations and maintenance.</strong> Prevent two deploy processes from starting the same singleton task.</p>
+        <p><strong>Agents and background workers.</strong> Choose one dispatcher without forcing the fleet into a workflow engine.</p>
+      </div>
+    </section>
+
+    <section class="content-section">
+      <h2>No signup does not mean no boundary.</h2>
+      <ul>
+        <li>The generated 192-bit room ID is a hard-to-guess coordination address, not authentication.</li>
+        <li>Anyone who knows the room ID can campaign or inspect its public leader.</li>
+        <li>Only the 256-bit leader token can renew or resign the current term.</li>
+        <li>Keep leader tokens out of URLs and logs.</li>
+        <li>Room creation and campaigns have a per-client admission budget; follow <code>Retry-After</code> after a <code>429</code>.</li>
+        <li>Self-host when room discovery, traffic, or state must remain private.</li>
+      </ul>
+      <div class="button-row">
+        <a class="button primary" href="/docs/#leader-election">Read the endpoint reference</a>
+        <a class="button" href="/docs/#self-host">Self-host the same API</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer wrap">
+    <span>One room. One lease. One leader.</span>
+    <span class="footer-links"><a href="/agents/">Agents</a><a href="/coordination/">Coordination</a><a href="/docs/">Docs</a><a href="https://github.com/octostore/octostore.io">GitHub</a></span>
+  </footer>
+</body>
+</html>

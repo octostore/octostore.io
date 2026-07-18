@@ -11,14 +11,15 @@ use crate::{
     store::{AcquireLockOptions, AcquireLockOutcome},
 };
 use axum::{
-    extract::{Path, State},
-    http::StatusCode,
+    extract::{ConnectInfo, Path, State},
+    http::{HeaderMap, StatusCode},
     Json,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::{DateTime, Utc};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
+use std::net::{IpAddr, SocketAddr};
 use uuid::Uuid;
 
 const ELECTION_PREFIX: &str = "__election/";
@@ -202,12 +203,47 @@ fn remaining_ms(expires_at: DateTime<Utc>) -> u64 {
     (expires_at - Utc::now()).num_milliseconds().max(0) as u64
 }
 
+fn admission_client_key(
+    headers: &HeaderMap,
+    connect_info: Option<ConnectInfo<SocketAddr>>,
+) -> String {
+    let peer_ip = connect_info.map(|info| info.0.ip());
+    let cloudflare_ip = peer_ip.filter(IpAddr::is_loopback).and_then(|_| {
+        headers
+            .get("cf-connecting-ip")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<IpAddr>().ok())
+    });
+
+    cloudflare_ip
+        .or(peer_ip)
+        .map(|ip| ip.to_string())
+        .unwrap_or_else(|| "unknown-client".to_string())
+}
+
+fn check_admission_rate(
+    state: &crate::AppState,
+    headers: &HeaderMap,
+    connect_info: Option<ConnectInfo<SocketAddr>>,
+) -> Result<()> {
+    let client_key = admission_client_key(headers, connect_info);
+    state
+        .public_election_rate_limiter
+        .check(&client_key)
+        .map_err(|retry_after_seconds| AppError::RateLimited {
+            retry_after_seconds,
+        })
+}
+
 /// Creates a collision-resistant election room ID. The room itself remains
 /// stateless until the first candidate campaigns.
 pub async fn create_election(
     State(state): State<crate::AppState>,
+    headers: HeaderMap,
+    connect_info: Option<ConnectInfo<SocketAddr>>,
 ) -> Result<(StatusCode, Json<CreateElectionResponse>)> {
     ensure_enabled(&state)?;
+    check_admission_rate(&state, &headers, connect_info)?;
     let mut bytes = [0u8; 24];
     rand::thread_rng().fill_bytes(&mut bytes);
     let election_id = URL_SAFE_NO_PAD.encode(bytes);
@@ -227,9 +263,12 @@ pub async fn create_election(
 pub async fn campaign(
     Path(election_id): Path<String>,
     State(state): State<crate::AppState>,
+    headers: HeaderMap,
+    connect_info: Option<ConnectInfo<SocketAddr>>,
     Json(request): Json<CampaignRequest>,
 ) -> Result<Json<CampaignResponse>> {
     ensure_enabled(&state)?;
+    check_admission_rate(&state, &headers, connect_info)?;
     validate_election_id(&election_id)?;
     validate_candidate_id(&request.candidate_id)?;
     validate_metadata(&request.metadata)?;
@@ -375,7 +414,10 @@ mod tests {
     use tempfile::NamedTempFile;
     use tower::ServiceExt;
 
-    async fn test_app_with_limit(max_public_elections: usize) -> (Router, NamedTempFile) {
+    async fn test_app_with_limits(
+        max_public_elections: usize,
+        requests_per_minute: u32,
+    ) -> (Router, NamedTempFile) {
         let temp_file = NamedTempFile::new().unwrap();
         let config = Config {
             bind_addr: "127.0.0.1:3000".to_string(),
@@ -389,6 +431,7 @@ mod tests {
             static_tokens_file: None,
             public_elections_enabled: true,
             max_public_elections,
+            public_election_requests_per_minute: requests_per_minute,
         };
         let db: DbConn = Arc::new(Mutex::new(Connection::open(&config.database_url).unwrap()));
         let auth_service = AuthService::new(config.clone(), db.clone()).unwrap();
@@ -400,6 +443,9 @@ mod tests {
             auth_service,
             config,
             metrics: Metrics::new(),
+            public_election_rate_limiter: crate::rate_limit::PublicElectionRateLimiter::new(
+                requests_per_minute,
+            ),
             session_store,
             webhook_store,
         };
@@ -412,6 +458,10 @@ mod tests {
             .route("/elections/:id/resign", post(resign_leadership))
             .with_state(state);
         (app, temp_file)
+    }
+
+    async fn test_app_with_limit(max_public_elections: usize) -> (Router, NamedTempFile) {
+        test_app_with_limits(max_public_elections, 600).await
     }
 
     async fn test_app() -> (Router, NamedTempFile) {
@@ -439,6 +489,145 @@ mod tests {
             .as_str()
             .unwrap()
             .starts_with("/elections/"));
+    }
+
+    #[tokio::test]
+    async fn admission_rate_limit_returns_retry_after() {
+        let (app, _temp) = test_app_with_limits(100, 1).await;
+        let first = app
+            .clone()
+            .oneshot(
+                Request::post("/elections")
+                    .header("cf-connecting-ip", "198.51.100.12")
+                    .extension(ConnectInfo(
+                        "127.0.0.1:45100".parse::<SocketAddr>().unwrap(),
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(first.status(), StatusCode::CREATED);
+
+        let limited = app
+            .oneshot(
+                Request::post("/elections")
+                    .header("cf-connecting-ip", "198.51.100.12")
+                    .extension(ConnectInfo(
+                        "127.0.0.1:45101".parse::<SocketAddr>().unwrap(),
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(limited.headers().get("retry-after").is_some());
+    }
+
+    #[tokio::test]
+    async fn admission_pressure_does_not_strand_the_current_leader() {
+        let (app, _temp) = test_app_with_limits(100, 1).await;
+        let election_id = "pressure-room";
+
+        let elected = app
+            .clone()
+            .oneshot(
+                Request::post(format!("/elections/{election_id}/campaign"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"candidate_id":"worker-a","ttl_seconds":30}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(elected.status(), StatusCode::OK);
+        let leader_token = json_body(elected).await["leader_token"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let limited = app
+            .clone()
+            .oneshot(
+                Request::post(format!("/elections/{election_id}/campaign"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"candidate_id":"worker-b"}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
+
+        let status = app
+            .clone()
+            .oneshot(
+                Request::get(format!("/elections/{election_id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(status.status(), StatusCode::OK);
+
+        let renewed = app
+            .clone()
+            .oneshot(
+                Request::post(format!("/elections/{election_id}/renew"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"leader_token":leader_token,"ttl_seconds":30}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(renewed.status(), StatusCode::OK);
+
+        let resigned = app
+            .oneshot(
+                Request::post(format!("/elections/{election_id}/resign"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"leader_token":leader_token}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resigned.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn direct_clients_cannot_spoof_the_cloudflare_bucket() {
+        let (app, _temp) = test_app_with_limits(100, 1).await;
+        let first = app
+            .clone()
+            .oneshot(
+                Request::post("/elections")
+                    .header("cf-connecting-ip", "198.51.100.20")
+                    .extension(ConnectInfo(
+                        "203.0.113.9:45100".parse::<SocketAddr>().unwrap(),
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(first.status(), StatusCode::CREATED);
+
+        let limited = app
+            .oneshot(
+                Request::post("/elections")
+                    .header("cf-connecting-ip", "198.51.100.21")
+                    .extension(ConnectInfo(
+                        "203.0.113.9:45101".parse::<SocketAddr>().unwrap(),
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
     }
 
     #[tokio::test]

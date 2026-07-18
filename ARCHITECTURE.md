@@ -87,6 +87,7 @@ Election properties:
 - leader-only mutation through an unguessable bearer capability
 - 5 to 300 second TTL
 - configurable active-room capacity
+- configurable per-client admission rate for room creation and campaigns
 - operator kill switch through `PUBLIC_ELECTIONS=false`
 
 Room IDs reduce accidental discovery; they are not authentication. Deployments that require a private coordination namespace should self-host behind network policy.

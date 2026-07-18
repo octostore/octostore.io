@@ -6,6 +6,7 @@ mod error;
 mod locks;
 mod metrics;
 mod models;
+mod rate_limit;
 mod sessions;
 mod store;
 mod webhooks;
@@ -26,6 +27,7 @@ use locks::{
     acquire_lock, get_lock_status, list_locks, release_lock, renew_lock, watch_lock, LockHandlers,
 };
 use metrics::{endpoint_from_path, Metrics};
+use rate_limit::PublicElectionRateLimiter;
 use sessions::SessionStore;
 use webhooks::{create_webhook_handler, delete_webhook_handler, list_webhooks, WebhookStore};
 
@@ -58,6 +60,7 @@ fn cors_layer() -> CorsLayer {
             axum::http::HeaderName::from_static("x-admin-key"),
             axum::http::HeaderName::from_static("x-octostore-admin-key"),
         ])
+        .expose_headers([axum::http::header::RETRY_AFTER])
 }
 
 static VERSIONED_SPEC: std::sync::OnceLock<String> = std::sync::OnceLock::new();
@@ -293,6 +296,9 @@ async fn main() -> anyhow::Result<()> {
         auth_service: auth_service.clone(),
         config: config.clone(),
         metrics: metrics.clone(),
+        public_election_rate_limiter: PublicElectionRateLimiter::new(
+            config.public_election_requests_per_minute,
+        ),
         session_store: session_store.clone(),
         webhook_store: webhook_store.clone(),
     };
@@ -370,9 +376,12 @@ async fn main() -> anyhow::Result<()> {
     let shutdown_auth_service = Arc::new(auth_service);
 
     // Start the server with graceful shutdown
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(shutdown_lock_store, shutdown_auth_service))
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal(shutdown_lock_store, shutdown_auth_service))
+    .await?;
 
     info!("Server stopped");
     Ok(())
@@ -539,6 +548,7 @@ mod tests {
             static_tokens_file: None,
             public_elections_enabled: true,
             max_public_elections: 100,
+            public_election_requests_per_minute: 600,
         };
 
         let db: DbConn = Arc::new(Mutex::new(
@@ -557,6 +567,9 @@ mod tests {
             auth_service,
             config: config.clone(),
             metrics,
+            public_election_rate_limiter: PublicElectionRateLimiter::new(
+                config.public_election_requests_per_minute,
+            ),
             session_store,
             webhook_store,
         };

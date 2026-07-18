@@ -1,6 +1,6 @@
 # OctoStore roadmap
 
-OctoStore is becoming the smallest useful coordination plane for agent fleets: self-hosted when the control boundary matters, instantly hosted when several remote processes just need one leader.
+OctoStore is becoming the smallest useful leader-election service: instantly hosted when several remote processes need one leader, self-hosted when the control boundary or broader task coordination matters.
 
 ## Shipped
 
@@ -26,7 +26,8 @@ OctoStore is becoming the smallest useful coordination plane for agent fleets: s
 - static token and token-file authentication
 - optional GitHub OAuth
 - per-user namespace scopes
-- account-free, capability-based remote leader election in v0.12
+- account-free, capability-based remote leader election
+- per-client public-election admission limits
 
 ## Next
 
@@ -41,7 +42,7 @@ OctoStore is becoming the smallest useful coordination plane for agent fleets: s
 
 - per-lock ACLs
 - explicit organization and team namespaces
-- operator-configurable request and room quotas
+- operator-configurable room quotas
 - hashed-at-rest static bearer tokens
 
 ### Durability and operations

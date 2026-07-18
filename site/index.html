@@ -3,24 +3,38 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OctoStore — One agent moves. The rest wait.</title>
-  <meta name="description" content="The open coordination plane for agent fleets. Self-host OctoStore or use account-free remote leader election over plain HTTP.">
+  <title>Simple leader election over HTTP — OctoStore</title>
+  <meta name="description" content="Elect one leader from any process in two HTTP calls. No account, API key, SDK, or cluster to operate. Use the hosted service or self-host one Rust binary.">
   <meta name="theme-color" content="#171224">
-  <meta property="og:title" content="OctoStore — One agent moves. The rest wait.">
-  <meta property="og:description" content="Self-hosted agent coordination plus remote leader election with no account, API key, or SDK.">
+  <meta property="og:title" content="Pick one leader. Everyone else waits. — OctoStore">
+  <meta property="og:description" content="Simple leader election over HTTP. No account, API key, SDK, or cluster to operate.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://octostore.io/">
   <meta property="og:image" content="https://octostore.io/assets/octostore-og.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="OctoStore signal board showing one elected agent leader and two followers waiting">
+  <meta property="og:image:alt" content="OctoStore signal board showing one process elected leader while two processes wait">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="OctoStore — One agent moves. The rest wait.">
-  <meta name="twitter:description" content="Self-host the coordination plane or elect one remote leader with zero signup.">
+  <meta name="twitter:title" content="Pick one leader. Everyone else waits. — OctoStore">
+  <meta name="twitter:description" content="Leader election in two HTTP calls. No signup. Any language.">
   <meta name="twitter:image" content="https://octostore.io/assets/octostore-og.png">
   <link rel="canonical" href="https://octostore.io/">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/assets/site.css">
   <script defer src="/assets/site.js"></script>
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "OctoStore",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "Linux, macOS",
+      "description": "Simple leader election and coordination over HTTP, available as a hosted API or a self-hosted Rust binary.",
+      "url": "https://octostore.io/",
+      "codeRepository": "https://github.com/octostore/octostore.io",
+      "license": "https://opensource.org/license/mit"
+    }
+  </script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -32,9 +46,10 @@
         OctoStore
       </a>
       <div class="nav-links">
+        <a href="/leader-election/">Leader election</a>
         <a href="/agents/">Agents</a>
+        <a href="/coordination/">Coordination</a>
         <a href="/docs/">Docs</a>
-        <a href="/blog/">Blog</a>
         <a href="https://github.com/octostore/octostore.io">GitHub</a>
         <a class="nav-cta" href="#live-race">Try it live</a>
       </div>
@@ -44,193 +59,227 @@
   <main id="main">
     <section class="hero wrap">
       <div>
-        <div class="signal-label">v0.12 · public leader election</div>
-        <h1>One agent <span class="signal-word">moves.</span> The rest wait.</h1>
-        <p class="hero-copy">OctoStore is the open coordination plane for agent fleets. Self-host the single binary for durable orchestration, or use the public referee when you need one remote leader without a login, API key, or SDK.</p>
+        <div class="signal-label">Leader election over plain HTTP</div>
+        <h1><span class="signal-word">Pick one</span> leader. Everyone else waits.</h1>
+        <p class="hero-copy">Open a room. Send the same request from every process. One gets a short lease; the rest get the leader and exactly when to retry. No account, API key, SDK, or cluster to operate.</p>
         <div class="button-row">
-          <a class="button primary" href="#live-race">Run a three-agent race</a>
-          <a class="button" href="/docs/#self-host">Self-host in 60 seconds</a>
+          <a class="button primary" href="#live-race">Run a live election</a>
+          <a class="button" href="#two-calls">See the two-call API</a>
         </div>
-        <p class="hero-note">MIT licensed · Rust + SQLite · one binary · plain HTTP</p>
+        <p class="hero-note">Any language · 5–300s leases · hosted or self-hosted · MIT licensed</p>
       </div>
 
-      <div class="signal-tower" aria-label="One leader receives a green signal while two candidates hold">
-        <div class="tower-head"><span>REMOTE REFEREE</span><span>ROOM 7F2A</span></div>
+      <div class="signal-tower" aria-label="One process receives leadership while two candidates wait">
+        <div class="tower-head"><span>PUBLIC REFEREE</span><span>ROOM 7F2A</span></div>
         <div class="lamp-stack">
           <div class="lamp-row">
             <span class="lamp go" aria-hidden="true"></span>
-            <span class="lamp-copy"><strong>Agent Atlas</strong><span>AUTHORIZED TO MOVE</span></span>
+            <span class="lamp-copy"><strong>Process A</strong><span>LEASE ACQUIRED</span></span>
             <span class="term">TERM 1842</span>
           </div>
           <div class="lamp-row">
             <span class="lamp hold" aria-hidden="true"></span>
-            <span class="lamp-copy"><strong>Agent Comet</strong><span>LEADER OBSERVED</span></span>
-            <span class="term">HOLD</span>
+            <span class="lamp-copy"><strong>Process B</strong><span>LEADER OBSERVED</span></span>
+            <span class="term">WAIT</span>
           </div>
           <div class="lamp-row">
             <span class="lamp hold" aria-hidden="true"></span>
-            <span class="lamp-copy"><strong>Agent Mako</strong><span>RETRY ON EXPIRY</span></span>
-            <span class="term">HOLD</span>
+            <span class="lamp-copy"><strong>Process C</strong><span>RETRY ON EXPIRY</span></span>
+            <span class="term">WAIT</span>
           </div>
         </div>
-        <div class="tower-foot"><span>NO ACCOUNT</span><span>15S LEASE</span></div>
+        <div class="tower-foot"><span>NO SIGNUP</span><span>15S LEASE</span></div>
       </div>
     </section>
 
     <div class="proof-strip">
       <div class="proof-list wrap" aria-label="Product facts">
-        <span>Self-hosted by default</span>
-        <span>Hosted elections, zero signup</span>
+        <span>Any process that speaks HTTP</span>
+        <span>No shared database to wire up</span>
         <span>Monotonic fencing terms</span>
-        <span>Crash-safe lease expiry</span>
+        <span>One binary to self-host</span>
       </div>
     </div>
 
     <section class="section wrap" id="live-race">
       <div class="section-intro">
-        <div class="signal-label">The 15-second proof</div>
-        <h2>Three agents enter. One gets the green light.</h2>
-        <p>This is the production API, not a canned animation. OctoStore opens an anonymous room, races three candidates, and returns one leader plus two followers who agree on who won.</p>
+        <h2>Three processes. One answer.</h2>
+        <p>Run a real election against the production API. OctoStore creates an anonymous room, races three workers, and returns one leader plus two followers that agree on who won.</p>
       </div>
 
       <div class="race-board" data-election-demo data-api-base="https://api.octostore.io">
         <div class="race-toolbar">
           <span class="race-room" data-election-room>no room yet</span>
-          <button class="button primary small" type="button" data-run-election>Run the race</button>
+          <button class="button primary small" type="button" data-run-election>Run the election</button>
         </div>
         <div class="candidate-list">
-          <div class="candidate" data-candidate="agent-atlas" data-route="sea">
+          <div class="candidate" data-candidate="worker-sea" data-route="sea">
             <span class="candidate-light" aria-hidden="true"></span>
-            <span class="candidate-name">Atlas</span>
-            <span class="candidate-route">us-west / task-1842</span>
+            <span class="candidate-name">Worker SEA</span>
+            <span class="candidate-route">Seattle / cleanup-job</span>
             <span class="candidate-state" data-candidate-state>Ready</span>
           </div>
-          <div class="candidate" data-candidate="agent-comet" data-route="iad">
+          <div class="candidate" data-candidate="worker-iad" data-route="iad">
             <span class="candidate-light" aria-hidden="true"></span>
-            <span class="candidate-name">Comet</span>
-            <span class="candidate-route">us-east / task-1842</span>
+            <span class="candidate-name">Worker IAD</span>
+            <span class="candidate-route">Virginia / cleanup-job</span>
             <span class="candidate-state" data-candidate-state>Ready</span>
           </div>
-          <div class="candidate" data-candidate="agent-mako" data-route="fra">
+          <div class="candidate" data-candidate="worker-fra" data-route="fra">
             <span class="candidate-light" aria-hidden="true"></span>
-            <span class="candidate-name">Mako</span>
-            <span class="candidate-route">eu-central / task-1842</span>
+            <span class="candidate-name">Worker FRA</span>
+            <span class="candidate-route">Frankfurt / cleanup-job</span>
             <span class="candidate-state" data-candidate-state>Ready</span>
           </div>
         </div>
-        <p class="race-status" role="status" aria-live="polite" aria-atomic="true" data-race-status>Click “Run the race.” No credentials will be sent or created.</p>
+        <p class="race-status" role="status" aria-live="polite" aria-atomic="true" data-race-status>Click “Run the election.” No credentials will be sent or created.</p>
       </div>
     </section>
 
-    <section class="section wrap">
+    <section class="section wrap" id="two-calls">
       <div class="split">
         <div>
-          <div class="signal-label">The whole API</div>
-          <h2>No auth ceremony. Just campaign.</h2>
-          <p class="lede">Create an opaque room, share its ID with your agents, and let each candidate make the same request. The winner receives a secret leader capability. Everyone else sees the winner and exactly when to retry.</p>
+          <h2>Two calls. One leader.</h2>
+          <p class="lede">Create an opaque room, share its ID with your processes, and let each candidate campaign. The winner receives the capability to renew or resign. Everyone else receives the winner and a retry delay.</p>
           <div class="fact-line">
-            <span class="fact">5–300s leases</span>
-            <span class="fact">256-bit leader capability</span>
-            <span class="fact">public status</span>
+            <span class="fact">no login</span>
+            <span class="fact">no API key</span>
+            <span class="fact">no SDK</span>
           </div>
+          <p class="section-link"><a href="/leader-election/">Follow the 60-second leader-election guide →</a></p>
         </div>
 
         <div class="code-window">
           <div class="code-head">
-            <span>shell · account-free election</span>
+            <span>shell · works from any runtime</span>
             <button class="copy-button" type="button" data-copy-target="#election-code">Copy</button>
           </div>
-          <pre id="election-code"><code><span class="code-comment"># 1. Open a room. No login. No token.</span>
+          <pre id="election-code"><code><span class="code-comment"># 1. Open a room.</span>
 ROOM=$(curl -s -X POST \
   https://api.octostore.io/elections \
   | jq -r .election_id)
 
-<span class="code-comment"># 2. Every agent campaigns in the same room.</span>
+<span class="code-comment"># 2. Every process campaigns in that room.</span>
 curl -s -X POST \
   "https://api.octostore.io/elections/$ROOM/campaign" \
   -H "Content-Type: application/json" \
-  -d '{"candidate_id":"agent-atlas","ttl_seconds":30}'
+  -d '{"candidate_id":"worker-a","ttl_seconds":30}'
 
-<span class="code-comment"># winner → status: leader + leader_token</span>
-<span class="code-comment"># others → status: follower + retry_after_ms</span></code></pre>
+<span class="code-comment"># winner → leader_token + term + renew_after_ms</span>
+<span class="code-comment"># others → current leader + retry_after_ms</span></code></pre>
         </div>
+      </div>
+    </section>
+
+    <section class="section edge-section wrap">
+      <div class="section-intro">
+        <h2>The easy version breaks at the worst time.</h2>
+        <p>A database flag can choose a leader. It does not tell you what happens when two processes start together, the winner disappears, or an old leader wakes up and keeps writing.</p>
+      </div>
+
+      <div class="edge-list">
+        <div class="edge-row">
+          <strong>Two processes start together</strong>
+          <span>One lease is committed. Every caller sees the same leader.</span>
+        </div>
+        <div class="edge-row">
+          <strong>The leader crashes</strong>
+          <span>Renewal stops. The short lease expires and another candidate can win.</span>
+        </div>
+        <div class="edge-row">
+          <strong>The old leader wakes up</strong>
+          <span>A higher fencing term lets downstream systems reject stale authority.</span>
+        </div>
+        <div class="edge-row">
+          <strong>Your workers use different stacks</strong>
+          <span>They coordinate through JSON and HTTP instead of a language-specific client.</span>
+        </div>
+        <div class="edge-row">
+          <strong>You do not want another cluster</strong>
+          <span>Use the hosted API now, or run one Rust binary with one SQLite file.</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section use-section">
+      <div class="wrap">
+        <div class="section-intro">
+          <h2>Use it anywhere one thing should run.</h2>
+          <p>Leader election is not an agent feature. It is a small answer to a common systems question: which process gets the turn?</p>
+        </div>
+        <div class="use-tape" aria-label="Leader election use cases">
+          <span>scheduled jobs</span>
+          <span>cleanup workers</span>
+          <span>singleton schedulers</span>
+          <span>reconcilers</span>
+          <span>migration runners</span>
+          <span>agent dispatchers</span>
+        </div>
+        <p class="use-note">Bash, Python, Go, Rust, JavaScript, a serverless function, or a thirty-year-old service. If it can send HTTP, it can campaign.</p>
       </div>
     </section>
 
     <section class="section wrap">
       <div class="section-intro">
-        <div class="signal-label">Orchestration without the empire</div>
-        <h2>Your agents already know how to work. Give them shared truth.</h2>
-        <p>OctoStore does not execute prompts or own your workflow. It settles the hard coordination questions: who owns this task, who is leader now, whether a lease is still alive, and which fencing term is newest.</p>
+        <h2>Start with election. Add coordination only when you need it.</h2>
+        <p>The public API stays intentionally small. The self-hosted service adds durable task ownership and fleet coordination without taking over execution.</p>
       </div>
 
-      <div class="orchestration-map" role="img" aria-label="Many agents coordinate through OctoStore to claim shared tasks">
-        <div class="agent-bank">
-          <div class="map-node active">agent-atlas / term 1842</div>
-          <div class="map-node">agent-comet / observing</div>
-          <div class="map-node">agent-mako / observing</div>
-        </div>
-        <div class="referee">Octo<br>Store</div>
-        <div class="task-bank">
-          <div class="map-node active">task-1842 / owned</div>
-          <div class="map-node">deploy-main / available</div>
-          <div class="map-node">customer-72 / available</div>
-        </div>
-      </div>
-
-      <div class="mode-list">
-        <div class="mode">
-          <div class="mode-name">Claim</div>
-          <p>Give every issue, ticket, queue item, migration, or deployment one current owner. Leases expire when an agent disappears, so abandoned work becomes available again.</p>
-        </div>
-        <div class="mode">
-          <div class="mode-name">Elect</div>
-          <p>Choose one active coordinator across machines and clouds. Every term carries a monotonic fencing number so downstream systems can reject stale leaders.</p>
-        </div>
-        <div class="mode">
-          <div class="mode-name">Observe</div>
-          <p>Attach small operator-readable metadata, inspect current ownership over HTTP, and react to changes without coupling your fleet to a language-specific SDK.</p>
-        </div>
+      <div class="path-list">
+        <a class="path-link" href="/agents/">
+          <span class="path-name">Agents</span>
+          <span><strong>Stop two agents from doing the same work.</strong><small>Leader election, task claims, sessions, and fencing for fleets.</small></span>
+          <span aria-hidden="true">→</span>
+        </a>
+        <a class="path-link" href="/coordination/">
+          <span class="path-name">Coordination</span>
+          <span><strong>Give every task one temporary owner.</strong><small>Named HTTP locks, expiry, renewal, release, watches, and webhooks.</small></span>
+          <span aria-hidden="true">→</span>
+        </a>
+        <a class="path-link" href="/docs/#self-host">
+          <span class="path-name">Self-host</span>
+          <span><strong>Move the referee inside your network.</strong><small>One binary, one SQLite database, static tokens, optional OAuth.</small></span>
+          <span aria-hidden="true">→</span>
+        </a>
       </div>
     </section>
 
     <section class="section wrap" id="self-host">
-      <div class="split">
+      <div class="split self-host-split">
+        <div>
+          <h2>Use ours now. Own yours when you need to.</h2>
+          <p class="lede">The hosted election API is the fastest path to one leader. Self-host the same API when the room, traffic, or coordination state must stay inside your boundary.</p>
+          <div class="button-row">
+            <a class="button primary" href="/docs/#self-host">Self-host in 60 seconds</a>
+            <a class="button" href="https://github.com/octostore/octostore.io/releases/latest">Download a release</a>
+          </div>
+        </div>
         <div class="code-window">
           <div class="code-head">
-            <span>shell · local control plane</span>
+            <span>shell · local referee</span>
             <button class="copy-button" type="button" data-copy-target="#self-host-code">Copy</button>
           </div>
           <pre id="self-host-code"><code>curl -fsSL \
   https://raw.githubusercontent.com/octostore/octostore.io/main/install.sh \
   | sh
 
-export STATIC_TOKENS='ops:change-me'
-export DATABASE_URL='./octostore.db'
+STATIC_TOKENS='ops:change-me' \
+DATABASE_URL='./octostore.db' \
 octostore
 
-<span class="code-comment"># API listening on :3000</span>
+<span class="code-comment"># listening on :3000</span>
 <span class="code-comment"># state persisted in SQLite WAL</span></code></pre>
-        </div>
-        <div>
-          <div class="signal-label">Own the referee</div>
-          <h2>One binary. One database file. Your network.</h2>
-          <p class="lede">Run the full lock, session, webhook, and election service wherever your agents live. Static tokens are enough for private deployments. GitHub OAuth remains optional. Public elections can be disabled with one environment variable.</p>
-          <div class="button-row">
-            <a class="button primary" href="/docs/#self-host">Read the self-host guide</a>
-            <a class="button" href="https://github.com/octostore/octostore.io/releases/latest">Download a release</a>
-          </div>
         </div>
       </div>
     </section>
 
     <section class="closing">
       <div class="wrap">
-        <h2>Agents are cheap. Collisions are expensive.</h2>
-        <p>Put one small referee between “I found work” and “I changed production.” Use the hosted election API now, or self-host the complete coordination plane.</p>
+        <h2>Build the job. Stop rebuilding the election.</h2>
+        <p>Give every candidate the same room. Let one move. Let everyone else wait.</p>
         <div class="button-row">
-          <a class="button primary" href="#live-race">Race three agents</a>
-          <a class="button" href="https://github.com/octostore/octostore.io">Star OctoStore on GitHub</a>
+          <a class="button primary" href="#live-race">Run a live election</a>
+          <a class="button" href="https://github.com/octostore/octostore.io">View OctoStore on GitHub</a>
         </div>
       </div>
     </section>
@@ -239,9 +288,11 @@ octostore
   <footer class="site-footer wrap">
     <span>© <span data-current-year>2026</span> OctoStore · MIT licensed</span>
     <span class="footer-links">
-      <a href="/docs/">Docs</a>
+      <a href="/leader-election/">Leader election</a>
       <a href="/agents/">Agents</a>
-      <a href="/blog/">Blog</a>
+      <a href="/coordination/">Coordination</a>
+      <a href="/docs/">Docs</a>
+      <a href="/blog/">Field notes</a>
       <a href="/status.html">Status</a>
       <a href="https://github.com/octostore/octostore.io">GitHub</a>
     </span>

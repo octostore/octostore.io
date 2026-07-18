@@ -44,9 +44,9 @@
 
   const runElection = async () => {
     runButton.disabled = true;
-    runButton.textContent = "CAMPAIGNING…";
+    runButton.textContent = "ELECTING…";
     roomLabel.textContent = "opening room…";
-    status.textContent = "Three candidates are reaching the same remote referee.";
+    status.textContent = "Three processes are asking the same remote referee for leadership.";
     candidates.forEach(resetCandidate);
 
     try {
@@ -84,7 +84,7 @@
       }
 
       status.textContent = winner
-        ? `${winner.result.leader.candidate_id.toUpperCase()} got the green light. The other agents received the same leader and retry time. No account was created.`
+        ? `${winner.result.leader.candidate_id.toUpperCase()} won term ${winner.result.leader.term}. The other processes received the same leader and retry time. No account was created.`
         : "The room responded, but no leader was elected. Try the race again.";
     } catch (error) {
       candidates.forEach(resetCandidate);
@@ -92,7 +92,7 @@
       status.textContent = `The live API could not run this race: ${error.message}. The self-hosted API uses the same endpoints.`;
     } finally {
       runButton.disabled = false;
-      runButton.textContent = "RUN A NEW RACE";
+      runButton.textContent = "RUN ANOTHER ELECTION";
     }
   };
 

@@ -2,9 +2,9 @@ openapi: 3.0.3
 info:
   title: OctoStore API
   description: >-
-    Open coordination plane for agent fleets. Elect one remote leader without
-    an account, or self-host durable task locks, sessions, webhooks, and fencing
-    terms in a single Rust binary backed by SQLite.
+    Simple leader election over HTTP. Elect one remote leader without an account,
+    API key, or SDK. Self-host the same API plus durable task locks, sessions,
+    webhooks, and fencing terms in a single Rust binary backed by SQLite.
   version: 0.0.0-dev
   contact:
     name: OctoStore
@@ -44,6 +44,8 @@ paths:
                     type: string
         '403':
           $ref: '#/components/responses/PublicElectionsDisabled'
+        '429':
+          $ref: '#/components/responses/PublicElectionRateLimited'
   /elections/{election_id}:
     get:
       tags:
@@ -86,7 +88,7 @@ paths:
                   minLength: 1
                   maxLength: 64
                   pattern: '^[A-Za-z0-9._:@-]+$'
-                  example: agent-west-2
+                  example: worker-west-2
                 ttl_seconds:
                   type: integer
                   minimum: 5
@@ -111,6 +113,8 @@ paths:
           $ref: '#/components/responses/PublicElectionsDisabled'
         '409':
           description: Public election capacity reached
+        '429':
+          $ref: '#/components/responses/PublicElectionRateLimited'
   /elections/{election_id}/renew:
     post:
       tags:
@@ -1059,6 +1063,21 @@ components:
       required:
       - error
   responses:
+    PublicElectionRateLimited:
+      description: This client exceeded the configured public election admission rate
+      headers:
+        Retry-After:
+          description: Seconds until the client's current admission window resets
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Rate limit exceeded
+            details: Rate limit exceeded; retry in 42 seconds
     PublicElectionsDisabled:
       description: Public elections are disabled on this server
       content:
@@ -1099,6 +1118,8 @@ components:
               value:
                 error: Invalid lease_id format
 tags:
+- name: Leader Elections
+  description: Account-free, capability-based leader election over HTTP
 - name: Authentication
   description: GitHub OAuth and token management
 - name: Sessions

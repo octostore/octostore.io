@@ -1,5 +1,5 @@
 use axum::{
-    http::StatusCode,
+    http::{header::RETRY_AFTER, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -55,6 +55,9 @@ pub enum AppError {
     #[error("Conflict: {0}")]
     Conflict(String),
 
+    #[error("Rate limit exceeded; retry in {retry_after_seconds} seconds")]
+    RateLimited { retry_after_seconds: u64 },
+
     #[error("Database error: {0}")]
     Database(#[from] rusqlite::Error),
 
@@ -73,7 +76,14 @@ pub enum AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let (status, error_message) = match self {
+        let details = self.to_string();
+        let retry_after_seconds = match &self {
+            AppError::RateLimited {
+                retry_after_seconds,
+            } => Some(*retry_after_seconds),
+            _ => None,
+        };
+        let (status, error_message) = match &self {
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "Authentication failed"),
             AppError::MissingAuth => (StatusCode::UNAUTHORIZED, "Authorization header required"),
             AppError::LockNotFound { .. } => (StatusCode::NOT_FOUND, "Lock not found"),
@@ -88,6 +98,7 @@ impl IntoResponse for AppError {
             AppError::SessionExpired => (StatusCode::GONE, "Session expired"),
             AppError::NotFound(_) => (StatusCode::NOT_FOUND, "Resource not found"),
             AppError::Conflict(_) => (StatusCode::CONFLICT, "Conflict"),
+            AppError::RateLimited { .. } => (StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded"),
             AppError::Database(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Database error"),
             AppError::HttpClient(_) => (StatusCode::BAD_GATEWAY, "External service error"),
             AppError::Json(_) => (StatusCode::BAD_REQUEST, "JSON parsing error"),
@@ -97,10 +108,15 @@ impl IntoResponse for AppError {
 
         let body = Json(json!({
             "error": error_message,
-            "details": self.to_string()
+            "details": details
         }));
-
-        (status, body).into_response()
+        let mut response = (status, body).into_response();
+        if let Some(seconds) = retry_after_seconds {
+            if let Ok(value) = HeaderValue::from_str(&seconds.to_string()) {
+                response.headers_mut().insert(RETRY_AFTER, value);
+            }
+        }
+        response
     }
 }
 
@@ -239,6 +255,13 @@ mod tests {
                 AppError::Conflict("test".to_string()),
                 StatusCode::CONFLICT,
                 "Conflict",
+            ),
+            (
+                AppError::RateLimited {
+                    retry_after_seconds: 30,
+                },
+                StatusCode::TOO_MANY_REQUESTS,
+                "Rate limit exceeded",
             ),
             (
                 AppError::Internal(anyhow::anyhow!("test")),

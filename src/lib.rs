@@ -6,6 +6,7 @@ pub mod error;
 pub mod locks;
 pub mod metrics;
 pub mod models;
+pub mod rate_limit;
 pub mod sessions;
 pub mod store;
 pub mod webhooks;
