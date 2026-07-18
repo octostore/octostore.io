@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Simple leader election over HTTP — OctoStore</title>
-  <meta name="description" content="Elect one leader from any process in two HTTP calls. No account, API key, SDK, or cluster to operate. Use the hosted service or self-host one Rust binary.">
+  <title>OctoStore — Free hosted and open-source coordination</title>
+  <meta name="description" content="OctoStore is an open-source coordination service for distributed processes and agents. Use the totally free hosted version with no signup, or run it yourself.">
   <meta name="theme-color" content="#171224">
-  <meta property="og:title" content="Pick one leader. Everyone else waits. — OctoStore">
-  <meta property="og:description" content="Simple leader election over HTTP. No account, API key, SDK, or cluster to operate.">
+  <meta property="og:title" content="Meet OctoStore — Use it free or run it yourself">
+  <meta property="og:description" content="Open-source coordination for distributed processes and agents, with a totally free hosted version and no signup.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://octostore.io/">
   <meta property="og:image" content="https://octostore.io/assets/octostore-og.png">
@@ -15,8 +15,8 @@
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="OctoStore signal board showing one process elected leader while two processes wait">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Pick one leader. Everyone else waits. — OctoStore">
-  <meta name="twitter:description" content="Leader election in two HTTP calls. No signup. Any language.">
+  <meta name="twitter:title" content="Meet OctoStore — Use it free or run it yourself">
+  <meta name="twitter:description" content="Open-source coordination with a totally free hosted version. No signup.">
   <meta name="twitter:image" content="https://octostore.io/assets/octostore-og.png">
   <link rel="canonical" href="https://octostore.io/">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -51,60 +51,51 @@
         <a href="/coordination/">Coordination</a>
         <a href="/docs/">Docs</a>
         <a href="https://github.com/octostore/octostore.io">GitHub</a>
-        <a class="nav-cta" href="#live-race">Try it live</a>
+        <a class="nav-cta" href="#live-race">Use it free</a>
       </div>
     </nav>
   </div>
 
   <main id="main">
-    <section class="hero wrap">
+    <section class="hero product-hero wrap">
       <div>
-        <div class="signal-label">Leader election over plain HTTP</div>
-        <h1><span class="signal-word">Pick one</span> leader. Everyone else waits.</h1>
-        <p class="hero-copy">Open a room. Send the same request from every process. One gets a short lease; the rest get the leader and exactly when to retry. No account, API key, SDK, or cluster to operate.</p>
+        <div class="signal-label">Open coordination service</div>
+        <h1><span class="signal-word">Meet</span> OctoStore.</h1>
+        <p class="hero-copy">OctoStore helps distributed processes and agents agree on who gets to move. Use the totally free hosted version with no signup, or run the open-source server on your own infrastructure.</p>
         <div class="button-row">
-          <a class="button primary" href="#live-race">Run a live election</a>
-          <a class="button" href="#two-calls">See the two-call API</a>
+          <a class="button primary" href="#live-race">Use OctoStore free</a>
+          <a class="button" href="https://github.com/octostore/octostore.io">View the open-source project</a>
         </div>
-        <p class="hero-note">Any language · 5–300s leases · hosted or self-hosted · MIT licensed</p>
+        <p class="hero-note">Same HTTP API · hosted or self-hosted · MIT licensed</p>
       </div>
 
-      <div class="signal-tower" aria-label="One process receives leadership while two candidates wait">
-        <div class="tower-head"><span>PUBLIC REFEREE</span><span>ROOM 7F2A</span></div>
+      <div class="signal-tower" aria-label="OctoStore is available as a free hosted service or an open-source self-hosted server">
+        <div class="tower-head"><span>OCTOSTORE</span><span>TWO WAYS TO RUN</span></div>
         <div class="lamp-stack">
           <div class="lamp-row">
             <span class="lamp go" aria-hidden="true"></span>
-            <span class="lamp-copy"><strong>Process A</strong><span>LEASE ACQUIRED</span></span>
-            <span class="term">TERM 1842</span>
+            <span class="lamp-copy"><strong>Hosted</strong><span>FREE PUBLIC SERVICE</span></span>
+            <span class="term">NO LOGIN</span>
           </div>
           <div class="lamp-row">
-            <span class="lamp hold" aria-hidden="true"></span>
-            <span class="lamp-copy"><strong>Process B</strong><span>LEADER OBSERVED</span></span>
-            <span class="term">WAIT</span>
+            <span class="lamp open" aria-hidden="true"></span>
+            <span class="lamp-copy"><strong>Open source</strong><span>RUN IT YOURSELF</span></span>
+            <span class="term">MIT</span>
           </div>
           <div class="lamp-row">
-            <span class="lamp hold" aria-hidden="true"></span>
-            <span class="lamp-copy"><strong>Process C</strong><span>RETRY ON EXPIRY</span></span>
-            <span class="term">WAIT</span>
+            <span class="lamp shared" aria-hidden="true"></span>
+            <span class="lamp-copy"><strong>Same API</strong><span>HTTP + JSON</span></span>
+            <span class="term">ANY STACK</span>
           </div>
         </div>
-        <div class="tower-foot"><span>NO SIGNUP</span><span>15S LEASE</span></div>
+        <div class="tower-foot"><span>USE OURS</span><span>OR OWN YOURS</span></div>
       </div>
     </section>
-
-    <div class="proof-strip">
-      <div class="proof-list wrap" aria-label="Product facts">
-        <span>Any process that speaks HTTP</span>
-        <span>No shared database to wire up</span>
-        <span>Monotonic fencing terms</span>
-        <span>One binary to self-host</span>
-      </div>
-    </div>
 
     <section class="section wrap" id="live-race">
       <div class="section-intro">
         <h2>Three processes. One answer.</h2>
-        <p>Run a real election against the production API. OctoStore creates an anonymous room, races three workers, and returns one leader plus two followers that agree on who won.</p>
+        <p>See the free hosted service make a real decision. OctoStore creates an anonymous room, races three workers, and returns one leader plus two followers that agree on who won.</p>
       </div>
 
       <div class="race-board" data-election-demo data-api-base="https://api.octostore.io">
@@ -135,6 +126,15 @@
         <p class="race-status" role="status" aria-live="polite" aria-atomic="true" data-race-status>Click “Run the election.” No credentials will be sent or created.</p>
       </div>
     </section>
+
+    <div class="proof-strip">
+      <div class="proof-list wrap" aria-label="Product facts">
+        <span>Any process that speaks HTTP</span>
+        <span>No shared database to wire up</span>
+        <span>Monotonic fencing terms</span>
+        <span>One binary to self-host</span>
+      </div>
+    </div>
 
     <section class="section wrap" id="two-calls">
       <div class="split">

@@ -1,6 +1,6 @@
 [package]
 name = "octostore"
-version = "0.13.1"
+version = "0.13.2"
 edition = "2021"
 description = "Simple leader election over HTTP with self-hosted task and agent coordination"
 license = "MIT"

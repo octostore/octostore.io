@@ -2,6 +2,14 @@
 
 All notable changes to Octostore will be documented in this file.
 
+## v0.13.2 - 2026-07-18
+
+### Changed
+
+- Reframe the homepage as an introduction to OctoStore before presenting individual capabilities.
+- Put the totally free hosted service and the open-source self-hosted server on equal footing in the hero.
+- Move leader-election proof and detailed value propositions below the product introduction.
+
 ## v0.13.1 - 2026-07-18
 
 ### Fixed
