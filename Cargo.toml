@@ -1,14 +1,14 @@
 [package]
 name = "octostore"
-version = "0.11.0"
+version = "0.12.0"
 edition = "2021"
-description = "Distributed locking as a service — one binary, simple HTTP API, SQLite persistence, optional GitHub OAuth"
+description = "Self-hosted agent coordination and account-free remote leader election over HTTP"
 license = "MIT"
 repository = "https://github.com/octostore/octostore.io"
 homepage = "https://octostore.io"
 documentation = "https://docs.rs/octostore"
 readme = "README.md"
-keywords = ["distributed", "locking", "mutex", "coordination", "http"]
+keywords = ["agents", "leader-election", "distributed", "locking", "coordination"]
 categories = ["web-programming::http-server", "database"]
 exclude = ["site/*", "benches/*", "fuzz/*", ".github/*"]
 

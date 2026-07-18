@@ -1,120 +1,150 @@
-# OctoStore Architecture
+# OctoStore architecture
 
-OctoStore is a distributed lock service designed for simplicity, performance, and correctness. This document explains the architectural decisions and design philosophy.
+OctoStore is a single-node coordination plane for agent fleets and distributed workers. One Rust process serves an HTTP API, keeps active leases in memory, and persists authority changes to SQLite in WAL mode.
 
-## Why Rust
+The design optimizes for an operator who wants one binary and one database file, not a new cluster.
 
-**Memory Safety Without GC**: Rust's ownership system prevents data races and memory leaks at compile time, eliminating entire classes of bugs that plague distributed systems. No garbage collection pauses mean predictable latency.
+## Product boundary
 
-**Tokio for Async**: Built on Tokio's async runtime, allowing thousands of concurrent connections with minimal resource overhead. Perfect for high-frequency lock operations.
+OctoStore owns coordination state:
 
-**Single Binary Deployment**: Zero external dependencies means trivial deployment. Copy one binary, run it. No container orchestration or dependency hell.
+- current task owner
+- current fleet leader
+- lease expiry and renewal
+- monotonic fencing term
+- agent sessions and ephemeral locks
+- operator metadata, watches, webhooks, and metrics
 
-## Why DashMap Over Redis
+It does not execute prompts, schedule DAGs, hold work queues, or make external side effects transactional. Agents keep their execution model. OctoStore decides who is currently authorized to act.
 
-**No External Dependencies**: Eliminates operational complexity. No Redis cluster to maintain, no network partitions between components, no Redis-specific tuning or monitoring.
+## Request flow
 
-**Lock-Free Concurrent Reads**: DashMap uses lock-free data structures for reads, providing near-zero contention for lock status queries. Critical for high-throughput scenarios.
-
-**Single Binary Philosophy**: Everything in one process reduces failure modes and makes reasoning about consistency much simpler. The filesystem is the only external dependency.
-
-## Why SQLite for Persistence
-
-**Embedded**: No separate database server to manage. SQLite is battle-tested, reliable, and optimized for single-writer scenarios.
-
-**Zero Config**: Works out of the box. No connection pools, user management, or network configuration required.
-
-**Good Enough for Single-Node**: While not distributed, SQLite can handle thousands of transactions per second with WAL mode, sufficient for most lock service workloads.
-
-## Why Fencing Tokens
-
-**The Split-Brain Problem**: In distributed systems, a client holding a lock may become partitioned but continue operating. Without fencing tokens, two clients can believe they hold the same lock.
-
-**Monotonic Tokens Protect Against Stale Clients**: Every lock acquisition gets a strictly increasing fencing token. External resources can reject operations from clients with older tokens, ensuring safety even during network partitions or client failures.
-
-**Correctness Over Performance**: Fencing tokens add a small overhead but prevent catastrophic data corruption scenarios. The trade-off is always worth it for critical sections.
-
-## Why TTL-Based Expiry
-
-**Self-Healing Locks**: Clients can crash or become partitioned. TTL-based expiry ensures locks don't remain held indefinitely, preventing deadlock scenarios.
-
-**No Heartbeat Protocol**: Heartbeats add complexity and failure modes. TTL-based expiry is simpler and works even when clients can't send heartbeats.
-
-**Predictable Cleanup**: Operators can reason about worst-case lock hold times. A 5-minute TTL guarantees the lock will be free within 5 minutes, regardless of client behavior.
-
-## Request Flow
-
-```
-HTTP Request
-    ↓
-Auth Check (DashMap cache → SQLite fallback if needed)
-    ↓
-Lock Operation (DashMap read/write + SQLite write-through)
-    ↓
-HTTP Response
+```text
+Agent request
+    |
+    +-- public election route --> capability-based lease
+    |
+    +-- lock/session route ----> bearer-token authentication
+                                  |
+                                  v
+                         shared LockStore
+                         DashMap + SQLite WAL
+                                  |
+                                  +--> response with lease + term
+                                  +--> SSE event / webhook
 ```
 
-**Authentication**: Check bearer token against in-memory cache (DashMap), fall back to SQLite for cache misses. OAuth integration with GitHub for user management.
+Public elections and authenticated locks use the same lease store. Election records live in a reserved `__election/` namespace that normal lock routes cannot read or mutate.
 
-**Lock Operations**: All operations go through DashMap for consistency. Writes are immediately persisted to SQLite for durability.
+## Lease lifecycle
 
-**Response**: Return structured JSON with lock details, fencing tokens, and any error information.
+### Acquire
 
-## Concurrency Model
+The store serializes contenders for one name through a DashMap entry. A winner receives:
 
-**DashMap for Lock-Free Reads**: Lock status queries never block. High read throughput even under heavy write load.
+- a random lease ID
+- a strictly increasing fencing term
+- an expiry timestamp
 
-**Per-Entry Locking for Writes**: Each lock name has its own synchronization. Acquiring lock "A" doesn't block acquiring lock "B".
+Before the HTTP handler reports success, OctoStore persists the next fencing counter and the complete lease row to SQLite. A database failure becomes a failed acquisition, never a successful response with memory-only authority.
 
-**Separate SQLite Connections**: Auth database and lock database use separate connections to prevent lock table contention from affecting authentication.
+### Renew
 
-**Async All The Way**: Tokio's async runtime ensures one thread can handle thousands of concurrent requests without blocking on I/O.
+Renewal validates both the holder and lease ID. The new expiry is written to SQLite before the in-memory lease changes and before the response is returned.
 
-## Persistence Strategy
+### Release
 
-**Write-Through Caching**: Every lock operation updates both DashMap (for performance) and SQLite (for durability) synchronously.
+Release validates the same holder and lease ID. The SQLite row is deleted before the in-memory entry is removed. A failed delete cannot produce a successful response that later resurrects the lease after restart.
 
-**Lazy Loading on Startup**: On restart, scan SQLite for non-expired locks and restore them to DashMap. Expired locks are ignored (natural cleanup).
+### Expire
 
-**Fencing Token Recovery**: On startup, restore the fencing counter to max(existing_tokens) + 1, ensuring tokens remain monotonic across restarts.
+A background task scans active leases every five seconds. Expired leases are removed and an expiration event is broadcast. The request path also treats an expired entry as available, so correctness does not depend on the cleanup interval.
 
-## What's NOT Here (And Why)
+## Fencing terms
 
-**No Distributed Consensus**: Single-node is simpler and correct. Most applications don't need distributed locks across datacenters. Scale vertically first.
+TTL handles liveness. Fencing handles stale authority.
 
-**No SDK**: The HTTP API is simple enough for curl. Language-specific SDKs add maintenance burden and version skew problems. HTTP is the universal interface.
+A worker can pause during a network partition, lose its lease, then wake up believing it is still leader. Every new acquisition receives a higher term. A downstream resource that remembers the highest accepted term can reject late work from an older leader.
 
-**No Rate Limiting**: Premature optimization for v0.1. If needed, add nginx rate limiting in front or implement it as middleware later.
+The `fencing_counter` SQLite row stores the next term. Updates use `MAX(counter, new_value)` so slower concurrent writes cannot move it backward. Startup takes the maximum of:
 
-**No Complex Lock Types**: No read-write locks, no semaphores, no condition variables. Mutual exclusion locks solve 95% of real-world use cases. Complexity can be added later if needed.
+- the persisted next term
+- the configured initial value
+- one more than every restored live lease
 
-**No Sharding**: Single DashMap can handle millions of locks. If you need more, you probably need a different architecture (like consistent hashing across multiple OctoStore instances).
+Terms therefore remain monotonic even when every lease was released before restart.
 
-## Performance Characteristics
+## Account-free elections
 
-**Lock Acquisition**: ~100μs typical latency (DashMap + SQLite write)  
-**Lock Status Query**: ~1μs typical latency (DashMap read-only)  
-**Throughput**: >10,000 operations/second on modest hardware  
-**Memory**: ~1KB per active lock in memory  
-**Storage**: ~200 bytes per lock in SQLite  
+`POST /elections` generates a 192-bit URL-safe room ID without creating server-side state. The first campaign creates the lease.
 
-## Future Scaling
+A winning campaign generates two random UUIDs: an internal holder ID and lease ID. Their 32 bytes are encoded as an opaque 256-bit `leader_token`. Possession of that capability is required to renew or resign. Internal IDs and the token are never returned to followers or public status calls.
 
-When single-node limits are reached:
+Election properties:
 
-1. **Vertical Scaling**: More CPU/RAM/faster storage can 10x capacity
-2. **Consistent Hashing**: Shard lock namespaces across multiple OctoStore instances
-3. **Read Replicas**: SQLite can be replicated for read-heavy workloads
-4. **Cache Layer**: Add Redis for hot lock status queries (but keep SQLite for writes)
+- no account or API key
+- public state to anyone who knows the room ID
+- leader-only mutation through an unguessable bearer capability
+- 5 to 300 second TTL
+- configurable active-room capacity
+- operator kill switch through `PUBLIC_ELECTIONS=false`
 
-The architecture supports these evolution paths without fundamental changes.
+Room IDs reduce accidental discovery; they are not authentication. Deployments that require a private coordination namespace should self-host behind network policy.
 
-## Operational Simplicity
+## Authenticated coordination
 
-- **One Binary**: Download, run, done
-- **One Config File**: Environment variables or `.env` file
-- **One Database File**: SQLite file can be backed up with `cp`
-- **Standard Monitoring**: HTTP endpoints, structured logs, process metrics
-- **Graceful Shutdown**: SIGTERM saves fencing counter and closes cleanly
+Private lock, session, and webhook routes use bearer tokens. Operators can seed static tokens from an environment variable or file. GitHub OAuth remains optional for human-facing deployments.
 
-OctoStore prioritizes operational simplicity over theoretical scalability. Most systems never outgrow a well-tuned single node.
+Per-user namespaces restrict scoped tokens to a lock-name prefix. The public election namespace is reserved and filtered from normal lock listing.
+
+## Persistence
+
+SQLite runs in WAL mode through one process-local connection protected by a mutex. All active lease fields are persisted:
+
+- name
+- holder and lease IDs
+- fencing term
+- expiry and acquisition timestamps
+- metadata
+- session relationship
+- ephemeral flag
+- lock-delay policy
+
+On startup, unexpired rows are restored into DashMap. Expired rows are deleted. This model preserves in-flight authority across clean and unclean restarts without an external database service.
+
+## Concurrency model
+
+- Tokio handles asynchronous HTTP, timers, SSE, and webhooks.
+- DashMap provides per-entry coordination, so unrelated names do not contend on one in-memory lock.
+- SQLite remains the single durable writer and the ultimate single-node serialization boundary.
+- Fencing allocation uses an atomic counter plus monotonic SQLite persistence.
+
+The service is single-node by design. Running two OctoStore processes against separate SQLite files creates two authorities and is unsafe. High availability would require consensus or a shared serializable store and is outside the current contract.
+
+## Failure behavior
+
+| Failure | Result |
+| --- | --- |
+| Agent process crashes | Renewal stops; lease expires |
+| Agent loses network | Lease expires unless connectivity returns before TTL |
+| OctoStore restarts | Unexpired leases and next fencing term restore from SQLite |
+| SQLite mutation fails | Authority-changing API call fails |
+| Webhook fails | Lease remains valid; delivery failure is logged |
+| Leader token leaks | Holder can be renewed or resigned; rotate by resigning or waiting for expiry |
+
+## Scaling path
+
+Start by scaling the single node vertically. Most coordination traffic is tiny JSON and short SQLite writes.
+
+If one node becomes the bottleneck, the safe next steps are namespace sharding or replacing the persistence boundary with a consensus-backed store. Adding stateless replicas in front of independent SQLite files is not a scaling strategy; it is split brain with nicer packaging.
+
+## Operational footprint
+
+- one release binary
+- one SQLite database plus WAL files
+- standard HTTP health and status endpoints
+- JSON metrics and admin endpoints
+- optional static token file
+- reverse proxy for TLS and network policy
+
+That is the whole operational thesis: shared authority without adopting another distributed system to run the distributed system.

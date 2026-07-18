@@ -1,198 +1,162 @@
 # OctoStore
 
-Distributed locks over HTTP.
+**One agent moves. The rest wait.**
 
-OctoStore is a small coordination service for shared work. Use it when several processes, jobs, or hosted workers can all see the same task but only one should own it at a time.
+OctoStore is an open coordination plane for agent fleets. Run the single Rust binary inside your network for durable task ownership, sessions, webhooks, and leader election, or use the hosted election API when several remote processes need one leader without creating an account.
 
-The core loop is simple:
+The boundary is deliberate: your agents keep their tools, prompts, queues, and execution model. OctoStore gives them shared truth about who is allowed to act.
 
-1. acquire a named lock with a TTL
-2. do the protected work if you acquired it
-3. renew the lease while work is still running
-4. release the lock on completion
-5. rely on expiry if the worker disappears
+> Alpha software. APIs may change before 1.0.
 
-> Alpha software. APIs and deployment details may change.
+## What it coordinates
 
-## What it is good for
+- **Agent leader election:** choose one current dispatcher, reconciler, scheduler, or maintenance leader.
+- **Task claims:** give every issue, ticket, queue item, deploy, or migration one temporary owner.
+- **Crash recovery:** leases expire when a worker stops renewing.
+- **Stale-writer defense:** monotonic fencing terms survive process restarts.
+- **Fleet liveness:** sessions can own many ephemeral locks and release them together.
+- **Operator visibility:** metadata, status endpoints, SSE watches, webhooks, and metrics use plain HTTP.
 
-- deploy serialization
-- singleton cron jobs
-- queue or backlog workers that need a visible owner
-- hosted agents claiming issues, tickets, or evaluation tasks
-- cache rebuilds and migrations that should not overlap
-- simple cross-language coordination from scripts and services
+## Remote leader election, no signup
 
-OctoStore is not a scheduler, workflow engine, queue, or DAG system. It is a focused lease service.
-
-## API model
-
-Lock names should be single path segments such as `deploy-main`, `issue-1842`, or `customer-sync-72`.
-
-Acquire a lock:
-
-```http
-POST /locks/:name/acquire
-```
-
-Request body:
-
-```json
-{
-  "ttl_seconds": 60,
-  "metadata": "runner=host-7 job=https://ci.example/runs/1842"
-}
-```
-
-`metadata` is optional and is intended for operator-visible context. Keep it small.
-
-Acquire responses use two primary statuses:
-
-- `acquired` — you own the lease and may proceed
-- `held` — another holder owns the lock; back off, retry later, or inspect status
-
-Renew a lock:
-
-```http
-POST /locks/:name/renew
-```
-
-Request body:
-
-```json
-{
-  "lease_id": "...",
-  "ttl_seconds": 60
-}
-```
-
-Renew returns:
-
-```json
-{
-  "lease_id": "...",
-  "expires_at": "..."
-}
-```
-
-Release a lock:
-
-```http
-POST /locks/:name/release
-```
-
-Request body:
-
-```json
-{
-  "lease_id": "..."
-}
-```
-
-Release returns:
-
-```json
-null
-```
-
-## Getting started
-
-### 1. Run locally with a static token
+Create a collision-resistant room. No login, API key, SDK, or request body is required:
 
 ```bash
-cargo run
+ROOM=$(curl -s -X POST https://api.octostore.io/elections \
+  | jq -r .election_id)
 ```
 
-For local development, configure a static bearer token:
+Share the room ID with every candidate and campaign:
 
 ```bash
-export STATIC_TOKENS='alice:devtoken'
-cargo run
-```
-
-Then use:
-
-```bash
-export OCTOSTORE_TOKEN='devtoken'
-```
-
-### 2. Acquire a lock
-
-```bash
-curl -X POST http://localhost:3000/locks/deploy-main/acquire \
-  -H "Authorization: Bearer ***" \
+curl -s -X POST \
+  "https://api.octostore.io/elections/$ROOM/campaign" \
   -H "Content-Type: application/json" \
-  -d '{"ttl_seconds":60,"metadata":"local smoke test"}'
+  -d '{
+    "candidate_id": "agent-atlas",
+    "ttl_seconds": 30,
+    "metadata": "fleet=support-agents"
+  }'
 ```
 
-If the response contains `"status":"acquired"`, this process owns the lease until `expires_at`.
+Exactly one live candidate receives:
 
-If the response contains `"status":"held"`, another holder owns the lock. Do not run the protected work.
+```json
+{
+  "status": "leader",
+  "election_id": "...",
+  "leader": {
+    "candidate_id": "agent-atlas",
+    "term": 1842,
+    "expires_at": "..."
+  },
+  "leader_token": "...",
+  "renew_after_ms": 15000
+}
+```
 
-### 3. Renew while work continues
+Followers receive the same leader plus `retry_after_ms`. The opaque `leader_token` is the bearer capability required to renew or resign the current term.
+
+Public election leases are 5 to 300 seconds. Generated room IDs contain 192 bits of entropy. The API stores no user account.
+
+## Self-host in one minute
+
+The installer verifies the release checksum and binary version:
 
 ```bash
-curl -X POST http://localhost:3000/locks/deploy-main/renew \
-  -H "Authorization: Bearer ***" \
-  -H "Content-Type: application/json" \
-  -d '{"lease_id":"YOUR_LEASE_ID","ttl_seconds":60}'
+curl -fsSL \
+  https://raw.githubusercontent.com/octostore/octostore.io/main/install.sh \
+  | sh
 ```
 
-The response contains the same `lease_id` and the new `expires_at` timestamp.
-
-### 4. Release when done
+Pin a specific release by setting the version on the installer process:
 
 ```bash
-curl -X POST http://localhost:3000/locks/deploy-main/release \
-  -H "Authorization: Bearer ***" \
-  -H "Content-Type: application/json" \
-  -d '{"lease_id":"YOUR_LEASE_ID"}'
+curl -fsSL \
+  https://raw.githubusercontent.com/octostore/octostore.io/main/install.sh \
+  | OCTOSTORE_VERSION=v0.12.0 sh
 ```
 
-A successful release returns `null`.
-
-### 5. Inspect lock status
+Start with a static token and one local SQLite file:
 
 ```bash
-curl http://localhost:3000/locks/deploy-main \
-  -H "Authorization: Bearer ***"
+STATIC_TOKENS='ops:change-me' \
+DATABASE_URL='./octostore.db' \
+octostore
+
+curl http://localhost:3000/health
 ```
 
-Use status and metadata to understand who owns the work and when the lease expires.
+OctoStore listens on `0.0.0.0:3000` by default. Put TLS and network policy in your existing reverse proxy.
 
-## Hosted API
+## Claim a task
 
-The hosted API is available at:
+Use a deterministic lock name before an agent starts side effects:
 
-```text
-https://api.octostore.io
+```bash
+curl -s -X POST http://localhost:3000/locks/github-issue-1842/acquire \
+  -H 'Authorization: Bearer change-me' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "ttl_seconds": 120,
+    "metadata": "agent=atlas run=https://trace.example/7f2a"
+  }'
 ```
 
-Interactive docs are published at:
+An `acquired` response includes a `lease_id`, `fencing_token`, and `expires_at`. A `held` response means another worker owns the task. Renew around half the TTL and release on clean completion.
 
-```text
-https://octostore.io/docs/
-```
+## API surface
 
-The website and docs source live at:
+| Primitive | Endpoints | Authentication |
+| --- | --- | --- |
+| Leader elections | `/elections`, `/elections/:id/*` | None; leader mutations use the returned capability |
+| Locks | `/locks`, `/locks/:name/*` | Bearer token |
+| Sessions | `/sessions`, `/sessions/:id/*` | Bearer token |
+| Webhooks | `/webhooks`, `/webhooks/:id` | Bearer token |
+| Health and status | `/health`, `/status` | None |
+| Metrics and admin | `/metrics`, `/admin/*` | Admin credential |
 
-```text
-https://github.com/octostore/octostore.io
-```
+Interactive API documentation is published at [https://api.octostore.io/docs](https://api.octostore.io/docs). The human guide lives at [https://octostore.io/docs/](https://octostore.io/docs/).
+
+## Configuration
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `BIND_ADDR` | `0.0.0.0:3000` | HTTP listen address |
+| `DATABASE_URL` | `octostore.db` | SQLite database path |
+| `STATIC_TOKENS` | unset | Comma-separated `user:token` credentials |
+| `STATIC_TOKENS_FILE` | unset | Newline-delimited static token file |
+| `PUBLIC_ELECTIONS` | `true` | Enable account-free election endpoints |
+| `MAX_PUBLIC_ELECTIONS` | `10000` | Maximum simultaneous public rooms |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | unset | Enable optional GitHub OAuth |
+| `ADMIN_KEY` | unset | Protect metrics and admin endpoints |
+
+Set `PUBLIC_ELECTIONS=false` when a private installation should expose only authenticated coordination.
+
+## Safety model
+
+- A lease proves time-bounded authority, not permanent ownership.
+- Every successful acquisition reserves its fencing term in SQLite before returning it.
+- Terms remain monotonic after all locks are released and the server restarts.
+- Generated election room IDs are hard to guess, but they are not access controls.
+- Leader tokens are bearer capabilities. Keep them out of URLs and logs.
+- Locks are advisory. Downstream writes should be idempotent and reject stale fencing terms where possible.
 
 ## Development
 
 ```bash
-cargo test
+./scripts/ci-local.sh
 cargo build --release
 ```
 
-Useful files:
+Useful paths:
 
-- `src/models.rs` — request and response types
-- `src/store.rs` — lock storage and lease logic
-- `openapi.yaml` — API reference source
-- `site/` — static website
+- `src/elections.rs` account-free leader election
+- `src/locks.rs` authenticated HTTP lock handlers
+- `src/store.rs` in-memory coordination plus SQLite durability
+- `src/sessions.rs` agent liveness and ephemeral locks
+- `openapi.yaml` API contract
+- `site/` marketing site and guides
 
 ## License
 

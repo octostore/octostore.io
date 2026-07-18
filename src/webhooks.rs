@@ -173,10 +173,7 @@ impl WebhookStore {
         self.webhooks.remove(&id);
 
         let db = self.db.lock().unwrap();
-        db.execute(
-            "DELETE FROM webhooks WHERE id = ?",
-            params![id.to_string()],
-        )?;
+        db.execute("DELETE FROM webhooks WHERE id = ?", params![id.to_string()])?;
 
         info!("Webhook deleted: {}", id);
         Ok(())

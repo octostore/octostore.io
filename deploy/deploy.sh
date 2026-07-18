@@ -8,38 +8,88 @@ EXPECTED_VERSION="${TAG#v}"
 BINARY=/opt/octostore-lock/octostore
 REPO=octostore/octostore.io
 SERVICE=octostore
+ASSET=octostore-linux-amd64
+TMP_BINARY=$(mktemp /tmp/octostore-new.XXXXXX)
+TMP_SUMS=$(mktemp /tmp/octostore-sums.XXXXXX)
+PREVIOUS_COMMIT=""
+BACKUP_BINARY="${BINARY}.previous"
+
+cleanup() {
+  rm -f "$TMP_BINARY" "$TMP_SUMS"
+}
+trap cleanup EXIT
+
+rollback() {
+  echo "ERROR: deployment failed; restoring the previous binary and site" >&2
+  if [[ -f "$BACKUP_BINARY" ]]; then
+    sudo systemctl stop "$SERVICE" || true
+    mv "$BACKUP_BINARY" "$BINARY"
+    sudo systemctl start "$SERVICE" || true
+  fi
+  if [[ -n "$PREVIOUS_COMMIT" ]]; then
+    git checkout --detach --force "$PREVIOUS_COMMIT" || true
+  fi
+}
 
 echo "=== Deploy $TAG ==="
 
-# 1. Pull latest site/config files
+# 1. Check out the exact tagged site/config files
 cd /opt/octostore-lock
-git fetch origin main
-git checkout main
-git reset --hard origin/main
+PREVIOUS_COMMIT=$(git rev-parse HEAD)
+git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+git checkout --detach --force "$TAG"
 
-# 2. Download binary from GitHub release
-curl -fsSL \
-  "https://github.com/$REPO/releases/download/$TAG/octostore-linux-amd64" \
-  -o /tmp/octostore-new
-chmod +x /tmp/octostore-new
+# 2. Download and verify the published binary
+if ! curl -fsSL "https://github.com/$REPO/releases/download/$TAG/$ASSET" -o "$TMP_BINARY"; then
+  git checkout --detach --force "$PREVIOUS_COMMIT"
+  exit 1
+fi
+if ! curl -fsSL "https://github.com/$REPO/releases/download/$TAG/SHA256SUMS" -o "$TMP_SUMS"; then
+  git checkout --detach --force "$PREVIOUS_COMMIT"
+  exit 1
+fi
+EXPECTED_SHA=$(awk -v asset="$ASSET" '$2 == asset { print $1 }' "$TMP_SUMS")
+ACTUAL_SHA=$(sha256sum "$TMP_BINARY" | awk '{print $1}')
+if [[ -z "$EXPECTED_SHA" || "$EXPECTED_SHA" != "$ACTUAL_SHA" ]]; then
+  echo "ERROR: checksum verification failed for $ASSET" >&2
+  git checkout --detach --force "$PREVIOUS_COMMIT"
+  exit 1
+fi
+if ! chmod +x "$TMP_BINARY"; then
+  git checkout --detach --force "$PREVIOUS_COMMIT"
+  exit 1
+fi
 
 # 3. Verify binary reports the correct version
-BINARY_VERSION=$(/tmp/octostore-new --version | awk '{print $2}')
+BINARY_VERSION=$($TMP_BINARY --version | awk '{print $2}')
 if [[ "$BINARY_VERSION" != "$EXPECTED_VERSION" ]]; then
   echo "ERROR: binary reports '$BINARY_VERSION', expected '$EXPECTED_VERSION'" >&2
-  rm /tmp/octostore-new
+  git checkout --detach --force "$PREVIOUS_COMMIT"
   exit 1
 fi
 echo "Binary version verified: $BINARY_VERSION"
 
-# 4. Stop → kill any zombie on port 3030 → swap → start
-sudo systemctl stop "$SERVICE"
+# 4. Back up → stop → kill any zombie on port 3030 → swap → start
+if ! cp "$BINARY" "$BACKUP_BINARY"; then
+  git checkout --detach --force "$PREVIOUS_COMMIT"
+  exit 1
+fi
+if ! sudo systemctl stop "$SERVICE"; then
+  rm -f "$BACKUP_BINARY"
+  git checkout --detach --force "$PREVIOUS_COMMIT"
+  exit 1
+fi
 sleep 1
 sudo fuser -k 3030/tcp 2>/dev/null || true
 sleep 1
-rm -f "$BINARY"
-mv /tmp/octostore-new "$BINARY"
-sudo systemctl start "$SERVICE"
+if ! mv "$TMP_BINARY" "$BINARY"; then
+  rollback
+  exit 1
+fi
+if ! sudo systemctl start "$SERVICE"; then
+  rollback
+  exit 1
+fi
 
 # 5. Wait for active (not just activating)
 for i in $(seq 1 10); do
@@ -48,6 +98,7 @@ for i in $(seq 1 10); do
   if [[ "$STATE" == "failed" ]]; then
     echo "ERROR: service failed to start" >&2
     sudo journalctl -u "$SERVICE" -n 20 --no-pager >&2
+    rollback
     exit 1
   fi
   echo "  waiting... ($STATE)"
@@ -68,7 +119,9 @@ done
 if [[ "$LIVE_VERSION" != "$EXPECTED_VERSION" ]]; then
   echo "ERROR: live API reports '$LIVE_VERSION', expected '$EXPECTED_VERSION'" >&2
   sudo journalctl -u "$SERVICE" -n 10 --no-pager >&2
+  rollback
   exit 1
 fi
 
+rm -f "$BACKUP_BINARY"
 echo "=== Deploy complete: $TAG (live: $LIVE_VERSION) ==="

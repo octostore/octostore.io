@@ -1,119 +1,54 @@
-name: Release & Deploy
+name: Manual Production Redeploy
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Release tag to deploy (defaults to current ref/release tag)"
-        required: false
+        description: "Existing stable release tag to redeploy (for example v0.12.0)"
+        required: true
+        type: string
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: production-deploy
   cancel-in-progress: false
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Build release binary
-        run: cargo build --release --locked
-
-      - name: Upload binary to release
-        if: ${{ github.event_name == 'release' }}
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: target/release/octostore
-          asset_name: octostore-linux-amd64
-          tag: ${{ github.ref }}
-          overwrite: true
-
-      - name: Upload binary artifact
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: octostore-linux-amd64
-          path: target/release/octostore
-
   deploy:
-    needs: build
     runs-on: ubuntu-latest
-    env:
-      DEPLOY_SERVICE: octostore-lock
-      HEALTH_URL: https://api.octostore.io/health
     steps:
-      - name: Download manual-dispatch binary artifact
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        uses: actions/download-artifact@v4
-        with:
-          name: octostore-linux-amd64
-          path: /tmp/octostore-artifact
-
-      - name: Deploy to production
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: daaronch
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script: |
-            set -euo pipefail
-
-            RELEASE_TAG="${{ github.event.release.tag_name || inputs.release_tag || github.ref_name }}"
-            SERVICE="${{ env.DEPLOY_SERVICE }}"
-            APP_DIR="/opt/octostore-lock"
-            BIN_PATH="${APP_DIR}/octostore"
-            TMP_BIN="/tmp/octostore-new-${RELEASE_TAG}"
-            HEALTH_URL="${{ env.HEALTH_URL }}"
-
-            echo "=== Pulling latest source (${RELEASE_TAG}) ==="
-            cd "${APP_DIR}"
-            git fetch origin main
-            git checkout main
-            git pull --ff-only origin main
-
-            echo "=== Installing release binary atomically ==="
-            if [ "${{ github.event_name }}" = "release" ]; then
-              curl --fail --location --show-error --silent \
-                -o "${TMP_BIN}" \
-                "https://github.com/octostore/octostore.io/releases/download/${RELEASE_TAG}/octostore-linux-amd64"
-            else
-              echo "Manual dispatch deploys require a published release asset; aborting before service changes."
-              exit 1
-            fi
-            chmod +x "${TMP_BIN}"
-
-            echo "=== Stop → swap → start ${SERVICE} ==="
-            sudo /usr/bin/systemctl stop "${SERVICE}"
-            sudo /usr/bin/install -m 0755 "${TMP_BIN}" "${BIN_PATH}"
-            rm -f "${TMP_BIN}"
-            sudo /usr/bin/systemctl start "${SERVICE}"
-
-            echo "=== Verifying systemd and DNS health ==="
-            for i in $(seq 1 30); do
-              STATUS=$(systemctl is-active "${SERVICE}" 2>/dev/null || true)
-              HTTP_CODE=$(curl --fail --silent --show-error --max-time 10 \
-                --output /tmp/octostore-health \
-                --write-out '%{http_code}' \
-                "${HEALTH_URL}" || echo "000")
-              BODY=$(tr -d '\r\n' < /tmp/octostore-health 2>/dev/null || true)
-              echo "  attempt ${i}: service=${STATUS} health=${HTTP_CODE}/${BODY}"
-              if [ "${STATUS}" = "active" ] && [ "${HTTP_CODE}" = "200" ] && [ "${BODY}" = "OK" ]; then
-                echo "Deploy successful: ${RELEASE_TAG} is live"
-                exit 0
-              fi
-              sleep 2
-            done
-
-            echo "DEPLOY FAILED — service or DNS health did not recover"
-            systemctl status "${SERVICE}" --no-pager || true
-            journalctl -u "${SERVICE}" --no-pager -n 120 || true
+      - name: Validate stable release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "ERROR: expected a stable semver tag such as v0.12.0, got '$RELEASE_TAG'."
             exit 1
+          fi
+          gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" >/dev/null
+
+      - uses: actions/checkout@v5
+        with:
+          # Always use the hardened deploy runner from the default branch.
+          # The runner itself checks out the exact requested release tag on
+          # the host, so redeploying an older release cannot downgrade the
+          # safety logic before it runs.
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          echo "${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+
+      - name: Redeploy release to production
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes \
+            daaronch@${{ secrets.DEPLOY_HOST }} \
+            bash -s -- "$RELEASE_TAG" < deploy/deploy.sh
