@@ -528,9 +528,10 @@ impl AuthService {
             .query_row(
                 "SELECT namespace FROM users WHERE id = ?",
                 params![user_id.to_string()],
-                |row| row.get(0),
+                |row| row.get::<_, Option<String>>(0),
             )
-            .optional()?;
+            .optional()?
+            .flatten();
         Ok(namespace)
     }
 
@@ -776,7 +777,8 @@ mod tests {
 
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer mytoken123".parse().unwrap());
-        assert!(svc.authenticate(&headers).is_ok());
+        let user_id = svc.authenticate(&headers).unwrap();
+        assert_eq!(svc.get_user_namespace(user_id).unwrap(), None);
     }
 
     #[test]
