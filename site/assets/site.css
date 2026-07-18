@@ -262,6 +262,10 @@ h1 .signal-word {
   color: var(--signal);
 }
 
+.product-hero h1 {
+  max-width: 9ch;
+}
+
 h2 {
   margin-bottom: 18px;
   font-size: clamp(2.65rem, 5.5vw, 4.5rem);
@@ -413,6 +417,16 @@ p {
 .lamp.hold {
   border-color: oklch(0.5 0.12 27);
   background: oklch(0.38 0.11 27);
+}
+
+.lamp.open {
+  border-color: var(--cyan);
+  background: oklch(0.55 0.12 221);
+}
+
+.lamp.shared {
+  border-color: var(--violet);
+  background: oklch(0.48 0.14 292);
 }
 
 .lamp-copy strong,
