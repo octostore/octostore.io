@@ -3,16 +3,23 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Agent orchestration with OctoStore</title>
-  <meta name="description" content="Coordinate agent fleets with durable task leases, account-free leader election, sessions, fencing terms, webhooks, and plain HTTP.">
+  <title>Stop agent collisions — OctoStore</title>
+  <meta name="description" content="Give agent fleets one leader and every task one temporary owner without replacing prompts, tools, queues, or execution. Hosted election or self-hosted coordination.">
   <meta name="theme-color" content="#171224">
-  <meta property="og:title" content="Shared truth for agent fleets — OctoStore">
-  <meta property="og:description" content="Durable task leases, account-free leader election, and monotonic fencing terms over plain HTTP.">
+  <meta property="og:title" content="Stop two agents from doing the same work — OctoStore">
+  <meta property="og:description" content="Leader election, task claims, sessions, and fencing for agent fleets that run anywhere.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://octostore.io/agents/">
   <meta property="og:image" content="https://octostore.io/assets/octostore-og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="OctoStore signal board showing one process elected leader while two processes wait">
   <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Stop two agents from doing the same work — OctoStore">
+  <meta name="twitter:description" content="Keep agent execution decentralized. Centralize only the answer to who gets to move.">
+  <meta name="twitter:image" content="https://octostore.io/assets/octostore-og.png">
   <link rel="canonical" href="https://octostore.io/agents/">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/assets/site.css">
   <script defer src="/assets/site.js"></script>
 </head>
@@ -22,9 +29,10 @@
     <nav class="site-nav" aria-label="Primary navigation">
       <a class="brand" href="/"><span class="brand-signal" aria-hidden="true"></span>OctoStore</a>
       <div class="nav-links">
+        <a href="/leader-election/">Leader election</a>
         <a href="/agents/" aria-current="page">Agents</a>
+        <a href="/coordination/">Coordination</a>
         <a href="/docs/">Docs</a>
-        <a href="/blog/">Blog</a>
         <a href="https://github.com/octostore/octostore.io">GitHub</a>
         <a class="nav-cta" href="/#live-race">Try it live</a>
       </div>
@@ -32,106 +40,113 @@
   </div>
 
   <main id="main" class="reading-wrap">
-    <header class="page-header">
-      <div class="signal-label">Agent orchestration</div>
-      <h1>Shared truth for fleets that never sit still.</h1>
-      <p class="lede">Agents can run anywhere and still agree on who owns a task, who is leader, and when abandoned work is safe to reclaim. OctoStore provides the coordination layer without taking over execution.</p>
+    <header class="page-header guide-hero agent-hero">
+      <div class="signal-label">For agent fleets</div>
+      <h1>Stop two agents from doing the same work.</h1>
+      <p class="lede">Your agents can keep their prompts, tools, queues, and runtimes. OctoStore gives them one shared answer before side effects begin: who is leader, who owns this task, and whether that authority is still alive.</p>
+      <div class="button-row">
+        <a class="button primary" href="#choose">Choose a primitive</a>
+        <a class="button" href="/#live-race">Race three workers live</a>
+      </div>
     </header>
 
-    <section class="content-section">
+    <section class="content-section collision-story">
+      <h2>The agents are behaving correctly. The fleet is not.</h2>
+      <p>Atlas sees an issue and starts a branch. Comet sees the same issue from another queue and starts another. Both agents followed their instructions. The system forgot to settle ownership first.</p>
+      <div class="collision-line" aria-label="Two agents collide on one task">
+        <span><strong>Atlas</strong> found issue 1842</span>
+        <span><strong>Comet</strong> found issue 1842</span>
+        <span class="collision-result"><strong>Collision</strong> two branches, two updates</span>
+      </div>
+      <p>Put one small referee between “I found work” and “I changed something.”</p>
+    </section>
+
+    <section class="content-section" id="choose">
       <h2>Choose the smallest primitive that settles the argument.</h2>
-      <p>Most agent collisions are one of two problems. A task needs one temporary owner, or a fleet needs one current leader. OctoStore implements both as expiring leases with monotonic fencing terms.</p>
-      <table class="status-table">
-        <thead>
-          <tr><th>Question</th><th>Primitive</th><th>Use it for</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>Who owns this exact work item?</td><td><code>/locks</code></td><td>Issues, tickets, queue items, deploys, migrations, evaluations</td></tr>
-          <tr><td>Who coordinates the fleet right now?</td><td><code>/elections</code></td><td>Singleton schedulers, dispatchers, reconcilers, maintenance leaders</td></tr>
-        </tbody>
-      </table>
+      <div class="table-scroll" role="region" aria-label="Agent coordination primitives" tabindex="0">
+        <table class="status-table">
+          <caption class="sr-only">Choose between agent leader election and task locks</caption>
+          <thead><tr><th>Question</th><th>Primitive</th><th>Use it for</th></tr></thead>
+          <tbody>
+            <tr><td>Who coordinates the fleet right now?</td><td><a href="/leader-election/"><code>/elections</code></a></td><td>Dispatchers, schedulers, reconcilers, maintenance leaders</td></tr>
+            <tr><td>Who owns this exact work item?</td><td><a href="/coordination/"><code>/locks</code></a></td><td>Issues, tickets, queue items, deploys, migrations, evaluations</td></tr>
+          </tbody>
+        </table>
+      </div>
     </section>
 
     <section class="content-section">
-      <h2>Remote leader election, zero signup.</h2>
-      <p>Open a random room and let every candidate campaign. No user record is created. No API key is sent. The winner receives an opaque leader capability; followers receive the same current leader, fencing term, and retry delay.</p>
+      <h2>Elect one agent without creating an account.</h2>
+      <p>Open a random room and let every candidate campaign. The winner receives a short lease, monotonic term, and secret leader token. Followers receive the same leader and exactly when to try again.</p>
       <div class="code-window">
-        <div class="code-head"><span>shell · elect a coordinator</span><button class="copy-button" type="button" data-copy-target="#agent-election-code">Copy</button></div>
+        <div class="code-head"><span>shell · elect a dispatcher</span><button class="copy-button" type="button" data-copy-target="#agent-election-code">Copy</button></div>
         <pre id="agent-election-code"><code>ROOM=$(curl -s -X POST https://api.octostore.io/elections \
   | jq -r .election_id)
 
-result=$(curl -s -X POST \
+curl -s -X POST \
   "https://api.octostore.io/elections/$ROOM/campaign" \
   -H "Content-Type: application/json" \
   -d '{
     "candidate_id":"dispatcher-west",
     "ttl_seconds":30,
     "metadata":"fleet=support-agents"
-  }')
-
-<span class="code-comment"># status=leader: save leader_token and renew at renew_after_ms</span>
-<span class="code-comment"># status=follower: wait retry_after_ms, then campaign again</span></code></pre>
+  }'</code></pre>
       </div>
-      <div class="callout">
-        <h3>Capability, not identity</h3>
-        <p>The election room is intentionally public to anyone who knows its ID. Only the unguessable leader token can renew or resign the current term. Use generated room IDs, treat leader tokens as secrets, and self-host when the coordination namespace itself must be private.</p>
-      </div>
+      <p class="section-link"><a href="/leader-election/">Read the complete leader-election guide →</a></p>
     </section>
 
     <section class="content-section">
       <h2>Claim work before tools touch it.</h2>
-      <p>For durable task ownership, give each task a deterministic lock name. Authenticated agents race to acquire it. One gets a lease ID; the rest observe that it is held and move on.</p>
+      <p>For durable ownership, derive one lock name from the task. Authenticated agents race to acquire it. One gets the lease; the rest skip or wait.</p>
       <div class="code-window">
-        <div class="code-head"><span>shell · claim task 1842</span><button class="copy-button" type="button" data-copy-target="#claim-code">Copy</button></div>
-        <pre id="claim-code"><code>curl -s -X POST \
+        <div class="code-head"><span>shell · claim issue 1842</span><button class="copy-button" type="button" data-copy-target="#agent-claim-code">Copy</button></div>
+        <pre id="agent-claim-code"><code>curl -s -X POST \
   https://your-octostore.internal/locks/github-issue-1842/acquire \
   -H "Authorization: Bearer $OCTOSTORE_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "ttl_seconds":120,
     "metadata":"agent=atlas run=https://trace.example/7f2a"
-  }'
+  }'</code></pre>
+      </div>
+      <p class="section-link"><a href="/coordination/">See the task-coordination path →</a></p>
+    </section>
 
-<span class="code-comment"># acquired → work, renew, release</span>
-<span class="code-comment"># held     → skip or retry</span></code></pre>
+    <section class="content-section">
+      <h2>Build the safety loop around the lease.</h2>
+      <div class="operating-loop">
+        <div><strong>Acquire</strong><span>Campaign or claim before side effects.</span></div>
+        <div><strong>Fence</strong><span>Carry the term so stale agents can be rejected.</span></div>
+        <div><strong>Renew</strong><span>Heartbeat while the agent remains healthy.</span></div>
+        <div><strong>Release</strong><span>Resign cleanly; expire automatically after failure.</span></div>
       </div>
     </section>
 
     <section class="content-section">
-      <h2>The operating loop.</h2>
-      <div class="mode-list">
-        <div class="mode"><div class="mode-name">Acquire</div><p>Campaign for fleet leadership or acquire a task-specific lock before starting side effects.</p></div>
-        <div class="mode"><div class="mode-name">Fence</div><p>Carry the returned term into downstream writes. A resource that remembers the newest term can reject stale agents after partitions.</p></div>
-        <div class="mode"><div class="mode-name">Renew</div><p>Heartbeat around half the TTL. The lease proves liveness without making a process permanent.</p></div>
-        <div class="mode"><div class="mode-name">Release</div><p>Resign or release on clean completion. If the process vanishes, expiry is the recovery path.</p></div>
-      </div>
-    </section>
-
-    <section class="content-section">
-      <h2>What stays in your system.</h2>
-      <p>OctoStore coordinates ownership. Your application still decides what work means, how tools execute, and how side effects become idempotent.</p>
+      <h2>OctoStore does not run your agents.</h2>
+      <p>That boundary is the point. OctoStore coordinates authority. Your system still decides what work means, which model or tool runs, and how side effects become safe.</p>
       <ul>
         <li>Keep irreversible actions behind human or policy gates.</li>
-        <li>Write downstream operations so a retry is safe.</li>
+        <li>Write downstream operations so retries are safe.</li>
         <li>Pass fencing terms to resources that can reject stale writers.</li>
         <li>Use sessions when many ephemeral locks should disappear with one agent process.</li>
-        <li>Use webhooks or lock watches when operators and reconcilers need change events.</li>
+        <li>Use watches or webhooks when operators and reconcilers need change events.</li>
       </ul>
     </section>
 
     <section class="content-section">
-      <h2>Run it where the agents run.</h2>
-      <p>OctoStore is a Rust binary backed by one SQLite database in WAL mode. Start with static tokens. Add GitHub OAuth only if humans need it. Disable public elections with <code>PUBLIC_ELECTIONS=false</code> on private installations.</p>
+      <h2>Run the referee where the agents run.</h2>
+      <p>OctoStore is one Rust binary backed by one SQLite database in WAL mode. Start with static tokens. Add GitHub OAuth only if humans need it. Disable public elections on private installations with <code>PUBLIC_ELECTIONS=false</code>.</p>
       <div class="button-row">
         <a class="button primary" href="/docs/#self-host">Self-host OctoStore</a>
-        <a class="button" href="/docs/#leader-election">Read the election API</a>
+        <a class="button" href="/docs/">Read the complete docs</a>
       </div>
     </section>
   </main>
 
   <footer class="site-footer wrap">
-    <span>Orchestrate ownership. Keep execution yours.</span>
-    <span class="footer-links"><a href="/docs/">Docs</a><a href="/blog/">Blog</a><a href="https://github.com/octostore/octostore.io">GitHub</a></span>
+    <span>Keep execution decentralized. Share the truth about ownership.</span>
+    <span class="footer-links"><a href="/leader-election/">Leader election</a><a href="/coordination/">Coordination</a><a href="/docs/">Docs</a><a href="https://github.com/octostore/octostore.io">GitHub</a></span>
   </footer>
 </body>
 </html>

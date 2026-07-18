@@ -2,6 +2,30 @@
 
 All notable changes to Octostore will be documented in this file.
 
+## v0.13.0 - 2026-07-18
+
+OctoStore now leads with its smallest useful promise: elect one leader from any process in two HTTP calls, without an account, API key, SDK, or cluster to operate. Agent fleets and self-hosted task coordination remain dedicated paths rather than prerequisites.
+
+### Added
+
+- A dedicated 60-second leader-election guide for generic workers, scheduled jobs, controllers, migrations, and agent dispatchers.
+- A dedicated task-coordination guide for named locks, renewal, expiry, sessions, watches, and webhooks.
+- A failure-focused leader-election essay covering crash recovery, retry timing, stale leaders, leases, capabilities, and fencing terms.
+- Configurable per-client admission limiting for public room creation and campaigns through `PUBLIC_ELECTION_REQUESTS_PER_MINUTE`.
+- `429 Too Many Requests` responses with `Retry-After` for clients that exceed the public-election admission budget.
+
+### Changed
+
+- Rebuilt the homepage around “Pick one leader. Everyone else waits.” and a process-neutral production election.
+- Reworked the agent page around duplicate side effects, task ownership, and the boundary between coordination and execution.
+- Reframed package metadata, README, OpenAPI, docs, architecture, roadmap, social metadata, and navigation around simple leader election first.
+- Keep status, renewal, and resignation outside admission limiting so load cannot strand an existing leader.
+
+### Security
+
+- Bound in-memory rate-limit tracking and collapse excess unrecognized clients into a shared overflow budget.
+- Trust Cloudflare's client IP header only through a loopback reverse proxy and fall back to the direct socket address elsewhere.
+
 ## v0.12.0 - 2026-07-18
 
 OctoStore now coordinates agent fleets directly: self-host the complete lease service, or use account-free remote leader election when distributed candidates need one current leader immediately.

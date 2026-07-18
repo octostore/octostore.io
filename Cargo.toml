@@ -1,8 +1,8 @@
 [package]
 name = "octostore"
-version = "0.12.0"
+version = "0.13.0"
 edition = "2021"
-description = "Self-hosted agent coordination and account-free remote leader election over HTTP"
+description = "Simple leader election over HTTP with self-hosted task and agent coordination"
 license = "MIT"
 repository = "https://github.com/octostore/octostore.io"
 homepage = "https://octostore.io"
@@ -10,7 +10,7 @@ documentation = "https://docs.rs/octostore"
 readme = "README.md"
 keywords = ["agents", "leader-election", "distributed", "locking", "coordination"]
 categories = ["web-programming::http-server", "database"]
-exclude = ["site/*", "benches/*", "fuzz/*", ".github/*"]
+exclude = ["site/*", "design/*", "benches/*", "fuzz/*", ".github/*"]
 
 [lib]
 name = "octostore"

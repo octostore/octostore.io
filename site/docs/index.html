@@ -3,16 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OctoStore documentation</title>
-  <meta name="description" content="Install OctoStore, elect a remote leader without an account, and coordinate agent tasks with durable HTTP leases.">
+  <title>OctoStore documentation — leader election and coordination</title>
+  <meta name="description" content="Elect one leader in two HTTP calls, self-host OctoStore, and coordinate shared tasks with short leases and fencing terms.">
   <meta name="theme-color" content="#171224">
-  <meta property="og:title" content="Coordinate first. Then move. — OctoStore docs">
-  <meta property="og:description" content="Self-host OctoStore or elect one remote leader without an account, API key, or SDK.">
+  <meta property="og:title" content="Leader election in two calls — OctoStore docs">
+  <meta property="og:description" content="Start with account-free leader election. Add self-hosted task coordination only when you need it.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://octostore.io/docs/">
   <meta property="og:image" content="https://octostore.io/assets/octostore-og.png">
   <meta name="twitter:card" content="summary_large_image">
   <link rel="canonical" href="https://octostore.io/docs/">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/assets/site.css">
   <script defer src="/assets/site.js"></script>
 </head>
@@ -22,9 +23,10 @@
     <nav class="site-nav" aria-label="Primary navigation">
       <a class="brand" href="/"><span class="brand-signal" aria-hidden="true"></span>OctoStore</a>
       <div class="nav-links">
+        <a href="/leader-election/">Leader election</a>
         <a href="/agents/">Agents</a>
+        <a href="/coordination/">Coordination</a>
         <a href="/docs/" aria-current="page">Docs</a>
-        <a href="/blog/">Blog</a>
         <a href="https://github.com/octostore/octostore.io">GitHub</a>
         <a class="nav-cta" href="https://api.octostore.io/docs">API reference</a>
       </div>
@@ -32,9 +34,9 @@
   </div>
 
   <header class="page-header wrap">
-    <div class="signal-label">Documentation · v0.12</div>
-    <h1>Coordinate first. Then move.</h1>
-    <p class="lede">Start with the account-free hosted election API, or run the complete lock service inside your own network. Every interface is plain JSON over HTTP.</p>
+    <div class="signal-label">Documentation</div>
+    <h1>Start with one leader.</h1>
+    <p class="lede">The hosted quickstart takes two calls and no credentials. Self-host the same election API when you need a private boundary, or add named task locks when leadership alone is not enough.</p>
   </header>
 
   <main id="main" class="docs-layout wrap">
@@ -51,7 +53,7 @@
     <div class="docs-content">
       <section id="quickstart">
         <h2>Quickstart: elect one leader.</h2>
-        <p>This flow uses the hosted API and requires no login or API key. Create a random room, share the ID with your candidates, and let each one campaign.</p>
+        <p>This flow uses the hosted API and requires no login or API key. Create a random room, share the ID with your processes, and let each one campaign.</p>
         <div class="code-window">
           <div class="code-head"><span>shell</span><button class="copy-button" type="button" data-copy-target="#quickstart-code">Copy</button></div>
           <pre id="quickstart-code"><code>ROOM=$(curl -s -X POST https://api.octostore.io/elections \
@@ -60,7 +62,7 @@
 curl -s -X POST \
   "https://api.octostore.io/elections/$ROOM/campaign" \
   -H "Content-Type: application/json" \
-  -d '{"candidate_id":"agent-atlas","ttl_seconds":30}'</code></pre>
+  -d '{"candidate_id":"worker-a","ttl_seconds":30}'</code></pre>
         </div>
         <p>A winner gets <code>status: "leader"</code>, a monotonic <code>term</code>, and a secret <code>leader_token</code>. Every other candidate gets <code>status: "follower"</code>, the current leader, and <code>retry_after_ms</code>.</p>
       </section>
@@ -120,7 +122,7 @@ curl -s -X POST "$OCTOSTORE_URL/locks/issue-1842/acquire" \
 
       <section id="self-host">
         <h2>Self-host in one minute.</h2>
-        <p>The release installer verifies the published SHA-256 checksum and binary version before placing <code>octostore</code in <code>/usr/local/bin</code>.</p>
+        <p>The release installer verifies the published SHA-256 checksum and binary version before placing <code>octostore</code> in <code>/usr/local/bin</code>.</p>
         <div class="code-window">
           <div class="code-head"><span>shell</span><button class="copy-button" type="button" data-copy-target="#install-code">Copy</button></div>
           <pre id="install-code"><code>curl -fsSL \
@@ -149,6 +151,7 @@ curl http://localhost:3000/health</code></pre>
             <tr><td><code>STATIC_TOKENS_FILE</code></td><td>unset</td><td>Newline-delimited static token file</td></tr>
             <tr><td><code>PUBLIC_ELECTIONS</code></td><td><code>true</code></td><td>Enable account-free election endpoints</td></tr>
             <tr><td><code>MAX_PUBLIC_ELECTIONS</code></td><td><code>10000</code></td><td>Maximum simultaneous public rooms</td></tr>
+            <tr><td><code>PUBLIC_ELECTION_REQUESTS_PER_MINUTE</code></td><td><code>600</code></td><td>Per-client admission limit for room creation and campaigns</td></tr>
             <tr><td><code>GITHUB_CLIENT_ID</code></td><td>unset</td><td>Enable optional GitHub OAuth when paired with the secret</td></tr>
             <tr><td><code>ADMIN_KEY</code></td><td>unset</td><td>Protect admin and metrics endpoints</td></tr>
           </tbody>
@@ -163,6 +166,7 @@ curl http://localhost:3000/health</code></pre>
           <li><strong>Leases recover from crashes.</strong> A vanished process stops renewing and loses authority after expiry.</li>
           <li><strong>Election tokens are bearer capabilities.</strong> Do not log them or put them in URLs.</li>
           <li><strong>Room IDs are not access controls.</strong> Use generated IDs and self-host when room discovery or traffic must be private.</li>
+          <li><strong>Election admission is rate limited per client.</strong> Status, renewal, and resignation stay available so load cannot strand a current leader.</li>
           <li><strong>Locks are advisory.</strong> Downstream systems should be idempotent and reject stale fencing terms where possible.</li>
         </ul>
       </section>
@@ -180,7 +184,7 @@ curl http://localhost:3000/health</code></pre>
 
   <footer class="site-footer wrap">
     <span>Small API. Explicit ownership.</span>
-    <span class="footer-links"><a href="/agents/">Agent guide</a><a href="/blog/">Blog</a><a href="https://github.com/octostore/octostore.io">GitHub</a></span>
+    <span class="footer-links"><a href="/leader-election/">Leader election</a><a href="/agents/">Agents</a><a href="/coordination/">Coordination</a><a href="/blog/">Field notes</a><a href="https://github.com/octostore/octostore.io">GitHub</a></span>
   </footer>
 </body>
 </html>

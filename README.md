@@ -1,16 +1,16 @@
 # OctoStore
 
-**One agent moves. The rest wait.**
+**Pick one leader. Everyone else waits.**
 
-OctoStore is an open coordination plane for agent fleets. Run the single Rust binary inside your network for durable task ownership, sessions, webhooks, and leader election, or use the hosted election API when several remote processes need one leader without creating an account.
+OctoStore is simple leader election over HTTP. Open a room, campaign from any process, and get one short-lived leader without creating an account, distributing an API key, installing an SDK, or operating a consensus cluster.
 
-The boundary is deliberate: your agents keep their tools, prompts, queues, and execution model. OctoStore gives them shared truth about who is allowed to act.
+Use the hosted API for the smallest path to one leader. Run the single Rust binary inside your network when you also need durable task ownership, sessions, webhooks, and private coordination. Agent fleets are one use case, not a requirement.
 
 > Alpha software. APIs may change before 1.0.
 
 ## What it coordinates
 
-- **Agent leader election:** choose one current dispatcher, reconciler, scheduler, or maintenance leader.
+- **Leader election:** choose one current scheduler, controller, worker, dispatcher, or maintenance leader.
 - **Task claims:** give every issue, ticket, queue item, deploy, or migration one temporary owner.
 - **Crash recovery:** leases expire when a worker stops renewing.
 - **Stale-writer defense:** monotonic fencing terms survive process restarts.
@@ -26,14 +26,14 @@ ROOM=$(curl -s -X POST https://api.octostore.io/elections \
   | jq -r .election_id)
 ```
 
-Share the room ID with every candidate and campaign:
+Share the room ID with every candidate and campaign from any language that can send HTTP:
 
 ```bash
 curl -s -X POST \
   "https://api.octostore.io/elections/$ROOM/campaign" \
   -H "Content-Type: application/json" \
   -d '{
-    "candidate_id": "agent-atlas",
+    "candidate_id": "worker-a",
     "ttl_seconds": 30,
     "metadata": "fleet=support-agents"
   }'
@@ -46,7 +46,7 @@ Exactly one live candidate receives:
   "status": "leader",
   "election_id": "...",
   "leader": {
-    "candidate_id": "agent-atlas",
+    "candidate_id": "worker-a",
     "term": 1842,
     "expires_at": "..."
   },
@@ -74,7 +74,7 @@ Pin a specific release by setting the version on the installer process:
 ```bash
 curl -fsSL \
   https://raw.githubusercontent.com/octostore/octostore.io/main/install.sh \
-  | OCTOSTORE_VERSION=v0.12.0 sh
+  | OCTOSTORE_VERSION=v0.13.0 sh
 ```
 
 Start with a static token and one local SQLite file:
@@ -128,6 +128,7 @@ Interactive API documentation is published at [https://api.octostore.io/docs](ht
 | `STATIC_TOKENS_FILE` | unset | Newline-delimited static token file |
 | `PUBLIC_ELECTIONS` | `true` | Enable account-free election endpoints |
 | `MAX_PUBLIC_ELECTIONS` | `10000` | Maximum simultaneous public rooms |
+| `PUBLIC_ELECTION_REQUESTS_PER_MINUTE` | `600` | Per-client admission limit for room creation and campaigns |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | unset | Enable optional GitHub OAuth |
 | `ADMIN_KEY` | unset | Protect metrics and admin endpoints |
 
@@ -140,6 +141,7 @@ Set `PUBLIC_ELECTIONS=false` when a private installation should expose only auth
 - Terms remain monotonic after all locks are released and the server restarts.
 - Generated election room IDs are hard to guess, but they are not access controls.
 - Leader tokens are bearer capabilities. Keep them out of URLs and logs.
+- Public room creation and campaigns are rate limited per client; status, renewal, and resignation remain available during admission pressure.
 - Locks are advisory. Downstream writes should be idempotent and reject stale fencing terms where possible.
 
 ## Development
