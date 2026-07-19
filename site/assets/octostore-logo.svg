@@ -1,4 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="logo-title logo-description">
+  <title id="logo-title">OctoStore</title>
+  <desc id="logo-description">A flat octopus carries a stack of work and lifts one block as leader.</desc>
+
+  <!-- Stored work. -->
   <g fill="#8657d9">
     <rect x="51" y="46" width="38" height="32" rx="5"/>
     <rect x="96" y="46" width="38" height="32" rx="5"/>
@@ -6,7 +10,11 @@
     <rect x="73" y="84" width="38" height="32" rx="5"/>
     <rect x="118" y="84" width="38" height="32" rx="5"/>
   </g>
+
+  <!-- Exactly one elected block. -->
   <rect x="178" y="22" width="42" height="36" rx="6" fill="#91f51d"/>
+
+  <!-- Eight simple arms, including the arm raising the elected block. -->
   <g fill="none" stroke="#8657d9" stroke-linecap="round" stroke-width="17">
     <path d="M58 163c-22 0-32 10-36 23"/>
     <path d="M69 180c-13 19-28 26-42 18"/>
@@ -17,7 +25,11 @@
     <path d="M183 168c21 8 36 5 49-8"/>
     <path d="M184 147c36-11 45-43 23-82"/>
   </g>
+
+  <!-- The octopus is one compact, flat silhouette. -->
   <path d="M48 160c0-39 31-70 70-70h21c39 0 70 31 70 70v18c0 18-14 32-32 32H80c-18 0-32-14-32-32Z" fill="#8657d9"/>
+
+  <!-- A tiny amount of personality, still readable at favicon size. -->
   <circle cx="106" cy="153" r="11" fill="#f6f4ff"/>
   <circle cx="151" cy="153" r="11" fill="#f6f4ff"/>
   <circle cx="109" cy="155" r="4" fill="#080817"/>

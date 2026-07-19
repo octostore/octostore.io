@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="site/assets/octostore-mascot.svg" alt="OctoStore's cartoon octopus referee juggling leader-election signals" width="340">
+  <img src="site/assets/octostore-logo.svg" alt="OctoStore logo: an octopus carries a stack of work and lifts one leader" width="300">
 </p>
 
 <h1 align="center">OctoStore</h1>
