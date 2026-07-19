@@ -21,7 +21,8 @@ concurrency:
 
 jobs:
   probe:
-    runs-on: ubuntu-latest
+    # Blacksmith's 2-vCPU Ubuntu 24.04 runner replaces GitHub-hosted Ubuntu.
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     outputs:
       status: ${{ steps.eval.outputs.status }}
       summary: ${{ steps.eval.outputs.summary }}
@@ -216,7 +217,7 @@ jobs:
             const body   = [
               marker,
               '',
-              '**Probe failed** — GitHub-hosted external monitor.',
+              '**Probe failed** — Blacksmith-hosted external monitor.',
               '',
               `- Run: ${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
               `- Summary: ${{ steps.eval.outputs.summary }}`,
