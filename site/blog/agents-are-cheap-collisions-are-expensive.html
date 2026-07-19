@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agents are cheap. Collisions are expensive. — OctoStore</title>
+  <meta name="description" content="Agent fleets need a tiny remote referee more than another workflow engine. Elect one leader without an account, API key, or SDK.">
+  <meta name="theme-color" content="#171224">
+  <meta property="og:title" content="Agents are cheap. Collisions are expensive.">
+  <meta property="og:description" content="Put one small referee between finding work and changing production.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://octostore.io/blog/agents-are-cheap-collisions-are-expensive.html">
+  <meta property="og:image" content="https://octostore.io/assets/octostore-og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="OctoStore signal board showing one process elected leader while two processes wait">
+  <meta property="article:published_time" content="2026-07-18">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Agents are cheap. Collisions are expensive.">
+  <meta name="twitter:description" content="Put one small referee between finding work and changing production.">
+  <meta name="twitter:image" content="https://octostore.io/assets/octostore-og.png">
+  <link rel="canonical" href="https://octostore.io/blog/agents-are-cheap-collisions-are-expensive.html">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/site.css">
+  <script defer src="/assets/site.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="wrap">
+    <nav class="site-nav" aria-label="Primary navigation">
+      <a class="brand" href="/"><span class="brand-signal" aria-hidden="true"></span>OctoStore</a>
+<div class="nav-links">
+<a href="/leader-election/">Leader election</a>
+<a href="/agents/">Agents</a>
+<a href="/coordination/">Coordination</a>
+<a href="/docs/">Docs</a>
+<a href="https://github.com/octostore/octostore.io">GitHub</a>
+        <a class="nav-cta" href="/#live-race">Try it live</a>
+      </div>
+    </nav>
+  </div>
+
+  <main id="main" class="article reading-wrap">
+    <header class="article-header">
+      <div class="article-meta">18 July 2026 · Agent coordination · 6 min</div>
+      <h1>Agents are cheap. Collisions are expensive.</h1>
+      <p class="lede">The cost of starting another agent is approaching zero. The cost of two agents making the same production decision is not.</p>
+    </header>
+
+    <article class="article-body">
+      <p>An agent sees an issue, decides it can help, and starts working. Good. Then a second agent sees the same issue from another region and reaches the same conclusion. Also good, right up until both open branches, both update the customer, or both start the deploy.</p>
+
+      <p>This is the quiet failure mode of agent fleets. The individual workers are doing exactly what they were asked to do. The system forgot to answer one question first:</p>
+
+      <div class="callout">
+        <h2>Who is allowed to move?</h2>
+        <p>Before an agent starts side effects, it should know whether it owns this task or whether it is the current fleet leader. That answer must come from somewhere all candidates can see.</p>
+      </div>
+
+      <h2>You probably do not need another orchestrator.</h2>
+      <p>Your agents already know how to poll, reason, call tools, and report results. Replacing that with a giant central workflow system can create more integration work than it removes.</p>
+
+      <p>The missing layer is often smaller: a remote referee. Every candidate asks the same service for a short lease. One gets a green light. The rest learn who won and when the decision expires.</p>
+
+      <p>That gives the fleet one current truth without forcing the referee to understand prompts, models, tools, queues, or business logic.</p>
+
+      <h2>A room, a campaign, and one capability.</h2>
+<p>OctoStore exposes leader election as a public HTTP primitive. Opening a room creates no user and stores no account:</p>
+
+      <div class="code-window">
+        <div class="code-head"><span>shell</span><button class="copy-button" type="button" data-copy-target="#article-election-code">Copy</button></div>
+        <pre id="article-election-code"><code>ROOM=$(curl -s -X POST https://api.octostore.io/elections \
+  | jq -r .election_id)
+
+curl -s -X POST \
+  "https://api.octostore.io/elections/$ROOM/campaign" \
+  -H "Content-Type: application/json" \
+  -d '{"candidate_id":"agent-atlas","ttl_seconds":30}'</code></pre>
+      </div>
+
+      <p>If Atlas wins, it receives a monotonic term and a secret leader token. The term protects downstream systems from stale leaders. The token is the capability to renew or resign that specific lease.</p>
+
+      <p>If Atlas loses, it receives the current leader and a retry delay. No polling guesswork. No login page. No SDK version negotiation. Plain JSON.</p>
+
+      <h2>No login does not mean no boundary.</h2>
+      <p>The room ID is a shared address, not a password. Anyone who knows it can campaign or inspect the current leader. Only possession of the 256-bit leader token can extend or end the live term.</p>
+
+      <p>This is useful when the agents have no shared identity provider, when setup speed matters more than namespace privacy, or when a temporary cross-cloud job needs one coordinator right now.</p>
+
+      <p>Use the generated 192-bit room IDs. Keep leader tokens out of logs and URLs. If the room itself must be private, run OctoStore inside your network. Same API, your boundary.</p>
+
+      <h2>Leadership is a lease, not a crown.</h2>
+      <p>The winner should renew around half the TTL. If it crashes, stalls, or loses the network, renewal stops. The lease expires. A follower can campaign again and receive a higher fencing term.</p>
+
+      <p>That final detail matters. A stale leader may wake up after a partition and still believe it is in charge. If downstream writes carry the term, a system that has observed term 1843 can reject a write from term 1842. The lease handles liveness. The fencing term handles stale authority.</p>
+
+      <h2>Task ownership uses the same idea.</h2>
+      <p>Leader election answers “who coordinates the fleet?” A named lock answers “who owns issue 1842?” OctoStore supports both. Authenticated task locks add sessions, metadata, watches, webhooks, renewal, and explicit release.</p>
+
+      <p>The fleet stays decentralized. The coordination truth does not.</p>
+
+      <h2>What the referee cannot do for you.</h2>
+      <p>A lease does not make a destructive tool safe. It does not make an external API transactional. It does not replace idempotency, approval gates, or careful retry design.</p>
+
+      <p>It does remove a large class of ordinary duplicate work and split-brain decisions with a primitive small enough to understand in one sitting.</p>
+
+      <div class="callout">
+<h2>Pick one leader. Everyone else waits.</h2>
+        <p>Try the live three-agent race, then use the same endpoint from your fleet. If you want the referee on your own network, OctoStore is one Rust binary and one SQLite file.</p>
+        <div class="button-row">
+          <a class="button primary" href="/#live-race">Run the live race</a>
+          <a class="button" href="/docs/#self-host">Self-host OctoStore</a>
+        </div>
+      </div>
+    </article>
+  </main>
+
+  <footer class="site-footer wrap">
+    <a href="/blog/">← All field notes</a>
+<span class="footer-links"><a href="/leader-election/">Leader election</a><a href="/docs/">Docs</a><a href="/agents/">Agents</a><a href="/coordination/">Coordination</a><a href="https://github.com/octostore/octostore.io">GitHub</a></span>
+  </footer>
+</body>
+</html>

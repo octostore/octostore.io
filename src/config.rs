@@ -22,6 +22,12 @@ pub struct Config {
     /// Path to a newline-delimited file of `user:token` pairs (# = comment).
     /// Loaded in addition to STATIC_TOKENS if both are set.
     pub static_tokens_file: Option<String>,
+    /// Enables account-free, capability-based leader elections.
+    pub public_elections_enabled: bool,
+    /// Maximum number of simultaneously active public election rooms.
+    pub max_public_elections: usize,
+    /// Maximum room-creation and campaign requests accepted per client per minute.
+    pub public_election_requests_per_minute: u32,
 }
 
 impl Config {
@@ -37,6 +43,19 @@ impl Config {
             admin_username: env::var("ADMIN_USERNAME").ok(),
             static_tokens: env::var("STATIC_TOKENS").ok(),
             static_tokens_file: env::var("STATIC_TOKENS_FILE").ok(),
+            public_elections_enabled: env::var("PUBLIC_ELECTIONS")
+                .map(|value| !matches!(value.to_ascii_lowercase().as_str(), "0" | "false" | "off"))
+                .unwrap_or(true),
+            max_public_elections: env::var("MAX_PUBLIC_ELECTIONS")
+                .ok()
+                .and_then(|value| value.parse::<usize>().ok())
+                .filter(|value| *value > 0)
+                .unwrap_or(10_000),
+            public_election_requests_per_minute: env::var("PUBLIC_ELECTION_REQUESTS_PER_MINUTE")
+                .ok()
+                .and_then(|value| value.parse::<u32>().ok())
+                .filter(|value| *value > 0)
+                .unwrap_or(600),
         })
     }
 
@@ -89,10 +108,7 @@ mod tests {
     #[test]
     fn test_config_github_disabled_when_missing() {
         with_env_vars(
-            vec![
-                ("GITHUB_CLIENT_ID", None),
-                ("GITHUB_CLIENT_SECRET", None),
-            ],
+            vec![("GITHUB_CLIENT_ID", None), ("GITHUB_CLIENT_SECRET", None)],
             || {
                 let c = Config::from_env().unwrap();
                 assert!(!c.is_github_enabled());
@@ -116,13 +132,10 @@ mod tests {
 
     #[test]
     fn test_config_static_tokens() {
-        with_env_vars(
-            vec![("STATIC_TOKENS", Some("alice:tok1,bob:tok2"))],
-            || {
-                let c = Config::from_env().unwrap();
-                assert_eq!(c.static_tokens.as_deref(), Some("alice:tok1,bob:tok2"));
-            },
-        );
+        with_env_vars(vec![("STATIC_TOKENS", Some("alice:tok1,bob:tok2"))], || {
+            let c = Config::from_env().unwrap();
+            assert_eq!(c.static_tokens.as_deref(), Some("alice:tok1,bob:tok2"));
+        });
     }
 
     #[test]
@@ -137,6 +150,9 @@ mod tests {
                 ("ADMIN_KEY", None),
                 ("STATIC_TOKENS", None),
                 ("STATIC_TOKENS_FILE", None),
+                ("PUBLIC_ELECTIONS", None),
+                ("MAX_PUBLIC_ELECTIONS", None),
+                ("PUBLIC_ELECTION_REQUESTS_PER_MINUTE", None),
             ],
             || {
                 let c = Config::from_env().unwrap();
@@ -146,7 +162,27 @@ mod tests {
                 assert!(c.github_client_secret.is_none());
                 assert!(c.static_tokens.is_none());
                 assert!(c.static_tokens_file.is_none());
+                assert!(c.public_elections_enabled);
+                assert_eq!(c.max_public_elections, 10_000);
+                assert_eq!(c.public_election_requests_per_minute, 600);
                 assert!(!c.is_github_enabled());
+            },
+        );
+    }
+
+    #[test]
+    fn test_public_election_config() {
+        with_env_vars(
+            vec![
+                ("PUBLIC_ELECTIONS", Some("false")),
+                ("MAX_PUBLIC_ELECTIONS", Some("250")),
+                ("PUBLIC_ELECTION_REQUESTS_PER_MINUTE", Some("42")),
+            ],
+            || {
+                let c = Config::from_env().unwrap();
+                assert!(!c.public_elections_enabled);
+                assert_eq!(c.max_public_elections, 250);
+                assert_eq!(c.public_election_requests_per_minute, 42);
             },
         );
     }

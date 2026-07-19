@@ -1,14 +1,10 @@
 openapi: 3.0.3
 info:
   title: OctoStore API
-  description: 'Distributed infrastructure services. That''s it.
-
-
-    Simple HTTP services for distributed systems with GitHub authentication.
-
-    Provides distributed locking.
-
-    '
+  description: >-
+    Simple leader election over HTTP. Elect one remote leader without an account,
+    API key, or SDK. Self-host the same API plus durable task locks, sessions,
+    webhooks, and fencing terms in a single Rust binary backed by SQLite.
   version: 0.0.0-dev
   contact:
     name: OctoStore
@@ -23,6 +19,173 @@ servers:
 security:
 - bearerAuth: []
 paths:
+  /elections:
+    post:
+      tags:
+      - Leader Elections
+      summary: Create an account-free election room
+      description: Generates a collision-resistant room ID. No login, API key, or request body is required.
+      security: []
+      responses:
+        '201':
+          description: Election room created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [election_id, campaign_path, status_path]
+                properties:
+                  election_id:
+                    type: string
+                    example: g15BTc54MStBoX-momDJm6uBhJQKKtqQ
+                  campaign_path:
+                    type: string
+                  status_path:
+                    type: string
+        '403':
+          $ref: '#/components/responses/PublicElectionsDisabled'
+        '429':
+          $ref: '#/components/responses/PublicElectionRateLimited'
+  /elections/{election_id}:
+    get:
+      tags:
+      - Leader Elections
+      summary: Inspect the current leader
+      description: Publicly returns the current leader, term, lease expiry, and recommended retry delay.
+      security: []
+      parameters:
+      - $ref: '#/components/parameters/ElectionId'
+      responses:
+        '200':
+          description: Current election state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ElectionStatus'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/PublicElectionsDisabled'
+  /elections/{election_id}/campaign:
+    post:
+      tags:
+      - Leader Elections
+      summary: Campaign for leadership
+      description: The first live candidate becomes leader. Followers receive the current leader and a retry delay. No account or API key is required.
+      security: []
+      parameters:
+      - $ref: '#/components/parameters/ElectionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [candidate_id]
+              properties:
+                candidate_id:
+                  type: string
+                  minLength: 1
+                  maxLength: 64
+                  pattern: '^[A-Za-z0-9._:@-]+$'
+                  example: worker-west-2
+                ttl_seconds:
+                  type: integer
+                  minimum: 5
+                  maximum: 300
+                  default: 30
+                metadata:
+                  type: string
+                  maxLength: 1024
+                  example: model=gpt-5 task=release-1842
+      responses:
+        '200':
+          description: Candidate is the leader or a follower
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - $ref: '#/components/schemas/ElectionLeaderResult'
+                - $ref: '#/components/schemas/ElectionFollowerResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/PublicElectionsDisabled'
+        '409':
+          description: Public election capacity reached
+        '429':
+          $ref: '#/components/responses/PublicElectionRateLimited'
+  /elections/{election_id}/renew:
+    post:
+      tags:
+      - Leader Elections
+      summary: Renew leadership
+      description: Extends the current term using the opaque leader capability returned by a winning campaign.
+      security: []
+      parameters:
+      - $ref: '#/components/parameters/ElectionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeaderAction'
+      responses:
+        '200':
+          description: Leadership renewed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ElectionLeaderResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/PublicElectionsDisabled'
+        '404':
+          description: Election has no current leader
+  /elections/{election_id}/resign:
+    post:
+      tags:
+      - Leader Elections
+      summary: Resign leadership
+      description: Releases the current term immediately using its opaque leader capability.
+      security: []
+      parameters:
+      - $ref: '#/components/parameters/ElectionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [leader_token]
+              properties:
+                leader_token:
+                  type: string
+                  description: Opaque capability returned to the current leader
+      responses:
+        '200':
+          description: Leadership resigned and the room is vacant
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [election_id, status, previous_term]
+                properties:
+                  election_id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [vacant]
+                  previous_term:
+                    type: integer
+                    format: int64
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/PublicElectionsDisabled'
+        '404':
+          description: Election has no current leader
   /auth/github:
     get:
       tags:
@@ -473,8 +636,17 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      description: Bearer token obtained through GitHub OAuth
+      description: Bearer token from optional GitHub OAuth or a self-hosted static token
   parameters:
+    ElectionId:
+      name: election_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: ^[a-zA-Z0-9_-]{8,64}$
+      description: Opaque generated room ID or a shared custom ID with at least 8 characters
+      example: g15BTc54MStBoX-momDJm6uBhJQKKtqQ
     SessionId:
       name: id
       in: path
@@ -498,6 +670,82 @@ components:
         chars each).'
       example: service/component/my-lock
   schemas:
+    ElectionLeader:
+      type: object
+      required: [candidate_id, term, expires_at]
+      properties:
+        candidate_id:
+          type: string
+          example: agent-west-2
+        metadata:
+          type: string
+          nullable: true
+        term:
+          type: integer
+          format: int64
+          description: Monotonic fencing term. Downstream systems can reject work from older terms.
+        expires_at:
+          type: string
+          format: date-time
+    ElectionStatus:
+      type: object
+      required: [election_id, status, retry_after_ms]
+      properties:
+        election_id:
+          type: string
+        status:
+          type: string
+          enum: [leader, vacant]
+        leader:
+          allOf:
+          - $ref: '#/components/schemas/ElectionLeader'
+          nullable: true
+        retry_after_ms:
+          type: integer
+          format: int64
+    ElectionLeaderResult:
+      type: object
+      required: [status, election_id, leader, leader_token, renew_after_ms]
+      properties:
+        status:
+          type: string
+          enum: [leader]
+        election_id:
+          type: string
+        leader:
+          $ref: '#/components/schemas/ElectionLeader'
+        leader_token:
+          type: string
+          description: Secret bearer capability required to renew or resign this term
+        renew_after_ms:
+          type: integer
+          format: int64
+    ElectionFollowerResult:
+      type: object
+      required: [status, election_id, leader, retry_after_ms]
+      properties:
+        status:
+          type: string
+          enum: [follower]
+        election_id:
+          type: string
+        leader:
+          $ref: '#/components/schemas/ElectionLeader'
+        retry_after_ms:
+          type: integer
+          format: int64
+    LeaderAction:
+      type: object
+      required: [leader_token]
+      properties:
+        leader_token:
+          type: string
+          description: Secret bearer capability returned to the current leader
+        ttl_seconds:
+          type: integer
+          minimum: 5
+          maximum: 300
+          default: 30
     LockResponse:
       type: object
       properties:
@@ -815,6 +1063,29 @@ components:
       required:
       - error
   responses:
+    PublicElectionRateLimited:
+      description: This client exceeded the configured public election admission rate
+      headers:
+        Retry-After:
+          description: Seconds until the client's current admission window resets
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Rate limit exceeded
+            details: Rate limit exceeded; retry in 42 seconds
+    PublicElectionsDisabled:
+      description: Public elections are disabled on this server
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Public elections are disabled on this server
     Unauthorized:
       description: Invalid or missing authentication token
       content:
@@ -847,6 +1118,8 @@ components:
               value:
                 error: Invalid lease_id format
 tags:
+- name: Leader Elections
+  description: Account-free, capability-based leader election over HTTP
 - name: Authentication
   description: GitHub OAuth and token management
 - name: Sessions

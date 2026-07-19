@@ -516,7 +516,7 @@ impl AuthService {
     pub fn save_fencing_counter(&self, counter: u64) -> Result<()> {
         let conn = self.db.lock().unwrap();
         conn.execute(
-            "UPDATE fencing_counter SET counter = ? WHERE id = 1",
+            "UPDATE fencing_counter SET counter = MAX(counter, ?) WHERE id = 1",
             params![counter],
         )?;
         Ok(())
@@ -528,9 +528,10 @@ impl AuthService {
             .query_row(
                 "SELECT namespace FROM users WHERE id = ?",
                 params![user_id.to_string()],
-                |row| row.get(0),
+                |row| row.get::<_, Option<String>>(0),
             )
-            .optional()?;
+            .optional()?
+            .flatten();
         Ok(namespace)
     }
 
@@ -664,6 +665,9 @@ mod tests {
             admin_username: None,
             static_tokens: None,
             static_tokens_file: None,
+            public_elections_enabled: true,
+            max_public_elections: 100,
+            public_election_requests_per_minute: 600,
         }
     }
 
@@ -773,7 +777,8 @@ mod tests {
 
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer mytoken123".parse().unwrap());
-        assert!(svc.authenticate(&headers).is_ok());
+        let user_id = svc.authenticate(&headers).unwrap();
+        assert_eq!(svc.get_user_namespace(user_id).unwrap(), None);
     }
 
     #[test]

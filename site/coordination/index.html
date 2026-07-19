@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Simple task coordination over HTTP — OctoStore</title>
+  <meta name="description" content="Give shared work one temporary owner with named HTTP locks, short leases, fencing terms, sessions, watches, and webhooks. Self-host in one Rust binary.">
+  <meta name="theme-color" content="#171224">
+  <meta property="og:title" content="Give every task one owner — OctoStore">
+  <meta property="og:description" content="Simple task coordination over HTTP. Claim, renew, release, and recover after crashes.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://octostore.io/coordination/">
+  <meta property="og:image" content="https://octostore.io/assets/octostore-og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="canonical" href="https://octostore.io/coordination/">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/site.css">
+  <script defer src="/assets/site.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="wrap">
+    <nav class="site-nav" aria-label="Primary navigation">
+      <a class="brand" href="/"><span class="brand-signal" aria-hidden="true"></span>OctoStore</a>
+      <div class="nav-links">
+        <a href="/leader-election/">Leader election</a>
+        <a href="/agents/">Agents</a>
+        <a href="/coordination/" aria-current="page">Coordination</a>
+        <a href="/docs/">Docs</a>
+        <a href="https://github.com/octostore/octostore.io">GitHub</a>
+        <a class="nav-cta" href="/docs/#self-host">Self-host</a>
+      </div>
+    </nav>
+  </div>
+
+  <main id="main" class="reading-wrap">
+    <header class="page-header guide-hero">
+      <div class="signal-label">Task coordination</div>
+      <h1>Give every task one temporary owner.</h1>
+      <p class="lede">Name the work. Acquire it before side effects. Renew while it runs. Release when it finishes. If the worker disappears, the lease expires and the task becomes available again.</p>
+      <div class="button-row">
+        <a class="button primary" href="#claim">Claim a task</a>
+        <a class="button" href="/docs/#self-host">Self-host in 60 seconds</a>
+      </div>
+    </header>
+
+    <section class="content-section">
+      <h2>Election chooses a coordinator. A lock chooses a task owner.</h2>
+      <div class="table-scroll" role="region" aria-label="Leader election and task lock comparison" tabindex="0">
+        <table class="status-table">
+          <caption class="sr-only">Choose between leader election and a named task lock</caption>
+          <thead><tr><th>Your question</th><th>Use</th><th>Typical work</th></tr></thead>
+          <tbody>
+            <tr><td>Who coordinates this group right now?</td><td><a href="/leader-election/"><code>/elections</code></a></td><td>Schedulers, controllers, reconcilers, dispatchers</td></tr>
+            <tr><td>Who owns this exact item right now?</td><td><code>/locks/:name</code></td><td>Jobs, issues, deploys, migrations, customer tasks</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="content-section" id="claim">
+      <h2>Claim before you change anything.</h2>
+      <p>Use a stable name that every worker can derive from the work itself. One caller receives <code>acquired</code>, a lease ID, and a fencing token. Others receive <code>held</code> and leave the task alone.</p>
+      <div class="code-window">
+        <div class="code-head"><span>shell · claim invoice 1842</span><button class="copy-button" type="button" data-copy-target="#coordination-claim">Copy</button></div>
+        <pre id="coordination-claim"><code>curl -s -X POST \
+  https://your-octostore.internal/locks/invoice-1842/acquire \
+  -H "Authorization: Bearer $OCTOSTORE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ttl_seconds":120,
+    "metadata":"worker=billing-7 trace=2f91"
+  }'</code></pre>
+      </div>
+    </section>
+
+    <section class="content-section">
+      <h2>The lease is the recovery plan.</h2>
+      <div class="operating-loop">
+        <div><strong>Acquire</strong><span>Get one bounded claim before work starts.</span></div>
+        <div><strong>Renew</strong><span>Heartbeat while the owner remains healthy.</span></div>
+        <div><strong>Release</strong><span>Return the task immediately after completion.</span></div>
+        <div><strong>Expire</strong><span>Recover automatically when the owner vanishes.</span></div>
+      </div>
+      <p>A lock is advisory, not magic. Keep downstream operations idempotent and carry the fencing token into systems that can reject a stale owner.</p>
+    </section>
+
+    <section class="content-section">
+      <h2>Coordinate a process, not your whole product.</h2>
+      <div class="plain-list">
+        <p><strong>Sessions</strong> tie many ephemeral locks to one worker heartbeat and release them together when that worker disappears.</p>
+        <p><strong>Metadata</strong> makes ownership understandable with a runner ID, trace, task URL, branch, or runbook hint.</p>
+        <p><strong>Watches and webhooks</strong> let operators and reconcilers react to acquisition, renewal, release, and expiry.</p>
+        <p><strong>Hierarchical names</strong> keep ownership legible across repos, tenants, queues, and work types.</p>
+      </div>
+    </section>
+
+    <section class="content-section">
+      <h2>One binary. One database file. Your boundary.</h2>
+      <p>OctoStore runs as a Rust binary backed by SQLite in WAL mode. Start with static bearer tokens. Add GitHub OAuth only if humans need it. Put TLS and network policy in the reverse proxy you already operate.</p>
+      <div class="code-window">
+        <div class="code-head"><span>shell · install and run</span><button class="copy-button" type="button" data-copy-target="#coordination-install">Copy</button></div>
+        <pre id="coordination-install"><code>curl -fsSL \
+  https://raw.githubusercontent.com/octostore/octostore.io/main/install.sh \
+  | sh
+
+STATIC_TOKENS='ops:change-me' \
+DATABASE_URL='./octostore.db' \
+octostore</code></pre>
+      </div>
+      <div class="button-row">
+        <a class="button primary" href="/docs/#task-locks">Read the lock API</a>
+        <a class="button" href="/agents/">Coordinate agent work</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer wrap">
+    <span>Small primitives. Explicit ownership.</span>
+    <span class="footer-links"><a href="/leader-election/">Leader election</a><a href="/agents/">Agents</a><a href="/docs/">Docs</a><a href="https://github.com/octostore/octostore.io">GitHub</a></span>
+  </footer>
+</body>
+</html>

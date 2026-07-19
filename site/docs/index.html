@@ -1,65 +1,190 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>OctoStore Docs</title>
-  <meta name="description" content="OctoStore documentation for HTTP distributed locks: acquire, renew, inspect, and release leases." />
-  <style>
-    :root { --bg:#0b0d10; --panel:#11151b; --text:#f4f7fb; --muted:#9aa7b7; --line:rgba(255,255,255,.1); --accent:#78d4ff; --code:#080a0d; }
-    *{box-sizing:border-box} body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0b0d10;color:var(--text);line-height:1.62} a{color:inherit;text-decoration:none}.wrap{width:min(1100px,calc(100% - 40px));margin:0 auto}
-    nav{display:flex;justify-content:space-between;gap:18px;align-items:center;padding:22px 0;border-bottom:1px solid var(--line)}.brand{font-weight:800}.links{display:flex;gap:8px;flex-wrap:wrap}.links a{color:var(--muted);padding:8px 11px;border-radius:9px}.links a:hover,.links .active{color:var(--text);background:rgba(255,255,255,.055)}
-    header{padding:68px 0 28px}.eyebrow{color:var(--accent);text-transform:uppercase;letter-spacing:.12em;font-weight:750;font-size:.9rem}h1{font-size:clamp(2.5rem,6vw,5rem);line-height:.96;letter-spacing:-.06em;margin:14px 0 16px}.lede{color:#c6d0dc;max-width:780px;font-size:1.16rem}
-    .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:26px 0 36px}.card{background:rgba(17,21,27,.78);border:1px solid var(--line);border-radius:18px;padding:22px}.card h2{font-size:1.15rem;margin:0 0 9px}.card p{color:var(--muted);margin:0 0 16px}.card a{color:#081018;background:#f4f7fb;border-radius:11px;padding:10px 12px;font-weight:800;display:inline-flex}.quick{background:rgba(17,21,27,.78);border:1px solid var(--line);border-radius:18px;padding:22px;margin:24px 0}.quick h2{margin-top:0}pre{overflow-x:auto;background:var(--code);border:1px solid var(--line);border-radius:14px;padding:18px;color:#dbeafe;line-height:1.55}code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}.api-wrap{height:760px;min-height:640px;border-top:1px solid var(--line);margin-top:34px}footer{padding:28px 0 44px;border-top:1px solid var(--line);color:var(--muted)}@media(max-width:860px){nav{align-items:flex-start;flex-direction:column}.cards{grid-template-columns:1fr}.api-wrap{height:680px}}
-  </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OctoStore documentation — leader election and coordination</title>
+  <meta name="description" content="Elect one leader in two HTTP calls, self-host OctoStore, and coordinate shared tasks with short leases and fencing terms.">
+  <meta name="theme-color" content="#171224">
+  <meta property="og:title" content="Leader election in two calls — OctoStore docs">
+  <meta property="og:description" content="Start with account-free leader election. Add self-hosted task coordination only when you need it.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://octostore.io/docs/">
+  <meta property="og:image" content="https://octostore.io/assets/octostore-og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="canonical" href="https://octostore.io/docs/">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/site.css">
+  <script defer src="/assets/site.js"></script>
 </head>
 <body>
+  <a class="skip-link" href="#main">Skip to content</a>
   <div class="wrap">
-    <nav>
-      <a class="brand" href="../index.html">🐙 OctoStore</a>
-      <div class="links"><a href="../index.html">Home</a><a class="active" href="index.html">Docs</a><a href="../agents/">Agents</a><a href="../blog/">Blog</a><a href="https://github.com/octostore/octostore.io">GitHub</a></div>
+    <nav class="site-nav" aria-label="Primary navigation">
+      <a class="brand" href="/"><span class="brand-signal" aria-hidden="true"></span>OctoStore</a>
+      <div class="nav-links">
+        <a href="/leader-election/">Leader election</a>
+        <a href="/agents/">Agents</a>
+        <a href="/coordination/">Coordination</a>
+        <a href="/docs/" aria-current="page">Docs</a>
+        <a href="https://github.com/octostore/octostore.io">GitHub</a>
+        <a class="nav-cta" href="https://api.octostore.io/docs">API reference</a>
+      </div>
+    </nav>
+  </div>
+
+  <header class="page-header wrap">
+    <div class="signal-label">Documentation</div>
+    <h1>Start with one leader.</h1>
+    <p class="lede">The hosted quickstart takes two calls and no credentials. Self-host the same election API when you need a private boundary, or add named task locks when leadership alone is not enough.</p>
+  </header>
+
+  <main id="main" class="docs-layout wrap">
+    <nav class="docs-nav" aria-label="Documentation sections">
+      <a href="#quickstart">Quickstart</a>
+      <a href="#leader-election">Leader election</a>
+      <a href="#task-locks">Task locks</a>
+      <a href="#self-host">Self-hosting</a>
+      <a href="#configuration">Configuration</a>
+      <a href="#safety">Safety model</a>
+      <a href="#api-reference">Full API</a>
     </nav>
 
-    <header>
-      <div class="eyebrow">Documentation</div>
-      <h1>Acquire, renew, inspect, release.</h1>
-      <p class="lede">OctoStore is an HTTP API for lease-based distributed locks. The core flow is small enough to use from shell scripts and explicit enough to operate in production.</p>
-    </header>
+    <div class="docs-content">
+      <section id="quickstart">
+        <h2>Quickstart: elect one leader.</h2>
+        <p>This flow uses the hosted API and requires no login or API key. Create a random room, share the ID with your processes, and let each one campaign.</p>
+        <div class="code-window">
+          <div class="code-head"><span>shell</span><button class="copy-button" type="button" data-copy-target="#quickstart-code">Copy</button></div>
+          <pre id="quickstart-code"><code>ROOM=$(curl -s -X POST https://api.octostore.io/elections \
+  | jq -r .election_id)
 
-    <section class="cards">
-      <div class="card"><h2>Getting started</h2><p>Run locally with a static token, acquire your first lock, renew it, and release it.</p><a href="https://github.com/octostore/octostore.io#getting-started">Open README</a></div>
-      <div class="card"><h2>Agents guide</h2><p>Use deterministic task locks to coordinate hosted workers that can see the same backlog.</p><a href="../agents/">Read guide</a></div>
-      <div class="card"><h2>API reference</h2><p>Interactive OpenAPI reference for auth, lock operations, health, sessions, and webhooks.</p><a href="#api-reference">Jump down</a></div>
-    </section>
-
-    <section class="quick">
-      <h2>Core facts</h2>
-      <ul>
-        <li>Lock names are single path segments in examples: <code>deploy-main</code>, <code>issue-1842</code>.</li>
-        <li>Acquire with <code>POST /locks/:name/acquire</code> and a JSON body containing <code>ttl_seconds</code> plus optional <code>metadata</code>.</li>
-        <li>Acquire returns <code>status: "acquired"</code> when you own the lease and <code>status: "held"</code> when someone else does.</li>
-        <li>Renew returns <code>lease_id</code> and <code>expires_at</code>.</li>
-        <li>Release returns <code>null</code> on success.</li>
-      </ul>
-      <pre><code>export STATIC_TOKENS='alice:devtoken'
-export OCTOSTORE_TOKEN='devtoken'
-
-curl -X POST http://localhost:3000/locks/deploy-main/acquire \
-  -H "Authorization: Bearer ***" \
+curl -s -X POST \
+  "https://api.octostore.io/elections/$ROOM/campaign" \
   -H "Content-Type: application/json" \
-  -d '{"ttl_seconds":60,"metadata":"local smoke test"}'</code></pre>
-    </section>
-  </div>
+  -d '{"candidate_id":"worker-a","ttl_seconds":30}'</code></pre>
+        </div>
+        <p>A winner gets <code>status: "leader"</code>, a monotonic <code>term</code>, and a secret <code>leader_token</code>. Every other candidate gets <code>status: "follower"</code>, the current leader, and <code>retry_after_ms</code>.</p>
+      </section>
 
-  <div id="api-reference" class="api-wrap">
-    <script
-      id="api-reference-script"
-      data-url="https://api.octostore.io/openapi.yaml"
-      data-configuration='{"theme":"purple","layout":"modern","defaultHttpClient":{"targetKey":"shell","clientKey":"curl"}}'
-      src="https://cdn.jsdelivr.net/npm/@scalar/api-reference">
-    </script>
-  </div>
+      <section id="leader-election">
+        <h2>Account-free leader election.</h2>
+        <p>Election rooms are capability-based, not identity-based. The room ID is a shared coordination address. The leader token is the authority to mutate the current term.</p>
+        <div class="table-scroll" role="region" aria-label="Leader election endpoints" tabindex="0">
+        <table class="status-table">
+          <caption class="sr-only">Leader election endpoints</caption>
+          <thead><tr><th>Method</th><th>Path</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td><code>POST</code></td><td><code>/elections</code></td><td>Generate a 192-bit room ID</td></tr>
+            <tr><td><code>POST</code></td><td><code>/elections/:id/campaign</code></td><td>Become leader or observe the winner</td></tr>
+            <tr><td><code>GET</code></td><td><code>/elections/:id</code></td><td>Inspect current public state</td></tr>
+            <tr><td><code>POST</code></td><td><code>/elections/:id/renew</code></td><td>Extend the current lease with its leader token</td></tr>
+            <tr><td><code>POST</code></td><td><code>/elections/:id/resign</code></td><td>Release leadership immediately</td></tr>
+          </tbody>
+        </table>
+        </div>
 
-  <div class="wrap"><footer>OctoStore docs · <a href="../index.html">Home</a> · <a href="https://github.com/octostore/octostore.io">GitHub</a></footer></div>
+        <h3>Renew at half the TTL</h3>
+        <div class="code-window">
+          <div class="code-head"><span>shell</span><button class="copy-button" type="button" data-copy-target="#renew-code">Copy</button></div>
+          <pre id="renew-code"><code>curl -s -X POST \
+  "https://api.octostore.io/elections/$ROOM/renew" \
+  -H "Content-Type: application/json" \
+  -d "{\"leader_token\":\"$LEADER_TOKEN\",\"ttl_seconds\":30}"</code></pre>
+        </div>
+        <p>Public election TTLs range from 5 to 300 seconds. A candidate can renew indefinitely while it is healthy. If it crashes, the room becomes vacant after expiry and a new term can begin.</p>
+
+        <h3>Resign on a clean shutdown</h3>
+        <div class="code-window">
+          <div class="code-head"><span>shell</span><button class="copy-button" type="button" data-copy-target="#resign-code">Copy</button></div>
+          <pre id="resign-code"><code>curl -s -X POST \
+  "https://api.octostore.io/elections/$ROOM/resign" \
+  -H "Content-Type: application/json" \
+  -d "{\"leader_token\":\"$LEADER_TOKEN\"}"</code></pre>
+        </div>
+      </section>
+
+      <section id="task-locks">
+        <h2>Durable task locks.</h2>
+        <p>Locks are the authenticated primitive for self-hosted coordination. Give a task a deterministic name, acquire it before side effects, renew while work runs, and release when complete.</p>
+        <div class="code-window">
+          <div class="code-head"><span>shell</span><button class="copy-button" type="button" data-copy-target="#lock-code">Copy</button></div>
+          <pre id="lock-code"><code>export OCTOSTORE_URL=http://localhost:3000
+export OCTOSTORE_TOKEN=change-me
+
+curl -s -X POST "$OCTOSTORE_URL/locks/issue-1842/acquire" \
+  -H "Authorization: Bearer $OCTOSTORE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"ttl_seconds":120,"metadata":"agent=atlas"}'</code></pre>
+        </div>
+        <p>Lock responses return <code>acquired</code>, <code>held</code>, or <code>delayed</code>. Each successful acquisition includes a lease ID and a fencing token. Lock names may be hierarchical, such as <code>repos/acme/app/issues/1842</code>.</p>
+      </section>
+
+      <section id="self-host">
+        <h2>Self-host in one minute.</h2>
+        <p>The release installer verifies the published SHA-256 checksum and binary version before placing <code>octostore</code> in <code>/usr/local/bin</code>.</p>
+        <div class="code-window">
+          <div class="code-head"><span>shell</span><button class="copy-button" type="button" data-copy-target="#install-code">Copy</button></div>
+          <pre id="install-code"><code>curl -fsSL \
+  https://raw.githubusercontent.com/octostore/octostore.io/main/install.sh \
+  | sh
+
+STATIC_TOKENS='ops:change-me' \
+DATABASE_URL='./octostore.db' \
+octostore
+
+curl http://localhost:3000/health</code></pre>
+        </div>
+        <p>The server binds to <code>0.0.0.0:3000</code> by default and stores state in one SQLite file using WAL mode. Put TLS and network policy in your existing reverse proxy.</p>
+      </section>
+
+      <section id="configuration">
+        <h2>Configuration.</h2>
+        <div class="table-scroll" role="region" aria-label="OctoStore configuration variables" tabindex="0">
+        <table class="status-table">
+          <caption class="sr-only">OctoStore configuration variables</caption>
+          <thead><tr><th>Variable</th><th>Default</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>BIND_ADDR</code></td><td><code>0.0.0.0:3000</code></td><td>HTTP listen address</td></tr>
+            <tr><td><code>DATABASE_URL</code></td><td><code>octostore.db</code></td><td>SQLite database path</td></tr>
+            <tr><td><code>STATIC_TOKENS</code></td><td>unset</td><td>Comma-separated <code>user:token</code> credentials</td></tr>
+            <tr><td><code>STATIC_TOKENS_FILE</code></td><td>unset</td><td>Newline-delimited static token file</td></tr>
+            <tr><td><code>PUBLIC_ELECTIONS</code></td><td><code>true</code></td><td>Enable account-free election endpoints</td></tr>
+            <tr><td><code>MAX_PUBLIC_ELECTIONS</code></td><td><code>10000</code></td><td>Maximum simultaneous public rooms</td></tr>
+            <tr><td><code>PUBLIC_ELECTION_REQUESTS_PER_MINUTE</code></td><td><code>600</code></td><td>Per-client admission limit for room creation and campaigns</td></tr>
+            <tr><td><code>GITHUB_CLIENT_ID</code></td><td>unset</td><td>Enable optional GitHub OAuth when paired with the secret</td></tr>
+            <tr><td><code>ADMIN_KEY</code></td><td>unset</td><td>Protect admin and metrics endpoints</td></tr>
+          </tbody>
+        </table>
+        </div>
+      </section>
+
+      <section id="safety">
+        <h2>Safety model.</h2>
+        <ul>
+          <li><strong>Terms are monotonic across restarts.</strong> The next fencing term is persisted before an acquisition is returned.</li>
+          <li><strong>Leases recover from crashes.</strong> A vanished process stops renewing and loses authority after expiry.</li>
+          <li><strong>Election tokens are bearer capabilities.</strong> Do not log them or put them in URLs.</li>
+          <li><strong>Room IDs are not access controls.</strong> Use generated IDs and self-host when room discovery or traffic must be private.</li>
+          <li><strong>Election admission is rate limited per client.</strong> Status, renewal, and resignation stay available so load cannot strand a current leader.</li>
+          <li><strong>Locks are advisory.</strong> Downstream systems should be idempotent and reject stale fencing terms where possible.</li>
+        </ul>
+      </section>
+
+      <section id="api-reference">
+        <h2>Full API reference.</h2>
+        <p>The interactive OpenAPI reference covers elections, locks, sessions, webhooks, authentication, health, and admin operations.</p>
+        <div class="button-row">
+          <a class="button primary" href="https://api.octostore.io/docs">Open interactive reference</a>
+          <a class="button" href="https://api.octostore.io/openapi.yaml">Download OpenAPI YAML</a>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="site-footer wrap">
+    <span>Small API. Explicit ownership.</span>
+    <span class="footer-links"><a href="/leader-election/">Leader election</a><a href="/agents/">Agents</a><a href="/coordination/">Coordination</a><a href="/blog/">Field notes</a><a href="https://github.com/octostore/octostore.io">GitHub</a></span>
+  </footer>
 </body>
 </html>

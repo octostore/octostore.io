@@ -337,9 +337,9 @@ pub fn validate_ttl(ttl_seconds: u32) -> Result<()> {
 
 pub fn validate_metadata(metadata: &Option<String>) -> Result<()> {
     if let Some(meta) = metadata {
-        if meta.len() > 1024 {
+        if meta.chars().count() > 1024 {
             return Err(AppError::InvalidInput(
-                "Metadata cannot exceed 1024 bytes".to_string(),
+                "Metadata cannot exceed 1024 characters".to_string(),
             ));
         }
     }
@@ -506,16 +506,20 @@ mod tests {
         assert!(validate_metadata(&Some("".to_string())).is_ok());
         assert!(validate_metadata(&Some("short metadata".to_string())).is_ok());
 
-        // Exactly 1024 bytes should be OK
+        // Exactly 1024 Unicode characters should be OK.
         let max_metadata = "a".repeat(1024);
         assert!(validate_metadata(&Some(max_metadata)).is_ok());
+        let max_unicode_metadata = "🦀".repeat(1024);
+        assert!(validate_metadata(&Some(max_unicode_metadata)).is_ok());
 
         // Too long metadata
         let long_metadata = "a".repeat(1025);
         assert!(matches!(
             validate_metadata(&Some(long_metadata)).unwrap_err(),
-            AppError::InvalidInput(msg) if msg == "Metadata cannot exceed 1024 bytes"
+            AppError::InvalidInput(msg) if msg == "Metadata cannot exceed 1024 characters"
         ));
+        let long_unicode_metadata = "🦀".repeat(1025);
+        assert!(validate_metadata(&Some(long_unicode_metadata)).is_err());
     }
 
     #[test]

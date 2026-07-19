@@ -23,6 +23,9 @@ fn create_test_config() -> Config {
         admin_username: None,
         static_tokens: None,
         static_tokens_file: None,
+        public_elections_enabled: true,
+        max_public_elections: 100,
+        public_election_requests_per_minute: 600,
     }
 }
 

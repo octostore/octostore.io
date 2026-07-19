@@ -20,6 +20,12 @@ use tracing::info;
 use uuid::Uuid;
 
 fn ensure_namespace_access(state: &crate::AppState, user_id: Uuid, lock_name: &str) -> Result<()> {
+    if crate::elections::is_reserved_lock_name(lock_name) {
+        return Err(AppError::Forbidden(
+            "The __election namespace is reserved for public leader elections".to_string(),
+        ));
+    }
+
     if user_id == Uuid::nil() {
         return Ok(());
     }
@@ -225,7 +231,7 @@ pub async fn renew_lock(
     let ttl_seconds = req.ttl_seconds.unwrap_or(60);
     validate_ttl(ttl_seconds)?;
 
-    let expires_at =
+    let renewed_lock =
         state
             .lock_handlers
             .store
@@ -234,7 +240,7 @@ pub async fn renew_lock(
     info!("Lock renewed: {} by user {}", name, user_id);
     Ok(Json(RenewLockResponse {
         lease_id: req.lease_id,
-        expires_at,
+        expires_at: renewed_lock.expires_at,
     }))
 }
 
@@ -272,7 +278,7 @@ pub async fn get_lock_status(
     } else {
         // Lock doesn't exist, it's free
         // We need to determine what fencing token would be used next
-        let next_fencing_token = state.lock_handlers.store.get_fencing_counter() + 1;
+        let next_fencing_token = state.lock_handlers.store.get_fencing_counter();
         Ok(Json(LockStatusResponse {
             name: name.clone(),
             status: "free".to_string(),
@@ -330,7 +336,7 @@ pub async fn list_locks(
         .list_locks(query.prefix.as_deref());
     let lock_responses: Vec<LockStatusResponse> = locks
         .into_iter()
-        .filter(|lock| !lock.is_expired())
+        .filter(|lock| !lock.is_expired() && !crate::elections::is_reserved_lock_name(&lock.name))
         .map(|lock| LockStatusResponse {
             name: lock.name,
             status: "held".to_string(),
@@ -431,6 +437,9 @@ mod tests {
             static_tokens: Some("testuser:testtoken,user2:token2".to_string()),
             static_tokens_file: None,
             admin_username: None,
+            public_elections_enabled: true,
+            max_public_elections: 100,
+            public_election_requests_per_minute: 600,
         };
 
         // Share one DbConn between both services (#19)
@@ -457,6 +466,7 @@ mod tests {
             auth_service,
             config: config.clone(),
             metrics: crate::metrics::Metrics::new(),
+            public_election_rate_limiter: crate::rate_limit::PublicElectionRateLimiter::new(600),
             session_store,
             webhook_store,
         };
