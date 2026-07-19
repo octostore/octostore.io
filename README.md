@@ -109,6 +109,19 @@ curl -s -X POST http://localhost:3000/locks/github-issue-1842/acquire \
 
 An `acquired` response includes a `lease_id`, `fencing_token`, and `expires_at`. A `held` response means another worker owns the task. Renew around half the TTL and release on clean completion.
 
+To keep another authenticated process from claiming a sensitive lock, attach a sticky acquire ACL on its first acquisition:
+
+```json
+{
+  "ttl_seconds": 120,
+  "acl": {
+    "acquire": ["user:deploy-bot", "token:another-bearer-token"]
+  }
+}
+```
+
+Only an allowed principal or the admin credential can acquire that lock afterward. The current holder or admin may replace the ACL with `PUT /locks/{name}/acl`. Token principals are redacted in API responses.
+
 ## API surface
 
 | Primitive | Endpoints | Authentication |
@@ -145,6 +158,7 @@ Set `PUBLIC_ELECTIONS=false` when a private installation should expose only auth
 - Terms remain monotonic after all locks are released and the server restarts.
 - Generated election room IDs are hard to guess, but they are not access controls.
 - Leader tokens are bearer capabilities. Keep them out of URLs and logs.
+- Lock ACL token principals are stored for matching but redacted from API responses.
 - Public room creation and campaigns are rate limited per client; status, renewal, and resignation remain available during admission pressure.
 - Locks are advisory. Downstream writes should be idempotent and reject stale fencing terms where possible.
 

@@ -2,8 +2,9 @@ use crate::{
     error::{AppError, Result},
     models::{
         validate_lock_name, validate_metadata, validate_ttl, AcquireLockRequest,
-        AcquireLockResponse, ListLocksResponse, LockStatusResponse, ReleaseLockRequest,
-        RenewLockRequest, RenewLockResponse, UserLockInfo, UserLocksResponse,
+        AcquireLockResponse, ListLocksResponse, LockAcl, LockStatusResponse, ReleaseLockRequest,
+        RenewLockRequest, RenewLockResponse, UpdateLockAclRequest, UpdateLockAclResponse,
+        UserLockInfo, UserLocksResponse,
     },
     store::{AcquireLockOptions, LockStore},
 };
@@ -78,6 +79,102 @@ impl LockHandlers {
     }
 }
 
+fn bearer_token(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("authorization")
+        .and_then(|h| h.to_str().ok())
+        .and_then(|h| h.strip_prefix("Bearer "))
+        .map(|s| s.to_string())
+}
+
+fn normalize_acl(acl: &LockAcl) -> LockAcl {
+    let mut acquire: Vec<String> = acl
+        .acquire
+        .iter()
+        .map(|principal| {
+            let principal = principal.trim();
+            if let Some(username) = principal.strip_prefix("user:") {
+                format!("user:{}", username.to_lowercase())
+            } else {
+                principal.to_string()
+            }
+        })
+        .collect();
+    acquire.sort();
+    acquire.dedup();
+    LockAcl { acquire }
+}
+
+fn validate_acl(acl: &LockAcl) -> Result<()> {
+    if acl.acquire.is_empty() {
+        return Err(AppError::InvalidInput(
+            "acl.acquire must not be empty".to_string(),
+        ));
+    }
+    if acl.acquire.len() > 100 {
+        return Err(AppError::InvalidInput(
+            "acl.acquire cannot contain more than 100 principals".to_string(),
+        ));
+    }
+
+    for principal in &acl.acquire {
+        let p = principal.trim();
+        if p.len() > 256 {
+            return Err(AppError::InvalidInput(
+                "acl principals cannot exceed 256 characters".to_string(),
+            ));
+        }
+
+        let valid = if let Some(username) = p.strip_prefix("user:") {
+            !username.is_empty()
+                && username.len() <= 64
+                && username
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric() || character == '-')
+        } else if let Some(token) = p.strip_prefix("token:") {
+            !token.is_empty()
+        } else {
+            false
+        };
+        if !valid {
+            return Err(AppError::InvalidInput(
+                "acl principals must use user:<github_username> or token:<token>".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn redact_acl(acl: &LockAcl) -> LockAcl {
+    LockAcl {
+        acquire: acl
+            .acquire
+            .iter()
+            .map(|principal| {
+                if principal.starts_with("token:") {
+                    "token:[redacted]".to_string()
+                } else {
+                    principal.clone()
+                }
+            })
+            .collect(),
+    }
+}
+
+fn caller_in_acl(acl: &LockAcl, username: Option<&str>, token: Option<&str>) -> bool {
+    acl.acquire.iter().any(|principal| {
+        if let Some(rest) = principal.strip_prefix("user:") {
+            return username
+                .map(|u| u.eq_ignore_ascii_case(rest))
+                .unwrap_or(false);
+        }
+        if let Some(rest) = principal.strip_prefix("token:") {
+            return token.map(|t| t == rest).unwrap_or(false);
+        }
+        false
+    })
+}
+
 pub async fn acquire_lock(
     Path(name): Path<String>,
     State(state): State<crate::AppState>,
@@ -85,6 +182,9 @@ pub async fn acquire_lock(
     Json(req): Json<AcquireLockRequest>,
 ) -> Result<(StatusCode, Json<AcquireLockResponse>)> {
     let user_id = state.auth_service.authenticate(&headers)?;
+    let is_admin = user_id == uuid::Uuid::nil();
+    let caller_token = bearer_token(&headers);
+    let caller_username = state.auth_service.get_user_by_id(&user_id.to_string())?;
 
     // Validate lock name
     validate_lock_name(&name)?;
@@ -118,6 +218,34 @@ pub async fn acquire_lock(
         }
         if session.is_expired() {
             return Err(crate::error::AppError::SessionExpired);
+        }
+    }
+
+    let requested_acl = if let Some(acl) = req.acl.clone() {
+        validate_acl(&acl)?;
+        Some(normalize_acl(&acl))
+    } else {
+        None
+    };
+    let existing_acl = state.lock_handlers.store.get_lock_acl(&name)?;
+
+    if let (Some(existing), Some(requested)) = (&existing_acl, &requested_acl) {
+        if existing != requested {
+            return Err(AppError::Conflict(
+                "ACL already exists; update with PUT /locks/{name}/acl".to_string(),
+            ));
+        }
+    }
+
+    let effective_acl = existing_acl.clone().or(requested_acl.clone());
+    if !is_admin {
+        if let Some(acl) = &effective_acl {
+            let allowed = caller_in_acl(acl, caller_username.as_deref(), caller_token.as_deref());
+            if !allowed {
+                return Err(AppError::Forbidden(
+                    "caller is not allowed to acquire this lock".to_string(),
+                ));
+            }
         }
     }
 
@@ -162,6 +290,12 @@ pub async fn acquire_lock(
             .with_lock_delay_seconds(lock_delay_seconds),
     ) {
         Ok((lease_id, fencing_token, expires_at)) => {
+            if existing_acl.is_none() {
+                if let Some(acl) = requested_acl {
+                    state.lock_handlers.store.set_lock_acl(&name, &acl)?;
+                }
+            }
+
             state.metrics.record_lock_operation("acquire");
             info!("Lock acquired: {} by user {}", name, user_id);
             Ok((
@@ -254,6 +388,8 @@ pub async fn get_lock_status(
     validate_lock_name(&name)?;
     ensure_namespace_access(&state, user_id, &name)?;
 
+    let acl = state.lock_handlers.store.get_lock_acl(&name)?;
+
     if let Some(lock) = state.lock_handlers.store.get_lock(&name) {
         if lock.is_expired() {
             // Lock exists but is expired, treat as free
@@ -264,6 +400,7 @@ pub async fn get_lock_status(
                 fencing_token: lock.fencing_token, // Keep the last known fencing token
                 expires_at: None,
                 metadata: None, // Expired lock, no metadata
+                acl: acl.as_ref().map(redact_acl),
             }))
         } else {
             Ok(Json(LockStatusResponse {
@@ -273,6 +410,7 @@ pub async fn get_lock_status(
                 fencing_token: lock.fencing_token,
                 expires_at: Some(lock.expires_at),
                 metadata: lock.metadata.clone(),
+                acl: acl.as_ref().map(redact_acl),
             }))
         }
     } else {
@@ -286,8 +424,43 @@ pub async fn get_lock_status(
             fencing_token: next_fencing_token,
             expires_at: None,
             metadata: None,
+            acl: acl.as_ref().map(redact_acl),
         }))
     }
+}
+
+pub async fn update_lock_acl(
+    Path(name): Path<String>,
+    State(state): State<crate::AppState>,
+    headers: HeaderMap,
+    Json(req): Json<UpdateLockAclRequest>,
+) -> Result<Json<UpdateLockAclResponse>> {
+    let user_id = state.auth_service.authenticate(&headers)?;
+    let is_admin = user_id == uuid::Uuid::nil();
+
+    validate_lock_name(&name)?;
+    validate_acl(&req.acl)?;
+    let acl = normalize_acl(&req.acl);
+
+    if !is_admin {
+        let lock = state
+            .lock_handlers
+            .store
+            .get_lock(&name)
+            .ok_or(AppError::LockNotFound { name: name.clone() })?;
+
+        if lock.holder_id != user_id || lock.is_expired() {
+            return Err(AppError::Forbidden(
+                "only current lock holder or admin can update ACL".to_string(),
+            ));
+        }
+    }
+
+    state.lock_handlers.store.set_lock_acl(&name, &acl)?;
+    Ok(Json(UpdateLockAclResponse {
+        name,
+        acl: redact_acl(&acl),
+    }))
 }
 
 /// Watches a lock for real-time state changes via Server-Sent Events (SSE).
@@ -344,6 +517,7 @@ pub async fn list_locks(
             fencing_token: lock.fencing_token,
             expires_at: Some(lock.expires_at),
             metadata: lock.metadata,
+            acl: None,
         })
         .collect();
     let total = lock_responses.len();
@@ -434,7 +608,10 @@ mod tests {
             github_client_secret: None,
             github_redirect_uri: "http://localhost:3000/callback".to_string(),
             admin_key: Some("test_admin_key".to_string()),
-            static_tokens: Some("testuser:testtoken,user2:token2".to_string()),
+            static_tokens: Some(
+                "testuser:testtoken,user2:token2,caseuser:CaseSensitiveToken,caseuserlower:casesensitivetoken"
+                    .to_string(),
+            ),
             static_tokens_file: None,
             admin_username: None,
             public_elections_enabled: true,
@@ -473,6 +650,7 @@ mod tests {
 
         let router = axum::Router::new()
             .route("/locks/:name/acquire", axum::routing::post(acquire_lock))
+            .route("/locks/:name/acl", axum::routing::put(update_lock_acl))
             .route("/locks/:name/release", axum::routing::post(release_lock))
             .route("/locks/:name/renew", axum::routing::post(renew_lock))
             .route("/locks/:name/watch", axum::routing::get(watch_lock))
@@ -819,5 +997,267 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn test_acl_blocks_non_members() {
+        let (app, _tmp) = test_app().await;
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/team-a.acl-lock/acquire")
+                    .method("POST")
+                    .header("authorization", "Bearer testtoken")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"ttl_seconds": 60, "acl": {"acquire": ["user:testuser"]}})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/team-a.acl-lock/acquire")
+                    .method("POST")
+                    .header("authorization", "Bearer token2")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"ttl_seconds": 60}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn test_acl_update_requires_holder_or_admin() {
+        let (app, _tmp) = test_app().await;
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/team-a.acl-update/acquire")
+                    .method("POST")
+                    .header("authorization", "Bearer testtoken")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"ttl_seconds": 60}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/team-a.acl-update/acl")
+                    .method("PUT")
+                    .header("authorization", "Bearer token2")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"acl": {"acquire": ["user:user2"]}}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/team-a.acl-update/acl")
+                    .method("PUT")
+                    .header("authorization", "Bearer testtoken")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"acl": {"acquire": ["user:testuser"]}}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let admin_update = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/team-a.acl-update/acl")
+                    .method("PUT")
+                    .header("x-admin-key", "test_admin_key")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"acl": {"acquire": ["token:CaseSensitiveToken"]}}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(admin_update.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(admin_update.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["acl"]["acquire"][0], "token:[redacted]");
+        assert!(!body.to_string().contains("CaseSensitiveToken"));
+    }
+
+    #[test]
+    fn test_acl_normalization_preserves_token_case_and_normalizes_users() {
+        let normalized = normalize_acl(&LockAcl {
+            acquire: vec![
+                " user:Deploy-Bot ".to_string(),
+                "token:CaseSensitiveToken".to_string(),
+                "user:deploy-bot".to_string(),
+            ],
+        });
+
+        assert_eq!(
+            normalized.acquire,
+            vec![
+                "token:CaseSensitiveToken".to_string(),
+                "user:deploy-bot".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn test_acl_rejects_too_many_principals() {
+        let acl = LockAcl {
+            acquire: (0..101).map(|index| format!("user:bot-{index}")).collect(),
+        };
+
+        assert!(matches!(validate_acl(&acl), Err(AppError::InvalidInput(_))));
+    }
+
+    #[tokio::test]
+    async fn test_token_acl_is_case_sensitive_and_redacted_from_status() {
+        let (app, _tmp) = test_app().await;
+
+        let acquired = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/team-a.token-acl/acquire")
+                    .method("POST")
+                    .header("authorization", "Bearer CaseSensitiveToken")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "ttl_seconds": 60,
+                            "acl": {"acquire": ["token:CaseSensitiveToken"]}
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(acquired.status(), StatusCode::OK);
+
+        let wrong_case = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/team-a.token-acl/acquire")
+                    .method("POST")
+                    .header("authorization", "Bearer casesensitivetoken")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"ttl_seconds": 60}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(wrong_case.status(), StatusCode::FORBIDDEN);
+
+        let status = app
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/team-a.token-acl")
+                    .header("authorization", "Bearer testtoken")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(status.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(status.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["acl"]["acquire"][0], "token:[redacted]");
+        assert!(!body.to_string().contains("CaseSensitiveToken"));
+    }
+
+    #[tokio::test]
+    async fn test_acl_remains_after_release() {
+        let (app, _tmp) = test_app().await;
+
+        let acquired = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/team-a.sticky-acl/acquire")
+                    .method("POST")
+                    .header("authorization", "Bearer testtoken")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "ttl_seconds": 60,
+                            "acl": {"acquire": ["user:testuser"]}
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(acquired.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(acquired.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&body).unwrap();
+        let lease_id = body["lease_id"].as_str().unwrap();
+
+        let released = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/team-a.sticky-acl/release")
+                    .method("POST")
+                    .header("authorization", "Bearer testtoken")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"lease_id": lease_id}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(released.status(), StatusCode::OK);
+
+        let blocked = app
+            .oneshot(
+                Request::builder()
+                    .uri("/locks/team-a.sticky-acl/acquire")
+                    .method("POST")
+                    .header("authorization", "Bearer token2")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"ttl_seconds": 60}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(blocked.status(), StatusCode::FORBIDDEN);
     }
 }

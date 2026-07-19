@@ -4,7 +4,7 @@ use crate::{
 };
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::{
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -147,9 +147,18 @@ impl LockStore {
 
             conn.execute(
                 r#"
-                CREATE TABLE IF NOT EXISTS fencing_counter (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    counter INTEGER NOT NULL DEFAULT 1
+CREATE TABLE IF NOT EXISTS lock_acls (
+    name TEXT PRIMARY KEY,
+    acquire_acl TEXT NOT NULL
+)
+"#,
+                [],
+            )?;
+            conn.execute(
+                r#"
+CREATE TABLE IF NOT EXISTS fencing_counter (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    counter INTEGER NOT NULL DEFAULT 1
                 )
                 "#,
                 [],
@@ -674,6 +683,31 @@ impl LockStore {
         self.locks.get(name).map(|entry| entry.value().clone())
     }
 
+    pub fn get_lock_acl(&self, name: &str) -> Result<Option<crate::models::LockAcl>> {
+        let conn = self.db.lock().unwrap();
+        let acl_json: Option<String> = conn
+            .query_row(
+                "SELECT acquire_acl FROM lock_acls WHERE name = ?",
+                params![name],
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        match acl_json {
+            Some(raw) => Ok(Some(serde_json::from_str(&raw)?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn set_lock_acl(&self, name: &str, acl: &crate::models::LockAcl) -> Result<()> {
+        let conn = self.db.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO lock_acls (name, acquire_acl) VALUES (?, ?)",
+            params![name, serde_json::to_string(acl)?],
+        )?;
+        Ok(())
+    }
+
     #[allow(dead_code)]
     pub fn get_user_locks(&self, user_id: Uuid) -> Vec<Lock> {
         self.locks
@@ -858,6 +892,28 @@ mod tests {
             .query_row("PRAGMA journal_mode", [], |row| row.get(0))
             .expect("Failed to read journal mode");
         assert_eq!(mode.to_lowercase(), "wal");
+    }
+
+    #[test]
+    fn test_lock_acl_survives_restart() {
+        let temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        let db_path = temp_file.path().to_string_lossy().to_string();
+        let expected = crate::models::LockAcl {
+            acquire: vec!["user:deploy-bot".to_string()],
+        };
+
+        {
+            let store = create_test_store_with_path(&db_path);
+            store
+                .set_lock_acl("deploy/production", &expected)
+                .expect("ACL should persist");
+        }
+
+        let restored = create_test_store_with_path(&db_path)
+            .get_lock_acl("deploy/production")
+            .expect("ACL should load")
+            .expect("ACL should exist after restart");
+        assert_eq!(restored, expected);
     }
 
     #[tokio::test]

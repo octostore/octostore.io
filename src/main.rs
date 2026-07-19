@@ -18,13 +18,14 @@ use axum::{
     http::HeaderValue,
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, post, put},
     Json, Router,
 };
 use config::Config;
 use elections::{campaign, create_election, election_status, renew_leadership, resign_leadership};
 use locks::{
-    acquire_lock, get_lock_status, list_locks, release_lock, renew_lock, watch_lock, LockHandlers,
+    acquire_lock, get_lock_status, list_locks, release_lock, renew_lock, update_lock_acl,
+    watch_lock, LockHandlers,
 };
 use metrics::{endpoint_from_path, Metrics};
 use rate_limit::PublicElectionRateLimiter;
@@ -326,6 +327,7 @@ async fn main() -> anyhow::Result<()> {
         )
         // Lock routes
         .route("/locks/:name/acquire", post(acquire_lock))
+        .route("/locks/:name/acl", put(update_lock_acl))
         .route("/locks/:name/release", post(release_lock))
         .route("/locks/:name/renew", post(renew_lock))
         .route("/locks/:name/watch", get(watch_lock))
@@ -586,6 +588,7 @@ mod tests {
             .merge(auth_router)
             .route("/auth/token/rotate", post(rotate_token))
             .route("/locks/:name/acquire", post(acquire_lock))
+            .route("/locks/:name/acl", put(update_lock_acl))
             .route("/locks/:name/release", post(release_lock))
             .route("/locks/:name/renew", post(renew_lock))
             .route("/locks/:name/watch", get(watch_lock))
