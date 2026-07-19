@@ -140,33 +140,10 @@ a {
 }
 
 .brand-signal {
-  position: relative;
-  width: 25px;
-  height: 25px;
-  border: 1px solid var(--line-bright);
-  border-radius: 50%;
-  background: var(--surface);
-}
-
-.brand-signal::before,
-.brand-signal::after {
-  position: absolute;
-  top: 50%;
-  width: 5px;
-  height: 5px;
-  transform: translateY(-50%);
-  border-radius: 50%;
-  background: var(--signal);
-  content: "";
-}
-
-.brand-signal::before {
-  left: 5px;
-}
-
-.brand-signal::after {
-  right: 5px;
-  opacity: 0.28;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  background: url("/assets/octostore-logo.svg") center / contain no-repeat;
 }
 
 .nav-links {
@@ -219,6 +196,26 @@ a {
 
 .hero .signal-tower {
   animation: arrive 620ms 90ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.hero-visual {
+  position: relative;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  min-width: 0;
+  padding-top: clamp(118px, 13vw, 166px);
+}
+
+.hero-logo {
+  position: absolute;
+  top: -22px;
+  left: 50%;
+  z-index: 2;
+  width: clamp(190px, 20vw, 260px);
+  height: auto;
+  translate: -50% 0;
+  animation: logo-arrive 620ms 140ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .signal-label {
@@ -1106,6 +1103,17 @@ li code {
   }
 }
 
+@keyframes logo-arrive {
+  from {
+    translate: -50% 14px;
+    opacity: 0;
+  }
+  to {
+    translate: -50% 0;
+    opacity: 1;
+  }
+}
+
 @keyframes signal-pulse {
   0%, 100% { box-shadow: 0 0 0 0 oklch(0.86 0.22 132 / 0.08); }
   50% { box-shadow: 0 0 0 9px oklch(0.86 0.22 132 / 0.14); }
@@ -1321,6 +1329,15 @@ li code {
     width: min(100%, 560px);
   }
 
+  .hero-visual {
+    padding-top: 152px;
+  }
+
+  .hero-logo {
+    top: -8px;
+    width: min(250px, 64vw);
+  }
+
   .signal-tower::after {
     display: none;
   }
@@ -1384,6 +1401,10 @@ li code {
 
   .hero {
     padding-top: 62px;
+  }
+
+  .hero-visual {
+    padding-top: 130px;
   }
 
   h1 {

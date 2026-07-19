@@ -1,6 +1,10 @@
-# OctoStore
+<p align="center">
+  <img src="site/assets/octostore-logo.svg" alt="OctoStore logo: a hand-painted octopus carries colorful work and lifts one leader" width="300">
+</p>
 
-**Pick one leader. Everyone else waits.**
+<h1 align="center">OctoStore</h1>
+
+<p align="center"><strong>Pick one leader. Everyone else waits.</strong></p>
 
 OctoStore is simple leader election over HTTP. Open a room, campaign from any process, and get one short-lived leader without creating an account, distributing an API key, installing an SDK, or operating a consensus cluster.
 
