@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OctoStore field notes</title>
+  <meta name="description" content="Practical notes on simple leader election, leases, fencing terms, task ownership, and agent coordination.">
+  <meta name="theme-color" content="#171224">
+  <meta property="og:title" content="OctoStore field notes">
+  <meta property="og:description" content="Practical notes on agent coordination, leader election, leases, fencing terms, and shared work ownership.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://octostore.io/blog/">
+  <meta property="og:image" content="https://octostore.io/assets/octostore-og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="canonical" href="https://octostore.io/blog/">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/site.css">
+  <script defer src="/assets/site.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="wrap">
+    <nav class="site-nav" aria-label="Primary navigation">
+      <a class="brand" href="/"><span class="brand-signal" aria-hidden="true"></span>OctoStore</a>
+      <div class="nav-links">
+        <a href="/leader-election/">Leader election</a>
+        <a href="/agents/">Agents</a>
+        <a href="/coordination/">Coordination</a>
+        <a href="/docs/">Docs</a>
+        <a href="https://github.com/octostore/octostore.io">GitHub</a>
+        <a class="nav-cta" href="/#live-race">Try it live</a>
+      </div>
+    </nav>
+  </div>
+
+  <main id="main" class="wrap">
+    <header class="page-header">
+      <div class="signal-label">Field notes</div>
+      <h1>Coordination before motion.</h1>
+      <p class="lede">Short, operational writing about electing one leader, recovering after failure, and giving shared work one owner.</p>
+    </header>
+
+    <section class="post-list" aria-label="Articles">
+      <a class="post-link" href="/blog/leader-election-is-easy-until-the-leader-disappears.html">
+        <time datetime="2026-07-18">18 Jul 2026</time>
+        <div>
+          <h2>Leader election is easy until the leader disappears.</h2>
+          <p>A lock can pick a winner. A lease, capability, retry delay, and fencing term keep failure from quietly picking two.</p>
+        </div>
+        <span class="post-arrow" aria-hidden="true">READ →</span>
+      </a>
+      <a class="post-link" href="/blog/agents-are-cheap-collisions-are-expensive.html">
+        <time datetime="2026-07-18">18 Jul 2026</time>
+        <div>
+          <h2>Agents are cheap. Collisions are expensive.</h2>
+          <p>Why agent fleets need a tiny remote referee more than they need another giant workflow engine, and how to elect one leader without creating an account.</p>
+        </div>
+        <span class="post-arrow" aria-hidden="true">READ →</span>
+      </a>
+      <a class="post-link" href="/blog/distributed-locking-for-hosted-agents.html">
+        <time datetime="2026-05-31">31 May 2026</time>
+        <div>
+          <h2>Distributed locking for hosted agents</h2>
+          <p>A practical lease pattern for giving shared tasks one visible owner and a recovery path when workers disappear.</p>
+        </div>
+        <span class="post-arrow" aria-hidden="true">READ →</span>
+      </a>
+    </section>
+  </main>
+
+  <footer class="site-footer wrap">
+    <span>Notes from the coordination layer.</span>
+    <span class="footer-links"><a href="/leader-election/">Leader election</a><a href="/docs/">Docs</a><a href="/agents/">Agents</a><a href="/coordination/">Coordination</a><a href="https://github.com/octostore/octostore.io">GitHub</a></span>
+  </footer>
+</body>
+</html>

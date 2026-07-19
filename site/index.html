@@ -1,706 +1,304 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OctoStore — Distributed locking as a service</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-dark.min.css">
-    <style>
-        :root {
-            --bg-primary: #0a0a0b;
-            --bg-secondary: #111111;
-            --bg-tertiary: #1a1a1b;
-            --text-primary: #ffffff;
-            --text-secondary: #e5e5e5;
-            --text-muted: #a1a1aa;
-            --accent: #6366f1;
-            --accent-hover: #5b5ce8;
-            --border: rgba(255, 255, 255, 0.08);
-            --border-hover: rgba(255, 255, 255, 0.12);
-            --gradient: linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(168,85,247,0.06) 100%);
-            --c-indigo: #6366f1;
-            --c-violet: #a855f7;
-            --c-sky:    #38bdf8;
-            --c-emerald:#10b981;
-            --c-amber:  #f59e0b;
-            --c-rose:   #f43f5e;
-            --shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
-            --shadow-lg: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        a { color: #a1a1aa; text-decoration: none; }
-        a:hover { color: var(--text-primary, #ffffff); }
-
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: var(--bg-primary);
-            color: var(--text-secondary);
-            line-height: 1.6;
-            overflow-x: hidden;
-        }
-
-        /* Background glow */
-        body::before {
-            content: '';
-            position: fixed;
-            top: 0; left: 50%;
-            transform: translateX(-50%);
-            width: 900px; height: 600px;
-            background: radial-gradient(ellipse at 40% 30%, rgba(99,102,241,0.12) 0%, transparent 60%),
-                        radial-gradient(ellipse at 70% 60%, rgba(168,85,247,0.08) 0%, transparent 55%);
-            z-index: -1;
-            pointer-events: none;
-        }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 0 24px;
-        }
-
-        /* Header */
-        header {
-            padding: 80px 0 120px;
-            text-align: center;
-            position: relative;
-        }
-
-        .hero-content {
-            animation: fadeInUp 0.8s ease-out;
-        }
-
-        @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(30px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .hero-logo {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-bottom: 32px;
-            gap: 20px;
-        }
-
-        .hero-icon {
-            width: 120px;
-            height: 120px;
-            filter: drop-shadow(0 0 30px rgba(99, 102, 241, 0.4));
-        }
-
-        .hero-headline {
-            font-size: 5rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            letter-spacing: -0.03em;
-            line-height: 1.05;
-            margin: 0 0 24px;
-        }
-
-        .hero-headline .highlight {
-            background: linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #6366f1 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        h1 {
-            font-size: 4.5rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            background: linear-gradient(135deg, #ffffff 0%, #e5e5e5 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            margin: 0;
-            display: none;
-        }
-
-        .tagline {
-            font-size: 1.25rem;
-            color: var(--text-muted);
-            margin: 0 0 48px;
-            font-weight: 400;
-            max-width: 480px;
-            margin-left: auto;
-            margin-right: auto;
-        }
-
-        .cta-buttons {
-            display: flex;
-            gap: 24px;
-            justify-content: center;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-
-        .github-auth-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 12px;
-            background: #24292f;
-            border: 1px solid #30363d;
-            color: #ffffff;
-            text-decoration: none;
-            padding: 16px 32px;
-            border-radius: 12px;
-            font-weight: 600;
-            font-size: 1.1rem;
-            transition: all 0.2s ease;
-            box-shadow: var(--shadow);
-            position: relative;
-            overflow: hidden;
-        }
-
-        .github-auth-btn::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, transparent 50%);
-            opacity: 0;
-            transition: opacity 0.2s ease;
-        }
-
-        .github-auth-btn:hover::before {
-            opacity: 1;
-        }
-
-        .github-auth-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-lg);
-            border-color: #4c5861;
-        }
-
-        .github-icon {
-            width: 24px;
-            height: 24px;
-            fill: currentColor;
-        }
-
-        .secondary-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            background: transparent;
-            border: 1px solid var(--border);
-            color: var(--text-secondary);
-            text-decoration: none;
-            padding: 16px 32px;
-            border-radius: 12px;
-            font-weight: 500;
-            font-size: 1.1rem;
-            transition: all 0.2s ease;
-            backdrop-filter: blur(10px);
-        }
-
-        .secondary-btn:hover {
-            border-color: var(--border-hover);
-            background: rgba(255, 255, 255, 0.05);
-            transform: translateY(-1px);
-        }
-
-        /* Disclaimer */
-        .disclaimer {
-            background: rgba(99,102,241,0.06);
-            border: 1px solid rgba(99,102,241,0.2);
-            border-radius: 16px;
-            padding: 24px 32px;
-            margin: 80px 0;
-            text-align: center;
-            animation: fadeIn 0.8s ease-out 0.3s both;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-
-        .disclaimer p {
-            color: var(--text-muted);
-            font-size: 1.2rem;
-            font-weight: 500;
-        }
-
-        /* Sections */
-        section {
-            margin: 100px 0;
-            animation: fadeIn 0.8s ease-out both;
-        }
-
-        section:nth-child(even) {
-            animation-delay: 0.1s;
-        }
-
-        section:nth-child(odd) {
-            animation-delay: 0.2s;
-        }
-
-        h2 {
-            font-size: 2.5rem;
-            margin-bottom: 24px;
-            color: var(--text-primary);
-            font-weight: 700;
-            text-align: center;
-        }
-
-        .section-subtitle {
-            text-align: center;
-            font-size: 1.2rem;
-            color: var(--text-muted);
-            margin-bottom: 60px;
-            max-width: 600px;
-            margin-left: auto;
-            margin-right: auto;
-        }
-
-        /* Feature grid */
-        .features-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 24px;
-            margin: 60px 0;
-        }
-
-        @media (max-width: 900px) {
-            .features-grid { grid-template-columns: repeat(2, 1fr) !important; }
-        }
-
-        .feature-card {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-top: 2px solid var(--card-color, var(--accent));
-            border-radius: 12px;
-            padding: 28px;
-            transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
-            position: relative;
-        }
-
-        .feature-card:hover {
-            transform: translateY(-3px);
-            border-color: var(--card-color, var(--accent));
-            box-shadow: 0 0 0 1px var(--card-color, var(--accent)), var(--shadow);
-        }
-
-        .feature-icon {
-            display: inline-flex; align-items: center; justify-content: center;
-            width: 44px; height: 44px; border-radius: 10px;
-            background: color-mix(in srgb, var(--card-color, var(--accent)) 15%, transparent);
-            font-size: 1.4rem; margin-bottom: 16px;
-        }
-
-
-
-        .feature-title {
-            font-size: 1.5rem;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin-bottom: 16px;
-        }
-
-        .feature-description {
-            color: var(--text-muted);
-            line-height: 1.6;
-        }
-
-        /* API section */
-        .api-section {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 20px;
-            padding: 48px;
-            margin: 60px 0;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .api-section::before {
-            content: '';
-            position: absolute;
-            inset: 0; border-radius: 20px;
-            background: linear-gradient(135deg, rgba(99,102,241,0.04) 0%, transparent 60%);
-            pointer-events: none;
-        }
-
-        .api-endpoints {
-            display: grid;
-            gap: 32px;
-            margin-top: 40px;
-        }
-
-        .endpoint-group {
-            background: var(--bg-primary);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 24px;
-        }
-
-        .endpoint-title {
-            font-weight: 600;
-            color: var(--text-primary);
-            margin-bottom: 16px;
-            font-size: 1.3rem;
-        }
-
-        .code-block {
-            background: #0d1117;
-            border: 1px solid rgba(99, 102, 241, 0.15);
-            border-radius: 8px;
-            padding: 24px;
-            overflow-x: auto;
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-            font-size: 14px;
-            line-height: 1.7;
-        }
-
-        .code-block code {
-            color: #e6edf3;
-        }
-
-        .code-block .cmd { color: #79c0ff; }
-        .code-block .flag { color: #d2a8ff; }
-        .code-block .url { color: #a5d6ff; }
-        .code-block .header { color: #7ee787; }
-        .code-block .string { color: #ffa657; }
-        .code-block .comment { color: #8b949e; font-style: italic; }
-
-        /* Constraints */
-        .constraints {
-            background: var(--bg-secondary);
-            border-left: 4px solid var(--accent);
-            border-radius: 12px;
-            padding: 32px;
-            margin: 40px 0;
-        }
-
-        .constraints h3 {
-            color: var(--text-primary);
-            margin-bottom: 20px;
-            font-size: 1.4rem;
-        }
-
-        .constraints ul {
-            margin-left: 20px;
-        }
-
-        .constraints li {
-            margin-bottom: 12px;
-            color: var(--text-muted);
-        }
-
-        /* Footer */
-        footer {
-            text-align: center;
-            margin: 120px 0 80px;
-            padding: 40px 0;
-            border-top: 1px solid var(--border);
-            color: var(--text-muted);
-        }
-
-        footer p {
-            font-size: 1.1rem;
-        }
-
-        /* Responsive */
-        @media (max-width: 768px) {
-            .container {
-                padding: 0 16px;
-            }
-
-            h1 {
-                font-size: 3rem;
-            }
-
-            .hero-headline {
-                font-size: 3.2rem;
-            }
-
-            .hero-icon {
-                width: 90px;
-                height: 90px;
-            }
-
-            .tagline {
-                font-size: 1.1rem;
-            }
-
-            .cta-buttons {
-                flex-direction: column;
-                align-items: stretch;
-            }
-
-            .github-auth-btn,
-            .secondary-btn {
-                justify-content: center;
-            }
-
-            .features-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .api-section {
-                padding: 32px 24px;
-            }
-
-            .code-block {
-                font-size: 12px;
-            }
-        }
-
-        @media (max-width: 480px) {
-            header {
-                padding: 60px 0 80px;
-            }
-
-            h1 {
-                font-size: 2.5rem;
-            }
-
-            .hero-headline {
-                font-size: 2.5rem;
-            }
-
-            .hero-icon {
-                width: 70px;
-                height: 70px;
-            }
-        }
-    </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OctoStore — Free hosted and open-source coordination</title>
+  <meta name="description" content="OctoStore is an open-source coordination service for distributed processes and agents. Use the totally free hosted version with no signup, or run it yourself.">
+  <meta name="theme-color" content="#171224">
+  <meta property="og:title" content="Meet OctoStore — Use it free or run it yourself">
+  <meta property="og:description" content="Open-source coordination for distributed processes and agents, with a totally free hosted version and no signup.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://octostore.io/">
+  <meta property="og:image" content="https://octostore.io/assets/octostore-og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="OctoStore signal board showing one process elected leader while two processes wait">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Meet OctoStore — Use it free or run it yourself">
+  <meta name="twitter:description" content="Open-source coordination with a totally free hosted version. No signup.">
+  <meta name="twitter:image" content="https://octostore.io/assets/octostore-og.png">
+  <link rel="canonical" href="https://octostore.io/">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/site.css">
+  <script defer src="/assets/site.js"></script>
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "OctoStore",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "Linux, macOS",
+      "description": "Simple leader election and coordination over HTTP, available as a hosted API or a self-hosted Rust binary.",
+      "url": "https://octostore.io/",
+      "codeRepository": "https://github.com/octostore/octostore.io",
+      "license": "https://opensource.org/license/mit"
+    }
+  </script>
 </head>
 <body>
-    <div class="container">
-        <nav style="display: flex; justify-content: space-between; align-items: center; padding: 16px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08); margin-bottom: 40px;">
-            <a href="/" style="display: flex; align-items: center; gap: 8px; text-decoration: none;">
-                <span style="font-size: 1.5rem;">🐙</span>
-                <span style="font-size: 1.25rem; font-weight: 600; color: #ffffff;">OctoStore</span>
-            </a>
-            <div style="display: flex; gap: 24px; align-items: center;">
-                <a href="/" style="color: #e5e5e5; text-decoration: none; font-weight: 500; padding: 8px 16px; border-radius: 6px; transition: all 0.2s;">Home</a>
-                <a href="/dashboard.html" style="color: #a1a1aa; text-decoration: none; font-weight: 500; padding: 8px 16px; border-radius: 6px; transition: all 0.2s;">Dashboard</a>
-                <a href="https://api.octostore.io/docs" style="color: #a1a1aa; text-decoration: none; font-weight: 500; padding: 8px 16px; border-radius: 6px; transition: all 0.2s;">API Docs</a>
-            </div>
-        </nav>
-        <header>
-            <div class="hero-content">
-                <svg class="hero-icon" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-                  <!-- Octopus body -->
-                  <ellipse cx="100" cy="72" rx="58" ry="52" fill="url(#octoGrad)"/>
-                  <!-- Eyes -->
-                  <ellipse cx="78" cy="64" rx="14" ry="16" fill="#fff"/>
-                  <ellipse cx="122" cy="64" rx="14" ry="16" fill="#fff"/>
-                  <circle cx="82" cy="66" r="7" fill="#1a1a2e"/>
-                  <circle cx="118" cy="66" r="7" fill="#1a1a2e"/>
-                  <circle cx="84" cy="63" r="2.5" fill="#fff"/>
-                  <circle cx="120" cy="63" r="2.5" fill="#fff"/>
-                  <!-- Smile -->
-                  <path d="M88 82 Q100 92 112 82" stroke="#1a1a2e" stroke-width="2.5" fill="none" stroke-linecap="round"/>
-                  <!-- Tentacles -->
-                  <path d="M52 105 Q30 130 38 160 Q42 168 48 158 Q52 140 60 120" fill="url(#octoGrad)" opacity="0.9">
-                    <animateTransform attributeName="transform" type="rotate" values="-2 52 105;2 52 105;-2 52 105" dur="3s" repeatCount="indefinite"/>
-                  </path>
-                  <path d="M65 112 Q50 145 55 172 Q58 180 64 170 Q68 148 72 125" fill="url(#octoGrad)" opacity="0.85">
-                    <animateTransform attributeName="transform" type="rotate" values="1 65 112;-2 65 112;1 65 112" dur="3.5s" repeatCount="indefinite"/>
-                  </path>
-                  <path d="M82 118 Q75 155 80 178 Q84 186 88 176 Q88 152 86 128" fill="url(#octoGrad)" opacity="0.9">
-                    <animateTransform attributeName="transform" type="rotate" values="-1 82 118;1 82 118;-1 82 118" dur="4s" repeatCount="indefinite"/>
-                  </path>
-                  <path d="M100 120 Q100 158 102 180 Q104 188 108 178 Q106 155 104 128" fill="url(#octoGrad)" opacity="0.85">
-                    <animateTransform attributeName="transform" type="rotate" values="0.5 100 120;-0.5 100 120;0.5 100 120" dur="3.2s" repeatCount="indefinite"/>
-                  </path>
-                  <path d="M118 118 Q125 155 120 178 Q116 186 112 176 Q112 152 114 128" fill="url(#octoGrad)" opacity="0.9">
-                    <animateTransform attributeName="transform" type="rotate" values="1 118 118;-1 118 118;1 118 118" dur="3.8s" repeatCount="indefinite"/>
-                  </path>
-                  <path d="M135 112 Q150 145 145 172 Q142 180 136 170 Q132 148 128 125" fill="url(#octoGrad)" opacity="0.85">
-                    <animateTransform attributeName="transform" type="rotate" values="-1 135 112;2 135 112;-1 135 112" dur="3.3s" repeatCount="indefinite"/>
-                  </path>
-                  <path d="M148 105 Q170 130 162 160 Q158 168 152 158 Q148 140 140 120" fill="url(#octoGrad)" opacity="0.9">
-                    <animateTransform attributeName="transform" type="rotate" values="2 148 105;-2 148 105;2 148 105" dur="3.6s" repeatCount="indefinite"/>
-                  </path>
-                  <!-- Lock held in front tentacle -->
-                  <g transform="translate(148, 148) scale(0.7)">
-                    <rect x="0" y="12" width="24" height="20" rx="3" fill="#fbbf24" stroke="#d97706" stroke-width="1.5"/>
-                    <path d="M6 12 V8 Q6 0 12 0 Q18 0 18 8 V12" fill="none" stroke="#d97706" stroke-width="2.5" stroke-linecap="round"/>
-                    <circle cx="12" cy="22" r="3" fill="#92400e"/>
-                  </g>
-                  <defs>
-                    <linearGradient id="octoGrad" x1="0" y1="0" x2="1" y2="1">
-                      <stop offset="0%" stop-color="#6366f1"/>
-                      <stop offset="100%" stop-color="#a855f7"/>
-                    </linearGradient>
-                  </defs>
-                </svg>
-                <div class="hero-headline">Lock. <span class="highlight">Ship.</span></div>
-                <p class="tagline">Distributed locking with fencing tokens. One binary, simple HTTP API, free to use.</p>
-                <div class="cta-buttons">
-                    <a id="auth-btn" href="https://api.octostore.io/auth/github" class="github-auth-btn">
-                        <svg class="github-icon" viewBox="0 0 16 16">
-                            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
-                        </svg>
-                        Sign in with GitHub
-                    </a>
-                    <a href="https://api.octostore.io/docs" class="secondary-btn">
-                        View API Docs
-                        <span>→</span>
-                    </a>
-                </div>
-            </div>
-        </header>
+  <a class="skip-link" href="#main">Skip to content</a>
 
-        <div class="disclaimer">
-            <p>⚠️ Alpha software. No SLA, no business model. Just an octopus holding your locks. 🐙</p>
+  <div class="wrap">
+    <nav class="site-nav" aria-label="Primary navigation">
+      <a class="brand" href="/" aria-label="OctoStore home">
+        <span class="brand-signal" aria-hidden="true"></span>
+        OctoStore
+      </a>
+      <div class="nav-links">
+        <a href="/leader-election/">Leader election</a>
+        <a href="/agents/">Agents</a>
+        <a href="/coordination/">Coordination</a>
+        <a href="/docs/">Docs</a>
+        <a href="https://github.com/octostore/octostore.io">GitHub</a>
+        <a class="nav-cta" href="#live-race">Use it free</a>
+      </div>
+    </nav>
+  </div>
+
+  <main id="main">
+    <section class="hero product-hero wrap">
+      <div>
+        <div class="signal-label">Open coordination service</div>
+        <h1><span class="signal-word">Meet</span> OctoStore.</h1>
+        <p class="hero-copy">OctoStore helps distributed processes and agents agree on who gets to move. Use the totally free hosted version with no signup, or run the open-source server on your own infrastructure.</p>
+        <div class="button-row">
+          <a class="button primary" href="#live-race">Use OctoStore free</a>
+          <a class="button" href="https://github.com/octostore/octostore.io">View the open-source project</a>
         </div>
+        <p class="hero-note">Same HTTP API · hosted or self-hosted · MIT licensed</p>
+      </div>
 
-        <section>
-            <h2>What it does</h2>
-            <p class="section-subtitle">Distributed locking via a simple HTTP API. Sign up with GitHub, get a bearer token, start locking.</p>
-            
-            <div class="features-grid">
-                <div class="feature-card" style="--card-color: var(--c-indigo)">
-                    <span class="feature-icon">🔒</span>
-                    <h3 class="feature-title">Distributed Locking</h3>
-                    <p class="feature-description">Acquire exclusive locks with automatic expiration and monotonic fencing tokens for safe distributed coordination.</p>
-                </div>
-                <div class="feature-card" style="--card-color: var(--c-violet)">
-                    <span class="feature-icon">🛡️</span>
-                    <h3 class="feature-title">Fencing Tokens</h3>
-                    <p class="feature-description">Every acquire returns a strictly increasing token. Use it to prevent stale holders from corrupting shared state.</p>
-                </div>
-                <div class="feature-card" style="--card-color: var(--c-sky)">
-                    <span class="feature-icon">⚡</span>
-                    <h3 class="feature-title">Simple HTTP API</h3>
-                    <p class="feature-description">Pure REST with JSON responses. No client libraries needed — curl works fine from any language.</p>
-                </div>
-                <div class="feature-card" style="--card-color: var(--c-emerald)">
-                    <span class="feature-icon">📦</span>
-                    <h3 class="feature-title">One Binary, Zero Deps</h3>
-                    <p class="feature-description">No etcd, no ZooKeeper, no Consul. Self-host with a single binary and a SQLite file. Done in 60 seconds.</p>
-                </div>
-                <div class="feature-card" style="--card-color: var(--c-amber)">
-                    <span class="feature-icon">⏱️</span>
-                    <h3 class="feature-title">Auto-Expiry</h3>
-                    <p class="feature-description">Locks expire automatically via configurable TTLs. Crashed holders never block your system forever.</p>
-                </div>
-                <div class="feature-card" style="--card-color: var(--c-rose)">
-                    <span class="feature-icon">🏠</span>
-                    <h3 class="feature-title">Self-Hostable</h3>
-                    <p class="feature-description">Use octostore.io or run your own. Optional GitHub OAuth — or bring static tokens for fully air-gapped deployments.</p>
-                </div>
+      <div class="hero-visual">
+        <img class="hero-logo" src="/assets/octostore-logo.svg" alt="OctoStore: a hand-painted octopus lifts one leader from colorful work">
+        <div class="signal-tower" aria-label="OctoStore is available as a free hosted service or an open-source self-hosted server">
+          <div class="tower-head"><span>OCTOSTORE</span><span>TWO WAYS TO RUN</span></div>
+          <div class="lamp-stack">
+            <div class="lamp-row">
+              <span class="lamp go" aria-hidden="true"></span>
+              <span class="lamp-copy"><strong>Hosted</strong><span>FREE PUBLIC SERVICE</span></span>
+              <span class="term">NO LOGIN</span>
             </div>
-        </section>
-
-        <section>
-            <h2>API Overview</h2>
-            <div class="api-section">
-                <div class="api-endpoints">
-                    <div class="endpoint-group">
-                        <h3 class="endpoint-title">🔐 Authentication</h3>
-                        <div class="code-block">
-<pre><code><span class="comment"># Sign in with GitHub OAuth</span>
-<span class="cmd">curl</span> <span class="url">https://api.octostore.io/auth/github</span>
-
-<span class="comment"># Rotate your bearer token</span>
-<span class="cmd">curl</span> <span class="flag">-X POST</span> <span class="url">https://api.octostore.io/auth/token/rotate</span> \
-  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span></code></pre>
-                        </div>
-                    </div>
-
-                    <div class="endpoint-group">
-                        <h3 class="endpoint-title">🔒 Acquire a Lock</h3>
-                        <div class="code-block">
-<pre><code><span class="cmd">curl</span> <span class="flag">-X POST</span> <span class="url">https://api.octostore.io/locks/my-resource/acquire</span> \
-  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span> \
-  <span class="flag">-H</span> <span class="header">"Content-Type: application/json"</span> \
-  <span class="flag">-d</span> <span class="string">'{"ttl_seconds": 300, "metadata": "service-8i192"}'</span></code></pre>
-                        </div>
-                    </div>
-
-                    <div class="endpoint-group">
-                        <h3 class="endpoint-title">🔓 Release a Lock</h3>
-                        <div class="code-block">
-<pre><code><span class="cmd">curl</span> <span class="flag">-X POST</span> <span class="url">https://api.octostore.io/locks/my-resource/release</span> \
-  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span> \
-  <span class="flag">-H</span> <span class="header">"Content-Type: application/json"</span> \
-  <span class="flag">-d</span> <span class="string">'{"lease_id": "uuid-from-acquire"}'</span></code></pre>
-                        </div>
-                    </div>
-
-                    <div class="endpoint-group">
-                        <h3 class="endpoint-title">👀 Check Lock Status</h3>
-                        <div class="code-block">
-<pre><code><span class="cmd">curl</span> <span class="url">https://api.octostore.io/locks/my-resource</span> \
-  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span></code></pre>
-                        </div>
-                    </div>
-
-                    <div class="endpoint-group">
-                        <h3 class="endpoint-title">📋 List Your Locks</h3>
-                        <div class="code-block">
-<pre><code><span class="cmd">curl</span> <span class="url">https://api.octostore.io/locks</span> \
-  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span></code></pre>
-                        </div>
-                    </div>
-
-                    <div class="endpoint-group">
-                        <h3 class="endpoint-title">🔄 Renew a Lock</h3>
-                        <div class="code-block">
-<pre><code><span class="cmd">curl</span> <span class="flag">-X POST</span> <span class="url">https://api.octostore.io/locks/my-resource/renew</span> \
-  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span> \
-  <span class="flag">-H</span> <span class="header">"Content-Type: application/json"</span> \
-  <span class="flag">-d</span> <span class="string">'{"lease_id": "uuid-from-acquire", "ttl_seconds": 300}'</span></code></pre>
-                        </div>
-                    </div>
-                </div>
+            <div class="lamp-row">
+              <span class="lamp open" aria-hidden="true"></span>
+              <span class="lamp-copy"><strong>Open source</strong><span>RUN IT YOURSELF</span></span>
+              <span class="term">MIT</span>
             </div>
-        </section>
-
-        <div class="constraints">
-            <h3>Constraints</h3>
-            <ul>
-                <li>🔒 100 locks per user</li>
-                <li>⏱️ 1 hour max TTL (auto-expires)</li>
-                <li>📛 Lock names: alphanumeric + hyphens + dots, max 128 chars</li>
-                <li>💾 Locks persist to SQLite, survive restarts</li>
-                <li>🆓 Free, no rate limits</li>
-            </ul>
+            <div class="lamp-row">
+              <span class="lamp shared" aria-hidden="true"></span>
+              <span class="lamp-copy"><strong>Same API</strong><span>HTTP + JSON</span></span>
+              <span class="term">ANY STACK</span>
+            </div>
+          </div>
+          <div class="tower-foot"><span>USE OURS</span><span>OR OWN YOURS</span></div>
         </div>
+      </div>
+    </section>
 
-        <footer>
-            <p>Made with 🦀 and questionable judgment</p>
-        </footer>
+    <section class="section wrap" id="live-race">
+      <div class="section-intro">
+        <h2>Three processes. One answer.</h2>
+        <p>See the free hosted service make a real decision. OctoStore creates an anonymous room, races three workers, and returns one leader plus two followers that agree on who won.</p>
+      </div>
+
+      <div class="race-board" data-election-demo data-api-base="https://api.octostore.io">
+        <div class="race-toolbar">
+          <span class="race-room" data-election-room>no room yet</span>
+          <button class="button primary small" type="button" data-run-election>Run the election</button>
+        </div>
+        <div class="candidate-list">
+          <div class="candidate" data-candidate="worker-sea" data-route="sea">
+            <span class="candidate-light" aria-hidden="true"></span>
+            <span class="candidate-name">Worker SEA</span>
+            <span class="candidate-route">Seattle / cleanup-job</span>
+            <span class="candidate-state" data-candidate-state>Ready</span>
+          </div>
+          <div class="candidate" data-candidate="worker-iad" data-route="iad">
+            <span class="candidate-light" aria-hidden="true"></span>
+            <span class="candidate-name">Worker IAD</span>
+            <span class="candidate-route">Virginia / cleanup-job</span>
+            <span class="candidate-state" data-candidate-state>Ready</span>
+          </div>
+          <div class="candidate" data-candidate="worker-fra" data-route="fra">
+            <span class="candidate-light" aria-hidden="true"></span>
+            <span class="candidate-name">Worker FRA</span>
+            <span class="candidate-route">Frankfurt / cleanup-job</span>
+            <span class="candidate-state" data-candidate-state>Ready</span>
+          </div>
+        </div>
+        <p class="race-status" role="status" aria-live="polite" aria-atomic="true" data-race-status>Click “Run the election.” No credentials will be sent or created.</p>
+      </div>
+    </section>
+
+    <div class="proof-strip">
+      <div class="proof-list wrap" aria-label="Product facts">
+        <span>Any process that speaks HTTP</span>
+        <span>No shared database to wire up</span>
+        <span>Monotonic fencing terms</span>
+        <span>One binary to self-host</span>
+      </div>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
-    <script>
-    (function() {
-        try {
-            var auth = JSON.parse(localStorage.getItem('octostore_auth'));
-            if (auth && auth.token) {
-                var btn = document.getElementById('auth-btn');
-                if (btn) {
-                    btn.href = '/dashboard.html';
-                    btn.innerHTML = '<svg class="github-icon" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg> Go to Dashboard';
-                }
-            }
-        } catch (_) {}
-    })();
-    </script>
+    <section class="section wrap" id="two-calls">
+      <div class="split">
+        <div>
+          <h2>Two calls. One leader.</h2>
+          <p class="lede">Create an opaque room, share its ID with your processes, and let each candidate campaign. The winner receives the capability to renew or resign. Everyone else receives the winner and a retry delay.</p>
+          <div class="fact-line">
+            <span class="fact">no login</span>
+            <span class="fact">no API key</span>
+            <span class="fact">no SDK</span>
+          </div>
+          <p class="section-link"><a href="/leader-election/">Follow the 60-second leader-election guide →</a></p>
+        </div>
+
+        <div class="code-window">
+          <div class="code-head">
+            <span>shell · works from any runtime</span>
+            <button class="copy-button" type="button" data-copy-target="#election-code">Copy</button>
+          </div>
+          <pre id="election-code"><code><span class="code-comment"># 1. Open a room.</span>
+ROOM=$(curl -s -X POST \
+  https://api.octostore.io/elections \
+  | jq -r .election_id)
+
+<span class="code-comment"># 2. Every process campaigns in that room.</span>
+curl -s -X POST \
+  "https://api.octostore.io/elections/$ROOM/campaign" \
+  -H "Content-Type: application/json" \
+  -d '{"candidate_id":"worker-a","ttl_seconds":30}'
+
+<span class="code-comment"># winner → leader_token + term + renew_after_ms</span>
+<span class="code-comment"># others → current leader + retry_after_ms</span></code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="section edge-section wrap">
+      <div class="section-intro">
+        <h2>The easy version breaks at the worst time.</h2>
+        <p>A database flag can choose a leader. It does not tell you what happens when two processes start together, the winner disappears, or an old leader wakes up and keeps writing.</p>
+      </div>
+
+      <div class="edge-list">
+        <div class="edge-row">
+          <strong>Two processes start together</strong>
+          <span>One lease is committed. Every caller sees the same leader.</span>
+        </div>
+        <div class="edge-row">
+          <strong>The leader crashes</strong>
+          <span>Renewal stops. The short lease expires and another candidate can win.</span>
+        </div>
+        <div class="edge-row">
+          <strong>The old leader wakes up</strong>
+          <span>A higher fencing term lets downstream systems reject stale authority.</span>
+        </div>
+        <div class="edge-row">
+          <strong>Your workers use different stacks</strong>
+          <span>They coordinate through JSON and HTTP instead of a language-specific client.</span>
+        </div>
+        <div class="edge-row">
+          <strong>You do not want another cluster</strong>
+          <span>Use the hosted API now, or run one Rust binary with one SQLite file.</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section use-section">
+      <div class="wrap">
+        <div class="section-intro">
+          <h2>Use it anywhere one thing should run.</h2>
+          <p>Leader election is not an agent feature. It is a small answer to a common systems question: which process gets the turn?</p>
+        </div>
+        <div class="use-tape" aria-label="Leader election use cases">
+          <span>scheduled jobs</span>
+          <span>cleanup workers</span>
+          <span>singleton schedulers</span>
+          <span>reconcilers</span>
+          <span>migration runners</span>
+          <span>agent dispatchers</span>
+        </div>
+        <p class="use-note">Bash, Python, Go, Rust, JavaScript, a serverless function, or a thirty-year-old service. If it can send HTTP, it can campaign.</p>
+      </div>
+    </section>
+
+    <section class="section wrap">
+      <div class="section-intro">
+        <h2>Start with election. Add coordination only when you need it.</h2>
+        <p>The public API stays intentionally small. The self-hosted service adds durable task ownership and fleet coordination without taking over execution.</p>
+      </div>
+
+      <div class="path-list">
+        <a class="path-link" href="/agents/">
+          <span class="path-name">Agents</span>
+          <span><strong>Stop two agents from doing the same work.</strong><small>Leader election, task claims, sessions, and fencing for fleets.</small></span>
+          <span aria-hidden="true">→</span>
+        </a>
+        <a class="path-link" href="/coordination/">
+          <span class="path-name">Coordination</span>
+          <span><strong>Give every task one temporary owner.</strong><small>Named HTTP locks, expiry, renewal, release, watches, and webhooks.</small></span>
+          <span aria-hidden="true">→</span>
+        </a>
+        <a class="path-link" href="/docs/#self-host">
+          <span class="path-name">Self-host</span>
+          <span><strong>Move the referee inside your network.</strong><small>One binary, one SQLite database, static tokens, optional OAuth.</small></span>
+          <span aria-hidden="true">→</span>
+        </a>
+      </div>
+    </section>
+
+    <section class="section wrap" id="self-host">
+      <div class="split self-host-split">
+        <div>
+          <h2>Use ours now. Own yours when you need to.</h2>
+          <p class="lede">The hosted election API is the fastest path to one leader. Self-host the same API when the room, traffic, or coordination state must stay inside your boundary.</p>
+          <div class="button-row">
+            <a class="button primary" href="/docs/#self-host">Self-host in 60 seconds</a>
+            <a class="button" href="https://github.com/octostore/octostore.io/releases/latest">Download a release</a>
+          </div>
+        </div>
+        <div class="code-window">
+          <div class="code-head">
+            <span>shell · local referee</span>
+            <button class="copy-button" type="button" data-copy-target="#self-host-code">Copy</button>
+          </div>
+          <pre id="self-host-code"><code>curl -fsSL \
+  https://raw.githubusercontent.com/octostore/octostore.io/main/install.sh \
+  | sh
+
+STATIC_TOKENS='ops:change-me' \
+DATABASE_URL='./octostore.db' \
+octostore
+
+<span class="code-comment"># listening on :3000</span>
+<span class="code-comment"># state persisted in SQLite WAL</span></code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="closing">
+      <div class="wrap">
+        <h2>Build the job. Stop rebuilding the election.</h2>
+        <p>Give every candidate the same room. Let one move. Let everyone else wait.</p>
+        <div class="button-row">
+          <a class="button primary" href="#live-race">Run a live election</a>
+          <a class="button" href="https://github.com/octostore/octostore.io">View OctoStore on GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer wrap">
+    <span>© <span data-current-year>2026</span> OctoStore · MIT licensed</span>
+    <span class="footer-links">
+      <a href="/leader-election/">Leader election</a>
+      <a href="/agents/">Agents</a>
+      <a href="/coordination/">Coordination</a>
+      <a href="/docs/">Docs</a>
+      <a href="/blog/">Field notes</a>
+      <a href="/status.html">Status</a>
+      <a href="https://github.com/octostore/octostore.io">GitHub</a>
+    </span>
+  </footer>
 </body>
 </html>

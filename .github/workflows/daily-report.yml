@@ -17,14 +17,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout metrics branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ env.METRICS_BRANCH }}
           path: metrics
           fetch-depth: 0
 
       - name: Checkout repo (for release data)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: repo
           sparse-checkout: |

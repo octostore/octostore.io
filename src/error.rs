@@ -1,5 +1,5 @@
 use axum::{
-    http::StatusCode,
+    http::{header::RETRY_AFTER, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -15,34 +15,34 @@ use thiserror::Error;
 pub enum AppError {
     #[error("Authentication failed")]
     Unauthorized,
-    
+
     #[error("Bearer token required")]
     MissingAuth,
-    
+
     #[error("Lock not found: {name}")]
     LockNotFound { name: String },
-    
+
     #[error("Lock already held by another user")]
     LockHeld,
-    
+
     #[error("Invalid lease ID")]
     InvalidLeaseId,
-    
+
     #[error("Lock limit exceeded (max 100 per user)")]
     LockLimitExceeded,
 
     #[error("Forbidden: {0}")]
     Forbidden(String),
-    
+
     #[error("Invalid TTL: {reason}")]
     InvalidTtl { reason: String },
-    
+
     #[error("Invalid lock name: {reason}")]
     InvalidLockName { reason: String },
-    
+
     #[error("Invalid input: {0}")]
     InvalidInput(String),
-    
+
     #[error("Session not found")]
     SessionNotFound,
 
@@ -51,29 +51,39 @@ pub enum AppError {
 
     #[error("Resource not found: {0}")]
     NotFound(String),
-    
+
     #[error("Conflict: {0}")]
     Conflict(String),
-    
+
+    #[error("Rate limit exceeded; retry in {retry_after_seconds} seconds")]
+    RateLimited { retry_after_seconds: u64 },
+
     #[error("Database error: {0}")]
     Database(#[from] rusqlite::Error),
-    
+
     #[error("HTTP client error: {0}")]
     HttpClient(#[from] reqwest::Error),
-    
+
     #[error("JSON serialization error: {0}")]
     Json(#[from] serde_json::Error),
-    
+
     #[error("UUID parsing error: {0}")]
     Uuid(#[from] uuid::Error),
-    
+
     #[error("Internal server error")]
     Internal(#[from] anyhow::Error),
 }
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let (status, error_message) = match self {
+        let details = self.to_string();
+        let retry_after_seconds = match &self {
+            AppError::RateLimited {
+                retry_after_seconds,
+            } => Some(*retry_after_seconds),
+            _ => None,
+        };
+        let (status, error_message) = match &self {
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "Authentication failed"),
             AppError::MissingAuth => (StatusCode::UNAUTHORIZED, "Authorization header required"),
             AppError::LockNotFound { .. } => (StatusCode::NOT_FOUND, "Lock not found"),
@@ -88,6 +98,7 @@ impl IntoResponse for AppError {
             AppError::SessionExpired => (StatusCode::GONE, "Session expired"),
             AppError::NotFound(_) => (StatusCode::NOT_FOUND, "Resource not found"),
             AppError::Conflict(_) => (StatusCode::CONFLICT, "Conflict"),
+            AppError::RateLimited { .. } => (StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded"),
             AppError::Database(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Database error"),
             AppError::HttpClient(_) => (StatusCode::BAD_GATEWAY, "External service error"),
             AppError::Json(_) => (StatusCode::BAD_REQUEST, "JSON parsing error"),
@@ -97,10 +108,15 @@ impl IntoResponse for AppError {
 
         let body = Json(json!({
             "error": error_message,
-            "details": self.to_string()
+            "details": details
         }));
-
-        (status, body).into_response()
+        let mut response = (status, body).into_response();
+        if let Some(seconds) = retry_after_seconds {
+            if let Ok(value) = HeaderValue::from_str(&seconds.to_string()) {
+                response.headers_mut().insert(RETRY_AFTER, value);
+            }
+        }
+        response
     }
 }
 
@@ -116,19 +132,37 @@ mod tests {
     fn test_error_display() {
         assert_eq!(AppError::Unauthorized.to_string(), "Authentication failed");
         assert_eq!(AppError::MissingAuth.to_string(), "Bearer token required");
-        
-        let lock_not_found = AppError::LockNotFound { name: "test-lock".to_string() };
+
+        let lock_not_found = AppError::LockNotFound {
+            name: "test-lock".to_string(),
+        };
         assert_eq!(lock_not_found.to_string(), "Lock not found: test-lock");
-        
-        let invalid_ttl = AppError::InvalidTtl { reason: "too large".to_string() };
+
+        let invalid_ttl = AppError::InvalidTtl {
+            reason: "too large".to_string(),
+        };
         assert_eq!(invalid_ttl.to_string(), "Invalid TTL: too large");
-        
-        let invalid_lock_name = AppError::InvalidLockName { reason: "contains spaces".to_string() };
-        assert_eq!(invalid_lock_name.to_string(), "Invalid lock name: contains spaces");
-        
-        assert_eq!(AppError::InvalidInput("bad data".to_string()).to_string(), "Invalid input: bad data");
-        assert_eq!(AppError::NotFound("resource".to_string()).to_string(), "Resource not found: resource");
-        assert_eq!(AppError::Conflict("version mismatch".to_string()).to_string(), "Conflict: version mismatch");
+
+        let invalid_lock_name = AppError::InvalidLockName {
+            reason: "contains spaces".to_string(),
+        };
+        assert_eq!(
+            invalid_lock_name.to_string(),
+            "Invalid lock name: contains spaces"
+        );
+
+        assert_eq!(
+            AppError::InvalidInput("bad data".to_string()).to_string(),
+            "Invalid input: bad data"
+        );
+        assert_eq!(
+            AppError::NotFound("resource".to_string()).to_string(),
+            "Resource not found: resource"
+        );
+        assert_eq!(
+            AppError::Conflict("version mismatch".to_string()).to_string(),
+            "Conflict: version mismatch"
+        );
     }
 
     #[test]
@@ -161,29 +195,90 @@ mod tests {
     async fn test_error_into_response() {
         // Test each error type's HTTP response
         let test_cases = vec![
-            (AppError::Unauthorized, StatusCode::UNAUTHORIZED, "Authentication failed"),
-            (AppError::MissingAuth, StatusCode::UNAUTHORIZED, "Authorization header required"),
-            (AppError::LockNotFound { name: "test".to_string() }, StatusCode::NOT_FOUND, "Lock not found"),
-            (AppError::LockHeld, StatusCode::CONFLICT, "Lock is held by another user"),
-            (AppError::InvalidLeaseId, StatusCode::BAD_REQUEST, "Invalid lease ID"),
-            (AppError::LockLimitExceeded, StatusCode::FORBIDDEN, "Lock limit exceeded"),
-            (AppError::InvalidTtl { reason: "test".to_string() }, StatusCode::BAD_REQUEST, "Invalid TTL"),
-            (AppError::InvalidLockName { reason: "test".to_string() }, StatusCode::BAD_REQUEST, "Invalid lock name"),
-            (AppError::InvalidInput("test".to_string()), StatusCode::BAD_REQUEST, "Invalid input"),
-            (AppError::NotFound("test".to_string()), StatusCode::NOT_FOUND, "Resource not found"),
-            (AppError::Conflict("test".to_string()), StatusCode::CONFLICT, "Conflict"),
-            (AppError::Internal(anyhow::anyhow!("test")), StatusCode::INTERNAL_SERVER_ERROR, "Internal server error"),
+            (
+                AppError::Unauthorized,
+                StatusCode::UNAUTHORIZED,
+                "Authentication failed",
+            ),
+            (
+                AppError::MissingAuth,
+                StatusCode::UNAUTHORIZED,
+                "Authorization header required",
+            ),
+            (
+                AppError::LockNotFound {
+                    name: "test".to_string(),
+                },
+                StatusCode::NOT_FOUND,
+                "Lock not found",
+            ),
+            (
+                AppError::LockHeld,
+                StatusCode::CONFLICT,
+                "Lock is held by another user",
+            ),
+            (
+                AppError::InvalidLeaseId,
+                StatusCode::BAD_REQUEST,
+                "Invalid lease ID",
+            ),
+            (
+                AppError::LockLimitExceeded,
+                StatusCode::FORBIDDEN,
+                "Lock limit exceeded",
+            ),
+            (
+                AppError::InvalidTtl {
+                    reason: "test".to_string(),
+                },
+                StatusCode::BAD_REQUEST,
+                "Invalid TTL",
+            ),
+            (
+                AppError::InvalidLockName {
+                    reason: "test".to_string(),
+                },
+                StatusCode::BAD_REQUEST,
+                "Invalid lock name",
+            ),
+            (
+                AppError::InvalidInput("test".to_string()),
+                StatusCode::BAD_REQUEST,
+                "Invalid input",
+            ),
+            (
+                AppError::NotFound("test".to_string()),
+                StatusCode::NOT_FOUND,
+                "Resource not found",
+            ),
+            (
+                AppError::Conflict("test".to_string()),
+                StatusCode::CONFLICT,
+                "Conflict",
+            ),
+            (
+                AppError::RateLimited {
+                    retry_after_seconds: 30,
+                },
+                StatusCode::TOO_MANY_REQUESTS,
+                "Rate limit exceeded",
+            ),
+            (
+                AppError::Internal(anyhow::anyhow!("test")),
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Internal server error",
+            ),
         ];
 
         for (error, expected_status, expected_message) in test_cases {
             let response = error.into_response();
             assert_eq!(response.status(), expected_status);
-            
+
             // Extract and verify JSON body
             let (_parts, body) = response.into_parts();
             let body_bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();
             let json: Value = serde_json::from_slice(&body_bytes).unwrap();
-            
+
             assert_eq!(json["error"], expected_message);
             assert!(json["details"].is_string());
         }
@@ -193,10 +288,10 @@ mod tests {
     fn test_database_error_conversion() {
         let sqlite_error = rusqlite::Error::SqliteFailure(
             rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
-            Some("UNIQUE constraint failed".to_string())
+            Some("UNIQUE constraint failed".to_string()),
         );
         let app_error = AppError::from(sqlite_error);
-        
+
         let response = app_error.into_response();
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
@@ -206,13 +301,16 @@ mod tests {
         fn returns_result() -> Result<String> {
             Ok("success".to_string())
         }
-        
+
         fn returns_error() -> Result<String> {
             Err(AppError::Unauthorized)
         }
-        
+
         assert!(returns_result().is_ok());
         assert!(returns_error().is_err());
-        assert!(matches!(returns_error().unwrap_err(), AppError::Unauthorized));
+        assert!(matches!(
+            returns_error().unwrap_err(),
+            AppError::Unauthorized
+        ));
     }
 }

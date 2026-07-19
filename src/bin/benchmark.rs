@@ -1,18 +1,15 @@
 use clap::Parser;
 use reqwest::Client;
 use serde_json::json;
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use std::{
     sync::{
-        atomic::{AtomicU64, AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
     time::{Duration, Instant},
 };
-use tokio::{
-    time::sleep,
-    signal,
-};
+use tokio::{signal, time::sleep};
 
 #[derive(Parser, Debug)]
 #[command(name = "octostore-bench")]
@@ -37,8 +34,8 @@ struct Args {
 
 struct WaveStats {
     acquire_ok: AtomicU64,
-    acquire_held: AtomicU64,     // contention: someone else has it
-    acquire_limit: AtomicU64,    // rejected: 100-lock limit hit
+    acquire_held: AtomicU64,  // contention: someone else has it
+    acquire_limit: AtomicU64, // rejected: 100-lock limit hit
     acquire_latencies: Mutex<Vec<u128>>,
     status_ok: AtomicU64,
     status_latencies: Mutex<Vec<u128>>,
@@ -73,16 +70,26 @@ impl WaveStats {
             running: AtomicBool::new(true),
         })
     }
-    fn stop(&self) { self.running.store(false, Ordering::Relaxed); }
-    fn is_running(&self) -> bool { self.running.load(Ordering::Relaxed) }
+    fn stop(&self) {
+        self.running.store(false, Ordering::Relaxed);
+    }
+    fn is_running(&self) -> bool {
+        self.running.load(Ordering::Relaxed)
+    }
 }
 
 fn percentiles(mut v: Vec<u128>) -> (f64, f64, f64, f64) {
-    if v.is_empty() { return (0.0, 0.0, 0.0, 0.0); }
+    if v.is_empty() {
+        return (0.0, 0.0, 0.0, 0.0);
+    }
     v.sort_unstable();
     let n = v.len();
-    (v.iter().sum::<u128>() as f64 / n as f64, 
-     v[n*50/100] as f64, v[n*95/100] as f64, v[n-1] as f64)
+    (
+        v.iter().sum::<u128>() as f64 / n as f64,
+        v[n * 50 / 100] as f64,
+        v[n * 95 / 100] as f64,
+        v[n - 1] as f64,
+    )
 }
 
 /// Worker that owns one lock and hammers acquire→status→renew→release cycle
@@ -97,10 +104,11 @@ async fn worker(
         // ACQUIRE
         let start = Instant::now();
         let result = client
-            .post(&format!("{}/locks/{}/acquire", base_url, lock_name))
+            .post(format!("{}/locks/{}/acquire", base_url, lock_name))
             .header("Authorization", format!("Bearer {}", token))
             .json(&json!({"ttl_seconds": 30}))
-            .send().await;
+            .send()
+            .await;
         let lat = start.elapsed().as_millis();
         stats.total_ops.fetch_add(1, Ordering::Relaxed);
 
@@ -108,20 +116,22 @@ async fn worker(
             Ok(resp) => {
                 let status_code = resp.status().as_u16();
                 stats.acquire_latencies.lock().unwrap().push(lat);
-                
+
                 if status_code == 401 {
                     eprintln!("\n\x1b[31m❌ Auth failed!\x1b[0m");
                     stats.stop();
                     return;
                 }
-                
+
                 match resp.json::<serde_json::Value>().await {
                     Ok(json) => {
                         if status_code == 200 || status_code == 201 {
                             let s = json.get("status").and_then(|s| s.as_str()).unwrap_or("");
                             if s == "acquired" {
                                 stats.acquire_ok.fetch_add(1, Ordering::Relaxed);
-                                json.get("lease_id").and_then(|s| s.as_str()).map(|s| s.to_string())
+                                json.get("lease_id")
+                                    .and_then(|s| s.as_str())
+                                    .map(|s| s.to_string())
                             } else {
                                 // "held" by someone else
                                 stats.acquire_held.fetch_add(1, Ordering::Relaxed);
@@ -130,7 +140,10 @@ async fn worker(
                         } else if status_code == 409 || status_code == 422 {
                             // Lock limit exceeded or validation error
                             let err = json.get("error").and_then(|s| s.as_str()).unwrap_or("");
-                            if err.contains("limit") || err.contains("100") || err.contains("maximum") {
+                            if err.contains("limit")
+                                || err.contains("100")
+                                || err.contains("maximum")
+                            {
                                 stats.acquire_limit.fetch_add(1, Ordering::Relaxed);
                             } else {
                                 stats.acquire_held.fetch_add(1, Ordering::Relaxed);
@@ -141,29 +154,38 @@ async fn worker(
                             None
                         }
                     }
-                    Err(_) => { stats.errors.fetch_add(1, Ordering::Relaxed); None }
+                    Err(_) => {
+                        stats.errors.fetch_add(1, Ordering::Relaxed);
+                        None
+                    }
                 }
             }
-            Err(_) => { stats.errors.fetch_add(1, Ordering::Relaxed); None }
+            Err(_) => {
+                stats.errors.fetch_add(1, Ordering::Relaxed);
+                None
+            }
         };
 
         let lease_id = match lease_id {
             Some(id) if !id.is_empty() => id,
-            _ => { 
+            _ => {
                 // Brief pause before retrying on failure
                 sleep(Duration::from_millis(10)).await;
-                continue; 
+                continue;
             }
         };
 
-        if !stats.is_running() { break; }
+        if !stats.is_running() {
+            break;
+        }
 
         // STATUS
         let start = Instant::now();
         if let Ok(resp) = client
-            .get(&format!("{}/locks/{}", base_url, lock_name))
+            .get(format!("{}/locks/{}", base_url, lock_name))
             .header("Authorization", format!("Bearer {}", token))
-            .send().await
+            .send()
+            .await
         {
             let lat = start.elapsed().as_millis();
             stats.total_ops.fetch_add(1, Ordering::Relaxed);
@@ -174,15 +196,18 @@ async fn worker(
             let _ = resp.text().await;
         }
 
-        if !stats.is_running() { break; }
+        if !stats.is_running() {
+            break;
+        }
 
         // RENEW
         let start = Instant::now();
         if let Ok(resp) = client
-            .post(&format!("{}/locks/{}/renew", base_url, lock_name))
+            .post(format!("{}/locks/{}/renew", base_url, lock_name))
             .header("Authorization", format!("Bearer {}", token))
             .json(&json!({"lease_id": lease_id, "ttl_seconds": 30}))
-            .send().await
+            .send()
+            .await
         {
             let lat = start.elapsed().as_millis();
             stats.total_ops.fetch_add(1, Ordering::Relaxed);
@@ -195,15 +220,18 @@ async fn worker(
             let _ = resp.text().await;
         }
 
-        if !stats.is_running() { break; }
+        if !stats.is_running() {
+            break;
+        }
 
         // RELEASE
         let start = Instant::now();
         if let Ok(resp) = client
-            .post(&format!("{}/locks/{}/release", base_url, lock_name))
+            .post(format!("{}/locks/{}/release", base_url, lock_name))
             .header("Authorization", format!("Bearer {}", token))
             .json(&json!({"lease_id": lease_id}))
-            .send().await
+            .send()
+            .await
         {
             let lat = start.elapsed().as_millis();
             stats.total_ops.fetch_add(1, Ordering::Relaxed);
@@ -223,10 +251,11 @@ async fn cleanup_locks(client: &Client, base_url: &str, token: &str, lock_names:
     for name in lock_names {
         // Try to release with dummy lease (will fail but that's fine — just want to clear)
         let _ = client
-            .post(&format!("{}/locks/{}/release", base_url, name))
+            .post(format!("{}/locks/{}/release", base_url, name))
             .header("Authorization", format!("Bearer {}", token))
             .json(&json!({"lease_id": "00000000-0000-0000-0000-000000000000"}))
-            .send().await;
+            .send()
+            .await;
     }
     // Give server a moment to process
     sleep(Duration::from_millis(500)).await;
@@ -261,15 +290,22 @@ async fn run_wave(
 ) -> WaveResult {
     let expect_failures = num_workers > 100;
     let emoji = if expect_failures { "💥" } else { "🌊" };
-    
-    println!("\n{} \x1b[1mWave {} — {} workers{}\x1b[0m",
-        emoji, wave_num, num_workers,
-        if expect_failures { " (exceeds 100-lock limit!)" } else { "" }
+
+    println!(
+        "\n{} \x1b[1mWave {} — {} workers{}\x1b[0m",
+        emoji,
+        wave_num,
+        num_workers,
+        if expect_failures {
+            " (exceeds 100-lock limit!)"
+        } else {
+            ""
+        }
     );
     println!("  {}", "─".repeat(50));
 
     let stats = WaveStats::new();
-    
+
     // Generate lock names for this wave
     let lock_names: Vec<String> = (0..num_workers)
         .map(|i| format!("wave{}-w{}", wave_num, i))
@@ -298,17 +334,27 @@ async fn run_wave(
         let held = stats.acquire_held.load(Ordering::Relaxed);
         let limit = stats.acquire_limit.load(Ordering::Relaxed);
         let errors = stats.errors.load(Ordering::Relaxed);
-        let ops = if elapsed > 0 { total as f64 / elapsed as f64 } else { 0.0 };
-        
-        print!("\r\x1b[K  ⏱ {}s/{} | {:.0} ops/s | ✅{} ⚔️{} 🚫{} ❌{}",
-            elapsed, wave_duration, ops, ok, held, limit, errors);
-        
-        if elapsed >= wave_duration { break; }
+        let ops = if elapsed > 0 {
+            total as f64 / elapsed as f64
+        } else {
+            0.0
+        };
+
+        print!(
+            "\r\x1b[K  ⏱ {}s/{} | {:.0} ops/s | ✅{} ⚔️{} 🚫{} ❌{}",
+            elapsed, wave_duration, ops, ok, held, limit, errors
+        );
+
+        if elapsed >= wave_duration {
+            break;
+        }
     }
     println!();
 
     stats.stop();
-    for h in handles { let _ = h.await; }
+    for h in handles {
+        let _ = h.await;
+    }
 
     let dur = start.elapsed().as_secs_f64();
     let total = stats.total_ops.load(Ordering::Relaxed);
@@ -326,12 +372,26 @@ async fn run_wave(
     // Print wave summary
     println!("  \x1b[32m✅ Acquired: {}\x1b[0m  \x1b[33m⚔️ Contention: {}\x1b[0m  \x1b[31m🚫 Limit rejected: {}\x1b[0m", 
         acq_ok, acq_held, acq_limit);
-    println!("  📊 Status: {} | Renew: {}/{} | Release: {}/{}", 
-        st, rn_ok, rn_ok + rn_fail, rl_ok, rl_ok + rl_fail);
-    println!("  ⚡ Latency: p50={:.0}ms  p95={:.0}ms  |  {:.0} ops/sec", p50, p95, total as f64 / dur);
-    
+    println!(
+        "  📊 Status: {} | Renew: {}/{} | Release: {}/{}",
+        st,
+        rn_ok,
+        rn_ok + rn_fail,
+        rl_ok,
+        rl_ok + rl_fail
+    );
+    println!(
+        "  ⚡ Latency: p50={:.0}ms  p95={:.0}ms  |  {:.0} ops/sec",
+        p50,
+        p95,
+        total as f64 / dur
+    );
+
     if expect_failures && acq_limit > 0 {
-        println!("  \x1b[32m✅ Server correctly rejected {} requests over the 100-lock limit\x1b[0m", acq_limit);
+        println!(
+            "  \x1b[32m✅ Server correctly rejected {} requests over the 100-lock limit\x1b[0m",
+            acq_limit
+        );
     }
 
     // Cleanup locks before next wave
@@ -387,16 +447,21 @@ async fn main() {
 
     // Validate token
     print!("🔑 Validating token... ");
-    match client.get(&format!("{}/locks", base_url))
+    match client
+        .get(format!("{}/locks", base_url))
         .header("Authorization", format!("Bearer {}", args.token))
-        .send().await
+        .send()
+        .await
     {
         Ok(resp) if resp.status().as_u16() == 401 => {
             println!("\x1b[31mFAILED\x1b[0m — sign in: {}/auth/github", base_url);
             std::process::exit(1);
         }
         Ok(_) => println!("\x1b[32mOK\x1b[0m"),
-        Err(e) => { println!("\x1b[31mError: {}\x1b[0m", e); std::process::exit(1); }
+        Err(e) => {
+            println!("\x1b[31mError: {}\x1b[0m", e);
+            std::process::exit(1);
+        }
     }
 
     println!("\n\x1b[1m🐙 OctoStore Wave Stress Test\x1b[0m");
@@ -405,11 +470,19 @@ async fn main() {
     println!("  Per wave:   {}s", args.wave_duration);
     println!("  Waves:      1 → 10 → 20 → 50 → 100 → 150 (overflow!)");
 
-    let waves = vec![1, 10, 20, 50, 100, 150];
+    let waves = [1, 10, 20, 50, 100, 150];
     let mut results = Vec::new();
 
     for (i, &workers) in waves.iter().enumerate() {
-        let result = run_wave(i + 1, workers, args.wave_duration, &client, &base_url, &args.token).await;
+        let result = run_wave(
+            i + 1,
+            workers,
+            args.wave_duration,
+            &client,
+            &base_url,
+            &args.token,
+        )
+        .await;
         results.push(result);
     }
 
@@ -419,19 +492,35 @@ async fn main() {
     println!("  Workers   Ops/sec    Acquired   Contention   Limit🚫   p50      p95      Errors");
     println!("  ─────────────────────────────────────────────────────────────────────────────────");
     for r in &results {
-        println!("  {:>5}     {:>6.0}     {:>6}     {:>6}       {:>5}     {:>5.0}ms  {:>5.0}ms  {:>5}",
-            r.workers, r.ops_per_sec, r.acquire_ok, r.acquire_held, r.acquire_limit,
-            r.acquire_p50, r.acquire_p95, r.errors);
+        println!(
+            "  {:>5}     {:>6.0}     {:>6}     {:>6}       {:>5}     {:>5.0}ms  {:>5.0}ms  {:>5}",
+            r.workers,
+            r.ops_per_sec,
+            r.acquire_ok,
+            r.acquire_held,
+            r.acquire_limit,
+            r.acquire_p50,
+            r.acquire_p95,
+            r.errors
+        );
     }
-    
+
     let total_ops: u64 = results.iter().map(|r| r.total_ops).sum();
     let total_dur: f64 = results.iter().map(|r| r.duration_secs).sum();
     let limit_rejections: u64 = results.iter().map(|r| r.acquire_limit).sum();
-    
+
     println!();
-    println!("  \x1b[1mOverall: {} total ops in {:.0}s ({:.0} avg ops/sec)\x1b[0m", total_ops, total_dur, total_ops as f64 / total_dur);
+    println!(
+        "  \x1b[1mOverall: {} total ops in {:.0}s ({:.0} avg ops/sec)\x1b[0m",
+        total_ops,
+        total_dur,
+        total_ops as f64 / total_dur
+    );
     if limit_rejections > 0 {
-        println!("  \x1b[32m✅ Server correctly enforced 100-lock limit ({} rejections)\x1b[0m", limit_rejections);
+        println!(
+            "  \x1b[32m✅ Server correctly enforced 100-lock limit ({} rejections)\x1b[0m",
+            limit_rejections
+        );
     }
     println!();
 }

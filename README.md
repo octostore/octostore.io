@@ -1,153 +1,182 @@
-# 🐙 OctoStore
+<p align="center">
+  <img src="site/assets/octostore-logo.svg" alt="OctoStore logo: a hand-painted octopus carries colorful work and lifts one leader" width="300">
+</p>
 
-Distributed locking as a service. One binary, simple HTTP API, SQLite persistence.
+<h1 align="center">OctoStore</h1>
 
-> **Alpha software.** API may change. AI-assisted development. No SLA.
+<p align="center"><strong>Pick one leader. Everyone else waits.</strong></p>
 
-## What it does
+OctoStore is simple leader election over HTTP. Open a room, campaign from any process, and get one short-lived leader without creating an account, distributing an API key, installing an SDK, or operating a consensus cluster.
 
-OctoStore gives you distributed locks over HTTP with monotonically increasing
-fencing tokens. No etcd, no ZooKeeper, no Consul — just a single Rust binary.
+Use the hosted API for the smallest path to one leader. Run the single Rust binary inside your network when you also need durable task ownership, sessions, webhooks, and private coordination. Agent fleets are one use case, not a requirement.
 
-Sign up with GitHub → get a bearer token → start locking.
+> Alpha software. APIs may change before 1.0.
 
-## Quick start
+## What it coordinates
 
-### Hosted version
+- **Leader election:** choose one current scheduler, controller, worker, dispatcher, or maintenance leader.
+- **Task claims:** give every issue, ticket, queue item, deploy, or migration one temporary owner.
+- **Crash recovery:** leases expire when a worker stops renewing.
+- **Stale-writer defense:** monotonic fencing terms survive process restarts.
+- **Fleet liveness:** sessions can own many ephemeral locks and release them together.
+- **Operator visibility:** metadata, status endpoints, SSE watches, webhooks, and metrics use plain HTTP.
+
+## Remote leader election, no signup
+
+Create a collision-resistant room. No login, API key, SDK, or request body is required:
 
 ```bash
-# Sign in with GitHub (opens browser)
-open https://api.octostore.io/auth/github
-
-# Acquire a lock (60s TTL)
-curl -X POST https://api.octostore.io/locks/my-service/acquire \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"ttl_seconds": 60}'
-
-# Response:
-# {"status":"acquired","lease_id":"...","fencing_token":1,"expires_at":"..."}
+ROOM=$(curl -s -X POST https://api.octostore.io/elections \
+  | jq -r .election_id)
 ```
 
-### Self-host
+Share the room ID with every candidate and campaign from any language that can send HTTP:
 
 ```bash
-# Build from source
+curl -s -X POST \
+  "https://api.octostore.io/elections/$ROOM/campaign" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "candidate_id": "worker-a",
+    "ttl_seconds": 30,
+    "metadata": "fleet=support-agents"
+  }'
+```
+
+Exactly one live candidate receives:
+
+```json
+{
+  "status": "leader",
+  "election_id": "...",
+  "leader": {
+    "candidate_id": "worker-a",
+    "term": 1842,
+    "expires_at": "..."
+  },
+  "leader_token": "...",
+  "renew_after_ms": 15000
+}
+```
+
+Followers receive the same leader plus `retry_after_ms`. The opaque `leader_token` is the bearer capability required to renew or resign the current term.
+
+Public election leases are 5 to 300 seconds. Generated room IDs contain 192 bits of entropy. The API stores no user account.
+
+## Self-host in one minute
+
+The installer verifies the release checksum and binary version:
+
+```bash
+curl -fsSL \
+  https://raw.githubusercontent.com/octostore/octostore.io/main/install.sh \
+  | sh
+```
+
+Pin a specific release by setting the version on the installer process:
+
+```bash
+curl -fsSL \
+  https://raw.githubusercontent.com/octostore/octostore.io/main/install.sh \
+  | OCTOSTORE_VERSION=v0.13.0 sh
+```
+
+Start with a static token and one local SQLite file:
+
+```bash
+STATIC_TOKENS='ops:change-me' \
+DATABASE_URL='./octostore.db' \
+octostore
+
+curl http://localhost:3000/health
+```
+
+OctoStore listens on `0.0.0.0:3000` by default. Put TLS and network policy in your existing reverse proxy.
+
+## Claim a task
+
+Use a deterministic lock name before an agent starts side effects:
+
+```bash
+curl -s -X POST http://localhost:3000/locks/github-issue-1842/acquire \
+  -H 'Authorization: Bearer change-me' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "ttl_seconds": 120,
+    "metadata": "agent=atlas run=https://trace.example/7f2a"
+  }'
+```
+
+An `acquired` response includes a `lease_id`, `fencing_token`, and `expires_at`. A `held` response means another worker owns the task. Renew around half the TTL and release on clean completion.
+
+To keep another authenticated process from claiming a sensitive lock, attach a sticky acquire ACL on its first acquisition:
+
+```json
+{
+  "ttl_seconds": 120,
+  "acl": {
+    "acquire": ["user:deploy-bot", "token:another-bearer-token"]
+  }
+}
+```
+
+Only an allowed principal or the admin credential can acquire that lock afterward. The current holder or admin may replace the ACL with `PUT /locks/{name}/acl`. Token principals are redacted in API responses.
+
+## API surface
+
+| Primitive | Endpoints | Authentication |
+| --- | --- | --- |
+| Leader elections | `/elections`, `/elections/:id/*` | None; leader mutations use the returned capability |
+| Locks | `/locks`, `/locks/:name/*` | Bearer token |
+| Sessions | `/sessions`, `/sessions/:id/*` | Bearer token |
+| Webhooks | `/webhooks`, `/webhooks/:id` | Bearer token |
+| Health and status | `/health`, `/status` | None |
+| Metrics and admin | `/metrics`, `/admin/*` | Admin credential |
+
+Interactive API documentation is published at [https://api.octostore.io/docs](https://api.octostore.io/docs). The human guide lives at [https://octostore.io/docs/](https://octostore.io/docs/).
+
+## Configuration
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `BIND_ADDR` | `0.0.0.0:3000` | HTTP listen address |
+| `DATABASE_URL` | `octostore.db` | SQLite database path |
+| `STATIC_TOKENS` | unset | Comma-separated `user:token` credentials |
+| `STATIC_TOKENS_FILE` | unset | Newline-delimited static token file |
+| `PUBLIC_ELECTIONS` | `true` | Enable account-free election endpoints |
+| `MAX_PUBLIC_ELECTIONS` | `10000` | Maximum simultaneous public rooms |
+| `PUBLIC_ELECTION_REQUESTS_PER_MINUTE` | `600` | Per-client admission limit for room creation and campaigns |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | unset | Enable optional GitHub OAuth |
+| `ADMIN_KEY` | unset | Protect metrics and admin endpoints |
+
+Set `PUBLIC_ELECTIONS=false` when a private installation should expose only authenticated coordination.
+
+## Safety model
+
+- A lease proves time-bounded authority, not permanent ownership.
+- Every successful acquisition reserves its fencing term in SQLite before returning it.
+- Terms remain monotonic after all locks are released and the server restarts.
+- Generated election room IDs are hard to guess, but they are not access controls.
+- Leader tokens are bearer capabilities. Keep them out of URLs and logs.
+- Lock ACL token principals are stored for matching but redacted from API responses.
+- Public room creation and campaigns are rate limited per client; status, renewal, and resignation remain available during admission pressure.
+- Locks are advisory. Downstream writes should be idempotent and reject stale fencing terms where possible.
+
+## Development
+
+```bash
+./scripts/ci-local.sh
 cargo build --release
-
-# Configure (needs GitHub OAuth app credentials)
-export GITHUB_CLIENT_ID=...
-export GITHUB_CLIENT_SECRET=...
-
-# Run
-./target/release/octostore
 ```
 
-## API
+Useful paths:
 
-All lock endpoints require `Authorization: Bearer <token>`.
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/auth/github` | Start GitHub OAuth flow |
-| `POST` | `/auth/token/rotate` | Rotate bearer token |
-| `POST` | `/locks/{name}/acquire` | Acquire a lock (supports optional ACL) |
-| `PUT` | `/locks/{name}/acl` | Update lock ACL (holder/admin only) |
-| `POST` | `/locks/{name}/release` | Release a lock |
-| `POST` | `/locks/{name}/renew` | Extend lock TTL |
-| `GET` | `/locks/{name}` | Check lock status |
-| `GET` | `/locks` | List your locks |
-| `GET` | `/docs` | Interactive API docs |
-| `GET` | `/health` | Health check |
-
-### Acquire
-
-```bash
-curl -X POST https://api.octostore.io/locks/leader/acquire \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"ttl_seconds": 60}'
-```
-
-**Lock acquired:**
-```json
-{"status": "acquired", "lease_id": "uuid", "fencing_token": 42, "expires_at": "..."}
-```
-
-**Already held:**
-```json
-{"status": "held", "holder_id": "other-uuid", "expires_at": "..."}
-```
-
-### Release / Renew
-
-```bash
-# Release
-curl -X POST .../locks/leader/release \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"lease_id": "your-lease-uuid"}'
-
-# Renew
-curl -X POST .../locks/leader/renew \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"lease_id": "your-lease-uuid", "ttl_seconds": 60}'
-```
-
-## Fencing tokens
-
-Every acquire returns a fencing token — a monotonically increasing integer.
-Use it to guard writes against stale lock holders:
-
-```sql
-UPDATE state SET data = ?, fence = ? WHERE fence < ?
-```
-
-This is what makes the locking actually safe, unlike Redlock.
-
-## Constraints
-
-- **100 locks** per user
-- **1 hour** max TTL (auto-expires)
-- Lock names: `[a-zA-Z0-9.-]`, max 128 chars
-- Metadata: max 1 KB per lock
-
-## Architecture
-
-- **Rust** — Axum + Tokio
-- **DashMap** — concurrent in-memory lock storage
-- **SQLite** — user accounts, fencing counter, lock persistence
-- **GitHub OAuth** — authentication
-
-Single process. Locks live in memory for speed, replayed from SQLite on restart.
-
-## Testing & Quality
-
-```bash
-cargo test                           # Run all unit + integration tests  
-cargo bench                          # Run criterion benchmarks
-cargo tarpaulin --skip-clean         # Generate coverage report
-cargo +nightly fuzz run fuzz_lock_name  # Run fuzz testing
-```
-
-### Code Coverage
-![Coverage](https://img.shields.io/badge/coverage-pending-yellow)
-
-Coverage analysis using `cargo-tarpaulin` to ensure comprehensive test coverage across all modules.
-
-### Fuzz Testing
-Three dedicated fuzz targets test input handling robustness:
-- `fuzz_lock_name` — Lock name validation with arbitrary strings
-- `fuzz_auth_header` — Authorization header parsing edge cases  
-- `fuzz_json_body` — JSON request body parsing with malformed data
-
-### Benchmarks
-Comprehensive performance testing with Criterion.rs:
-- Single-operation latency (acquire/release)
-- Lock contention under load (2-10 threads)
-- Database persistence overhead
-- HTTP stack performance
-
-See `BENCHMARKS.md` for detailed results and system specifications.
+- `src/elections.rs` account-free leader election
+- `src/locks.rs` authenticated HTTP lock handlers
+- `src/store.rs` in-memory coordination plus SQLite durability
+- `src/sessions.rs` agent liveness and ephemeral locks
+- `openapi.yaml` API contract
+- `site/` marketing site and guides
 
 ## License
 

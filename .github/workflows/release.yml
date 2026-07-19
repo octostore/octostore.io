@@ -15,6 +15,9 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             name: octostore-linux-amd64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            name: octostore-linux-arm64
           - target: x86_64-apple-darwin
             os: macos-latest
             name: octostore-macos-amd64
@@ -24,14 +27,32 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
 
+      - name: Validate release tag matches Cargo.toml
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [[ "$TAG" != v* ]]; then
+            echo "ERROR: expected release tag to start with 'v', got '$TAG'."
+            exit 1
+          fi
+
+          TAG_VERSION="${TAG#v}"
+          CARGO_VERSION="$(python3 -c "import tomllib; print(tomllib.load(open('Cargo.toml', 'rb'))['package']['version'])")"
+
+          if [[ "$TAG_VERSION" != "$CARGO_VERSION" ]]; then
+            echo "ERROR: tag version '$TAG_VERSION' does not match Cargo.toml version '$CARGO_VERSION'."
+            exit 1
+          fi
+
+          echo "Release tag '$TAG' matches Cargo.toml version '$CARGO_VERSION'."
+
       - name: Build
-        run: cargo build --release --bin octostore --target ${{ matrix.target }}
+        run: cargo build --release --locked --bin octostore --target ${{ matrix.target }}
 
       - name: Rename binary
         run: cp target/${{ matrix.target }}/release/octostore ${{ matrix.name }}
@@ -49,36 +70,76 @@ jobs:
         with:
           merge-multiple: true
 
+      - name: Generate release checksums
+        run: sha256sum octostore-* > SHA256SUMS
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: octostore-*
+          files: |
+            octostore-*
+            SHA256SUMS
           generate_release_notes: true
 
   publish:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      - name: Patch Cargo.toml version from tag
+      - name: Validate release tag matches Cargo.toml
         run: |
-          VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#v}"
-          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
-          echo "Publishing version: $VERSION"
+          TAG="${GITHUB_REF_NAME}"
+          if [[ "$TAG" != v* ]]; then
+            echo "ERROR: expected release tag to start with 'v', got '$TAG'."
+            exit 1
+          fi
+
+          TAG_VERSION="${TAG#v}"
+          CARGO_VERSION="$(python3 -c "import tomllib; print(tomllib.load(open('Cargo.toml', 'rb'))['package']['version'])")"
+
+          if [[ "$TAG_VERSION" != "$CARGO_VERSION" ]]; then
+            echo "ERROR: tag version '$TAG_VERSION' does not match Cargo.toml version '$CARGO_VERSION'."
+            exit 1
+          fi
+
+          git diff --exit-code
+          echo "Release tag '$TAG' matches Cargo.toml version '$CARGO_VERSION' and tree is clean."
 
       - name: Publish to crates.io
-        run: cargo publish --no-verify --allow-dirty
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          STATUS=$(curl --retry 3 --retry-all-errors --silent --show-error \
+            --user-agent 'octostore-release-check (+https://github.com/octostore/octostore.io)' \
+            --output /dev/null --write-out '%{http_code}' \
+            "https://crates.io/api/v1/crates/octostore/$VERSION")
+
+          case "$STATUS" in
+            200)
+              echo "octostore $VERSION is already published; skipping upload."
+              ;;
+            404)
+              cargo publish --locked
+              ;;
+            *)
+              echo "ERROR: crates.io version check returned HTTP $STATUS."
+              exit 1
+              ;;
+          esac
 
   deploy:
-    needs: release
+    needs: [release, publish]
     runs-on: ubuntu-latest
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
     steps:
+      - uses: actions/checkout@v5
+
       - name: Refuse pre-release tags
         run: |
           TAG="${{ github.ref_name }}"
@@ -97,6 +158,7 @@ jobs:
 
       - name: Deploy to production
         run: |
+          RELEASE_TAG="${{ github.ref_name }}"
           ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes \
             daaronch@${{ secrets.DEPLOY_HOST }} \
-            bash /opt/octostore-lock/deploy/deploy.sh ${{ github.ref_name }}
+            bash -s -- "$RELEASE_TAG" < deploy/deploy.sh

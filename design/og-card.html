@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>OctoStore social card</title>
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@700&family=Barlow+Condensed:wght@700;800&family=DM+Mono:wght@400;500&display=swap");
+
+    * { box-sizing: border-box; }
+    html, body { width: 1200px; height: 630px; margin: 0; overflow: hidden; }
+    body {
+      background: #080817;
+      color: #f4f5ff;
+      font-family: "Atkinson Hyperlegible", sans-serif;
+    }
+    .card {
+      position: relative;
+      display: grid;
+      grid-template-rows: 64px 1fr 58px;
+      width: 1200px;
+      height: 630px;
+      padding: 0 56px;
+      background:
+        linear-gradient(110deg, transparent 0 62%, rgba(91, 61, 162, 0.11) 62% 68%, transparent 68%),
+        radial-gradient(circle at 92% -15%, rgba(100, 63, 194, 0.27), transparent 460px),
+        #080817;
+    }
+    header, footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #373951;
+    }
+    footer { border-top: 1px solid #373951; border-bottom: 0; }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: "Barlow Condensed", sans-serif;
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: .045em;
+    }
+    .mark {
+      position: relative;
+      width: 26px;
+      height: 26px;
+      border: 1px solid #5c607d;
+      border-radius: 50%;
+    }
+    .mark::before, .mark::after {
+      position: absolute;
+      top: 10px;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: #91f51d;
+      content: "";
+    }
+    .mark::before { left: 5px; }
+    .mark::after { right: 5px; opacity: .28; }
+    .meta, footer {
+      color: #a3a6bd;
+      font-family: "DM Mono", monospace;
+      font-size: 13px;
+    }
+    main {
+      display: grid;
+      grid-template-columns: 1.02fr .98fr;
+      gap: 70px;
+      align-items: center;
+    }
+    .promise {
+      margin-bottom: 22px;
+      color: #52d9ff;
+      font-family: "DM Mono", monospace;
+      font-size: 14px;
+    }
+    .promise::before { margin-right: 9px; color: #91f51d; content: "●"; }
+    h1 {
+      max-width: 520px;
+      margin: 0;
+      font-family: "Barlow Condensed", sans-serif;
+      font-size: 75px;
+      font-weight: 800;
+      letter-spacing: -.025em;
+      line-height: .88;
+      text-transform: uppercase;
+    }
+    h1 em { color: #91f51d; font-style: normal; }
+    .sub {
+      max-width: 470px;
+      margin: 24px 0 0;
+      color: #c2c4d7;
+      font-family: "DM Mono", monospace;
+      font-size: 16px;
+      line-height: 1.55;
+    }
+    .board {
+      overflow: hidden;
+      border: 1px solid #626684;
+      border-radius: 14px;
+      background: #05050e;
+    }
+    .board-head {
+      display: flex;
+      justify-content: space-between;
+      padding: 16px 18px;
+      border-bottom: 1px solid #373951;
+      color: #52d9ff;
+      font-family: "DM Mono", monospace;
+      font-size: 12px;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 18px 1fr auto;
+      gap: 18px;
+      align-items: center;
+      min-height: 98px;
+      padding: 17px 20px;
+      border-bottom: 1px solid #373951;
+    }
+    .row:last-child { border-bottom: 0; }
+    .row.leader { background: #102006; }
+    .light { width: 13px; height: 13px; border-radius: 50%; background: #ff6464; }
+    .leader .light { background: #91f51d; box-shadow: 0 0 0 7px rgba(145, 245, 29, .12); }
+    .who strong, .who span { display: block; }
+    .who strong {
+      font-family: "Barlow Condensed", sans-serif;
+      font-size: 30px;
+      line-height: 1;
+      text-transform: uppercase;
+    }
+    .who span, .state {
+      color: #a3a6bd;
+      font-family: "DM Mono", monospace;
+      font-size: 11px;
+    }
+    .leader .state { color: #91f51d; }
+    .bottom-promise { color: #91f51d; font-family: "Barlow Condensed", sans-serif; font-size: 19px; text-transform: uppercase; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <header>
+      <div class="brand"><span class="mark"></span>OCTOSTORE</div>
+      <div class="meta">LEADER ELECTION OVER HTTP</div>
+    </header>
+    <main>
+      <section>
+        <div class="promise">TWO CALLS · ANY PROCESS</div>
+        <h1>Pick <em>one</em> leader. Everyone else waits.</h1>
+        <p class="sub">NO ACCOUNT. NO API KEY. NO SDK.<br>HOSTED NOW OR SELF-HOSTED LATER.</p>
+      </section>
+      <section class="board" aria-label="One elected leader and two waiting processes">
+        <div class="board-head"><span>ROOM 7F2A</span><span>TERM 1842</span></div>
+        <div class="row leader"><span class="light"></span><span class="who"><strong>Process A</strong><span>LEASE ACQUIRED</span></span><span class="state">LEADER</span></div>
+        <div class="row"><span class="light"></span><span class="who"><strong>Process B</strong><span>LEADER OBSERVED</span></span><span class="state">WAIT</span></div>
+        <div class="row"><span class="light"></span><span class="who"><strong>Process C</strong><span>RETRY ON EXPIRY</span></span><span class="state">WAIT</span></div>
+      </section>
+    </main>
+    <footer>
+      <span class="bottom-promise">BUILD THE JOB. STOP REBUILDING THE ELECTION.</span>
+      <span>OCTOSTORE.IO</span>
+    </footer>
+  </div>
+</body>
+</html>

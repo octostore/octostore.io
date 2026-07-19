@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Leader election is easy until the leader disappears — OctoStore</title>
+  <meta name="description" content="The hard parts of simple leader election are crash recovery, stale leaders, and retry timing. Here is the smallest useful model: a lease, capability, and fencing term.">
+  <meta name="theme-color" content="#171224">
+  <meta property="og:title" content="Leader election is easy until the leader disappears">
+  <meta property="og:description" content="A lock picks a winner. A lease and fencing term keep failure from picking two.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://octostore.io/blog/leader-election-is-easy-until-the-leader-disappears.html">
+  <meta property="og:image" content="https://octostore.io/assets/octostore-og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="OctoStore signal board showing one process elected leader while two processes wait">
+  <meta property="article:published_time" content="2026-07-18">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Leader election is easy until the leader disappears">
+  <meta name="twitter:description" content="A lock picks a winner. A lease and fencing term keep failure from picking two.">
+  <meta name="twitter:image" content="https://octostore.io/assets/octostore-og.png">
+  <link rel="canonical" href="https://octostore.io/blog/leader-election-is-easy-until-the-leader-disappears.html">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/site.css">
+  <script defer src="/assets/site.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="wrap">
+    <nav class="site-nav" aria-label="Primary navigation">
+      <a class="brand" href="/"><span class="brand-signal" aria-hidden="true"></span>OctoStore</a>
+      <div class="nav-links">
+        <a href="/leader-election/">Leader election</a>
+        <a href="/agents/">Agents</a>
+        <a href="/coordination/">Coordination</a>
+        <a href="/docs/">Docs</a>
+        <a href="https://github.com/octostore/octostore.io">GitHub</a>
+        <a class="nav-cta" href="/#live-race">Try it live</a>
+      </div>
+    </nav>
+  </div>
+
+  <main id="main" class="article reading-wrap">
+    <header class="article-header">
+      <div class="article-meta">18 July 2026 · Leader election · 5 min</div>
+      <h1>Leader election is easy until the leader disappears.</h1>
+      <p class="lede">A database flag can pick a winner. The real design begins when that winner pauses, crashes, loses the network, or comes back after everyone else moved on.</p>
+    </header>
+
+    <article class="article-body">
+      <p>The first version of leader election is usually one line: create a row, set a key, or acquire a lock. If the write succeeds, you are leader. If it fails, you are not.</p>
+
+      <p>That solves the simultaneous-start problem. It does not solve leadership.</p>
+
+      <h2>The leader can stop without telling you.</h2>
+      <p>A process can crash between heartbeats. A container can freeze. A network partition can isolate the current leader while the rest of the system stays healthy. Permanent ownership turns every one of those failures into an operator problem.</p>
+
+      <p>Leadership should be a lease: authority for a bounded amount of time. A healthy process renews. A dead or disconnected process does not. After expiry, another candidate can win.</p>
+
+      <div class="callout">
+        <h2>A lease answers “who should lead now?”</h2>
+        <p>It does not erase the old leader's memory. That is why a useful election also needs a fencing term.</p>
+      </div>
+
+      <h2>The old leader can come back.</h2>
+      <p>Suppose worker A wins term 1842 and pauses long enough for its lease to expire. Worker B wins term 1843. Then A wakes up. From A's point of view, nothing revoked its local state. It may still try to write.</p>
+
+      <p>Attach the election term to downstream work. Once a resource has accepted 1843, it can reject a late write from 1842. The lease provides liveness. The fencing term makes stale authority visible.</p>
+
+      <h2>Followers need an answer too.</h2>
+      <p>“You lost” is incomplete. A follower needs to know who won, when that decision expires, and when it should try again. Without that timing, every caller invents its own polling loop and turns recovery into a thundering herd.</p>
+
+      <p>A useful election response gives every candidate the same leader plus a server-calculated retry delay.</p>
+
+      <h2>The smallest complete model.</h2>
+      <div class="plain-list">
+        <p><strong>Room</strong> A shared address where candidates meet.</p>
+        <p><strong>Lease</strong> Time-bounded permission for one candidate to lead.</p>
+        <p><strong>Capability</strong> A secret token that can renew or resign that lease.</p>
+        <p><strong>Term</strong> A monotonic number that exposes stale authority.</p>
+        <p><strong>Retry delay</strong> The moment followers should campaign again.</p>
+      </div>
+
+      <p>You can operate the storage, expiry loop, concurrency control, and failure recovery yourself. Or you can make two HTTP calls:</p>
+
+      <div class="code-window">
+        <div class="code-head"><span>shell</span><button class="copy-button" type="button" data-copy-target="#article-simple-election">Copy</button></div>
+        <pre id="article-simple-election"><code>ROOM=$(curl -s -X POST https://api.octostore.io/elections \
+  | jq -r .election_id)
+
+curl -s -X POST \
+  "https://api.octostore.io/elections/$ROOM/campaign" \
+  -H "Content-Type: application/json" \
+  -d '{"candidate_id":"worker-a","ttl_seconds":30}'</code></pre>
+      </div>
+
+      <p>One caller gets the leader token. Everyone else gets the leader and retry timing. No account, API key, or SDK is involved.</p>
+
+      <h2>This is not only an agent problem.</h2>
+      <p>The same primitive works for scheduled jobs, cleanup workers, singleton schedulers, migrations, controllers, and agent dispatchers. The business logic does not matter. The coordination question is always the same: which process gets the turn?</p>
+
+      <h2>Know where the boundary is.</h2>
+      <p>A lease does not make side effects transactional. It does not replace idempotency. A public room ID is not access control. Keep leader capabilities out of logs, use generated room IDs, and self-host when the coordination namespace or traffic must stay private.</p>
+
+      <p>Simple leader election should be simple to use. It should not pretend failure is simple.</p>
+
+      <div class="callout">
+        <h2>Pick one leader. Everyone else waits.</h2>
+        <p>Run the production-backed election, copy the two-call quickstart, or host the same API inside your network.</p>
+        <div class="button-row">
+          <a class="button primary" href="/#live-race">Run a live election</a>
+          <a class="button" href="/leader-election/">Read the 60-second guide</a>
+        </div>
+      </div>
+    </article>
+  </main>
+
+  <footer class="site-footer wrap">
+    <a href="/blog/">← All field notes</a>
+    <span class="footer-links"><a href="/leader-election/">Leader election</a><a href="/agents/">Agents</a><a href="/coordination/">Coordination</a><a href="https://github.com/octostore/octostore.io">GitHub</a></span>
+  </footer>
+</body>
+</html>

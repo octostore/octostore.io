@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Distributed locking for hosted agents — OctoStore</title>
+  <meta name="description" content="Use lease-based HTTP locks to give shared agent tasks one visible owner and recover automatically when workers disappear.">
+  <meta name="theme-color" content="#171224">
+  <meta property="og:title" content="Distributed locking for hosted agents — OctoStore">
+  <meta property="og:description" content="Give shared agent tasks one visible owner and a safe recovery path when workers disappear.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://octostore.io/blog/distributed-locking-for-hosted-agents.html">
+  <meta property="og:image" content="https://octostore.io/assets/octostore-og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="canonical" href="https://octostore.io/blog/distributed-locking-for-hosted-agents.html">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/site.css">
+  <script defer src="/assets/site.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="wrap">
+    <nav class="site-nav" aria-label="Primary navigation">
+      <a class="brand" href="/"><span class="brand-signal" aria-hidden="true"></span>OctoStore</a>
+<div class="nav-links"><a href="/leader-election/">Leader election</a><a href="/agents/">Agents</a><a href="/coordination/">Coordination</a><a href="/docs/">Docs</a><a href="https://github.com/octostore/octostore.io">GitHub</a><a class="nav-cta" href="/#live-race">Try it live</a></div>
+    </nav>
+  </div>
+
+  <main id="main" class="article reading-wrap">
+    <header class="article-header">
+      <div class="article-meta">31 May 2026 · Distributed locks · 7 min</div>
+      <h1>Distributed locking for hosted agents</h1>
+      <p class="lede">Hosted workers make duplicate task execution easy. A small HTTP lease gives each task one visible owner and a recovery path when that worker disappears.</p>
+    </header>
+
+    <article class="article-body">
+      <p>Most hosted agent systems start with a loop: poll for work, choose a task, call tools, write the result. That works until there are two workers. Then the same issue, customer ticket, evaluation, or deploy request can be picked up twice.</p>
+
+      <p>The fix does not have to be a new workflow platform. Often the missing primitive is ownership. Before an agent starts, it asks a shared service whether it can own the task for a bounded amount of time.</p>
+
+      <h2>The lease model</h2>
+      <p>OctoStore exposes ownership as HTTP locks. An agent sends <code>POST /locks/:name/acquire</code> with a TTL and optional metadata. Use a stable name such as <code>issue-1842</code>. If the response says <code>acquired</code>, this agent owns the work. If it says <code>held</code>, another worker owns it.</p>
+
+      <div class="code-window">
+        <div class="code-head"><span>shell</span><button class="copy-button" type="button" data-copy-target="#lock-article-code">Copy</button></div>
+        <pre id="lock-article-code"><code>curl -X POST https://your-octostore.internal/locks/issue-1842/acquire \
+  -H "Authorization: Bearer $OCTOSTORE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ttl_seconds":120,
+    "metadata":"runner=agent-7 repo=acme/app issue=1842"
+  }'</code></pre>
+      </div>
+
+      <p>Metadata is deliberately small and operator-readable. Put the runner ID, task URL, trace ID, branch, model, or runbook hint where a human can see it.</p>
+
+      <h2>Renew while work is live</h2>
+      <p>A lease is not a permanent claim. Long-running work should renew before expiry:</p>
+
+      <div class="code-window">
+        <div class="code-head"><span>shell</span><button class="copy-button" type="button" data-copy-target="#renew-article-code">Copy</button></div>
+        <pre id="renew-article-code"><code>curl -X POST https://your-octostore.internal/locks/issue-1842/renew \
+  -H "Authorization: Bearer $OCTOSTORE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"lease_id":"...","ttl_seconds":120}'</code></pre>
+      </div>
+
+      <p>Renewal acts as a heartbeat. A healthy worker keeps the lease alive. A crashed worker stops renewing, so the task eventually becomes available again.</p>
+
+      <h2>Carry the fencing term</h2>
+      <p>Every acquisition returns a strictly increasing fencing token. Pass it to downstream systems when possible. Once a resource has accepted term 1843, it can reject a late write from a stale worker holding term 1842.</p>
+
+      <p>This closes the gap that TTL alone cannot close. Expiry decides who should be leader now. Fencing lets the resource reject who used to be leader.</p>
+
+      <h2>Release on completion, expire on failure</h2>
+      <p>When work completes, release the lock with its lease ID. If the worker dies before release, expiry is the recovery path. Pick a TTL that bounds how long a task can look owned after a crash, then renew during normal execution.</p>
+
+      <h2>What a lock does not solve</h2>
+      <p>A distributed lock prevents ordinary duplicate starts. It does not make external side effects transactional. Hosted agents should still write idempotently, handle retries, and gate irreversible actions. Treat the lock as the coordination boundary, not a substitute for safe application logic.</p>
+
+      <div class="callout">
+        <h2>Need a fleet leader instead?</h2>
+<p>OctoStore also provides account-free remote leader election. Open a room, campaign over HTTP, and let one process lead while the rest wait.</p>
+<a class="button primary" href="/leader-election/">Read the election guide</a>
+      </div>
+    </article>
+  </main>
+
+<footer class="site-footer wrap"><a href="/blog/">← All field notes</a><span class="footer-links"><a href="/leader-election/">Leader election</a><a href="/docs/">Docs</a><a href="/agents/">Agents</a><a href="/coordination/">Coordination</a><a href="https://github.com/octostore/octostore.io">GitHub</a></span></footer>
+</body>
+</html>

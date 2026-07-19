@@ -65,9 +65,8 @@ impl SessionStore {
         let db = self.db.lock().unwrap();
         let now = Utc::now();
 
-        let mut stmt = db.prepare(
-            "SELECT id, user_id, ttl_seconds, expires_at, created_at FROM sessions",
-        )?;
+        let mut stmt =
+            db.prepare("SELECT id, user_id, ttl_seconds, expires_at, created_at FROM sessions")?;
 
         let rows = stmt.query_map([], |row| {
             let id_str: String = row.get(0)?;
@@ -133,11 +132,13 @@ impl SessionStore {
 
         if !expired_ids.is_empty() {
             for id in &expired_ids {
-                if let Err(e) = db.execute(
-                    "DELETE FROM sessions WHERE id = ?",
-                    params![id.to_string()],
-                ) {
-                    warn!("Failed to delete expired session {} from database: {}", id, e);
+                if let Err(e) =
+                    db.execute("DELETE FROM sessions WHERE id = ?", params![id.to_string()])
+                {
+                    warn!(
+                        "Failed to delete expired session {} from database: {}",
+                        id, e
+                    );
                 }
             }
         }
@@ -208,7 +209,10 @@ impl SessionStore {
             warn!("Failed to update session {} in database: {}", session_id, e);
         }
 
-        debug!("Session keepalive: {} new expiry {}", session_id, new_expires);
+        debug!(
+            "Session keepalive: {} new expiry {}",
+            session_id, new_expires
+        );
         Ok(new_expires)
     }
 
@@ -236,6 +240,7 @@ impl SessionStore {
             .map(|entry| entry.value().clone())
     }
 
+    #[allow(dead_code)]
     pub fn get_user_sessions(&self, user_id: Uuid) -> Vec<Session> {
         self.sessions
             .iter()
@@ -268,16 +273,13 @@ impl SessionStore {
 
         for entry in self.sessions.iter() {
             if entry.value().expires_at <= now {
-                expired.push(entry.key().clone());
+                expired.push(*entry.key());
             }
         }
 
         for session_id in expired {
             if let Some((_, session)) = self.sessions.remove(&session_id) {
-                debug!(
-                    "Session expired: {} (user {})",
-                    session_id, session.user_id
-                );
+                debug!("Session expired: {} (user {})", session_id, session.user_id);
                 lock_store.release_locks_for_session(session_id);
                 if let Err(e) = self.delete_session_from_database(session_id) {
                     warn!(
@@ -315,7 +317,7 @@ impl SessionStore {
 }
 
 fn clamp_ttl(ttl: Option<u32>) -> u32 {
-    ttl.unwrap_or(DEFAULT_TTL).max(MIN_TTL).min(MAX_TTL)
+    ttl.unwrap_or(DEFAULT_TTL).clamp(MIN_TTL, MAX_TTL)
 }
 
 // ── Route handlers ──────────────────────────────────────────────────────
@@ -364,10 +366,7 @@ pub async fn terminate_session(
     let user_id = state.auth_service.authenticate(&headers)?;
 
     // Release all locks tied to this session before terminating
-    state
-        .lock_handlers
-        .store
-        .release_locks_for_session(id);
+    state.lock_handlers.store.release_locks_for_session(id);
 
     state.session_store.terminate_session(id, user_id)?;
 
@@ -400,7 +399,7 @@ pub async fn get_session_status(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::LockStore;
+    use crate::store::{AcquireLockOptions, LockStore};
     use rusqlite::Connection;
     use std::sync::Mutex;
     use tempfile::NamedTempFile;
@@ -411,9 +410,7 @@ mod tests {
         ))
     }
 
-    fn create_test_stores(
-        db_path: &str,
-    ) -> (SessionStore, LockStore) {
+    fn create_test_stores(db_path: &str) -> (SessionStore, LockStore) {
         let db = make_db(db_path);
         let lock_store = LockStore::new(db.clone(), 1).expect("Failed to create lock store");
         let session_store = SessionStore::new(db).expect("Failed to create session store");
@@ -540,23 +537,20 @@ mod tests {
     #[tokio::test]
     async fn test_session_expiry_releases_locks() {
         let tmp = NamedTempFile::new().unwrap();
-        let (session_store, lock_store) =
-            create_test_stores(tmp.path().to_str().unwrap());
+        let (session_store, lock_store) = create_test_stores(tmp.path().to_str().unwrap());
         let user_id = Uuid::new_v4();
 
         // Create a session with very short TTL
-        let session = session_store.create_session(user_id, Some(MIN_TTL)).unwrap();
+        let session = session_store
+            .create_session(user_id, Some(MIN_TTL))
+            .unwrap();
 
         // Acquire a lock with this session
-        let (lease_id, _, _) = lock_store
+        let (_lease_id, _, _) = lock_store
             .acquire_lock(
                 "session-lock".to_string(),
                 user_id,
-                300,
-                None,
-                Some(session.id),
-                false,
-                0,
+                AcquireLockOptions::new(300).with_session_id(Some(session.id)),
             )
             .unwrap();
 

@@ -1,73 +1,64 @@
-# OctoStore Roadmap
+# OctoStore roadmap
 
-Inspired by [Chubby: The Lock Service for Loosely-Coupled Distributed Systems](https://research.google/pubs/the-chubby-lock-service-for-loosely-coupled-distributed-systems/) (Burrows, 2006).
+OctoStore is becoming the smallest useful leader-election service: instantly hosted when several remote processes need one leader, self-hosted when the control boundary or broader task coordination matters.
 
-OctoStore is a single-binary distributed lock service: one process, HTTP API, SQLite persistence. The roadmap stays focused on correctness, observability, and durability — not clustering or SDK sprawl.
+## Shipped
 
----
+### Coordination core
 
-## Phase 1 — Reliable Primitives ✅
-*Make the lock model correct under failure, not just under happy-path.*
+- lock acquire, renew, release, and status
+- TTL expiry and optional lock-delay grace periods
+- monotonic fencing terms
+- SQLite WAL persistence and restart recovery
+- hierarchical lock namespaces
+- per-lock metadata
 
-| # | What | Status |
-|---|------|--------|
-| 1 | **Lock delay** — grace period before a dropped lock can be re-acquired | ✅ v0.6.0 |
-| 2 | **Sessions + KeepAlive** — client heartbeats; all locks tied to a session | ✅ v0.5.0 |
-| 3 | **Ephemeral locks** — auto-released when session expires | ✅ v0.6.0 |
-| 4 | **Per-lock metadata** — attach a small payload on acquire | ✅ v0.3.0 |
+### Agent operations
 
----
+- sessions and keepalive
+- ephemeral locks tied to session liveness
+- SSE lock watches
+- signed webhooks
+- status, admin, metrics, and time-series endpoints
 
-## Phase 2 — Observability ✅
-*Let clients react to changes instead of polling.*
+### Access
 
-| # | What | Status |
-|---|------|--------|
-| 5 | **SSE watch endpoint** — `GET /locks/{name}/watch` stream | ✅ v0.4.0 |
-| 6 | **Webhooks** — POST callback on acquire/release/expire | ✅ v0.7.0 |
-| 7 | **Lock namespace hierarchy** — slash-delimited paths + prefix listing | 🔄 v0.8.0 |
+- static token and token-file authentication
+- optional GitHub OAuth
+- per-user namespace scopes
+- account-free, capability-based remote leader election
+- per-client public-election admission limits
 
----
+## Next
 
-## Phase 3 — Durability
-*Survive restarts without losing in-flight lock state.*
+### Fleet ergonomics
 
-| # | What | Notes |
-|---|------|-------|
-| 23 | **WAL-based crash recovery** — SQLite WAL mode, full in-memory restore on startup | Single-node durability, no external deps |
+- first-party shell and TypeScript helpers that remain thin wrappers over HTTP
+- jittered campaign and renewal recipes
+- structured election metadata and fleet dashboards
+- event streams for public election changes
 
----
+### Multi-tenant hardening
 
-## Phase 4 — Access Control
-*Multi-tenant correctness.*
+- per-lock ACLs
+- explicit organization and team namespaces
+- operator-configurable room quotas
+- hashed-at-rest static bearer tokens
 
-| # | What | Notes |
-|---|------|-------|
-| 13 | **Per-lock ACLs** — who can acquire, who can observe | Token scopes or explicit allow-lists |
-| 14 | **Org/team namespacing** — partition the lock space by owner | Prevents noisy-neighbour problems |
+### Durability and operations
 
----
+- online SQLite backup command
+- startup integrity report and migration visibility
+- webhook retry policy and dead-letter inspection
+- exportable OpenTelemetry traces
 
 ## Non-goals
-- **Client SDKs** — the HTTP API is the interface; curl works fine
-- **Raft replication / HA clustering** — single-node with WAL durability covers the target use case
-- **Fine-grained locking** — OctoStore is intentionally coarse-grained (Chubby §2.1)
-- **Large file storage** — config values are capped at 256 KB. Use S3.
-- **Mandatory locking** — advisory only, same reasoning as Chubby §2.4
 
----
+- executing prompts or tools
+- owning a work queue or DAG language
+- mandatory language-specific SDKs
+- pretending independent SQLite replicas form a cluster
+- large value storage
+- mandatory locking of external resources
 
-## Current state (v0.7.0)
-- ✅ Lock acquire / release / renew / status
-- ✅ Fencing tokens (sequencers)
-- ✅ TTL-based expiry with lock delay grace period
-- ✅ Sessions + KeepAlive
-- ✅ Ephemeral locks (auto-released on session expiry)
-- ✅ Per-lock metadata (1KB payload)
-- ✅ SSE watch stream per lock
-- ✅ Webhooks with HMAC-SHA256 signing
-- ✅ Rate limits, feature flags, config with history
-- ✅ GitHub OAuth + static token auth
-- ✅ OpenAPI spec + Swagger UI at `/docs`
-- ✅ Public status page + admin dashboard
-- ✅ Automated release → deploy pipeline (CI/CD to demo-host)
+High availability requires a real consensus or serializable storage boundary. Until OctoStore implements one, the safe topology is one authority per namespace.
