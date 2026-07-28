@@ -70,10 +70,12 @@ jobs:
           up     = sum(1 for r in records if r.get('ok') == 1)
           latencies = [r['response_ms'] for r in records if isinstance(r.get('response_ms'), (int, float))]
 
-          pct   = round(up / total * 100, 2) if total else 0
-          avg   = round(statistics.mean(latencies)) if latencies else 0
-          p95   = round(sorted(latencies)[int(len(latencies) * 0.95)]) if latencies else 0
-          downs = total - up
+          # Missing data must be explicit: reporting 0% makes a stalled
+          # collector look like a real outage.
+          pct   = round(up / total * 100, 2) if total else 'n/a'
+          avg   = round(statistics.mean(latencies)) if latencies else 'n/a'
+          p95   = round(sorted(latencies)[int(len(latencies) * 0.95)]) if latencies else 'n/a'
+          downs = total - up if total else 'n/a'
 
           # Write GitHub outputs
           with open(sys.argv[0].replace(sys.argv[0], '/dev/stdout'), 'w') as _:
@@ -136,20 +138,26 @@ jobs:
 
           DATE=$(date -u +%Y-%m-%d)
 
-          # Uptime colour: green >=99.9, yellow >=99, red below
+          # Never present a collector failure as 0% uptime.
           PCT="${{ steps.stats.outputs.uptime_pct }}"
-          if awk "BEGIN{exit !($PCT >= 99.9)}"; then
+          if [[ "$PCT" == "n/a" ]]; then
+            COLOR=9807270  # grey: no probe data
+            UPTIME="n/a (probe data unavailable)"
+          elif awk "BEGIN{exit !($PCT >= 99.9)}"; then
             COLOR=3066993   # green
+            UPTIME="${PCT}%"
           elif awk "BEGIN{exit !($PCT >= 99.0)}"; then
             COLOR=16776960  # yellow
+            UPTIME="${PCT}%"
           else
             COLOR=15158332  # red
+            UPTIME="${PCT}%"
           fi
 
           PAYLOAD=$(jq -n \
             --argjson color "$COLOR" \
             --arg date "$DATE" \
-            --arg uptime    "${{ steps.stats.outputs.uptime_pct }}%" \
+            --arg uptime    "$UPTIME" \
             --arg checks    "${{ steps.stats.outputs.total_checks }}" \
             --arg downs     "${{ steps.stats.outputs.downtime_events }}" \
             --arg avg_ms    "${{ steps.stats.outputs.avg_ms }}ms" \
