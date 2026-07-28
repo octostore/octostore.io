@@ -21,9 +21,9 @@ concurrency:
 
 jobs:
   probe:
-    # Blacksmith is not provisioned for this GitHub organization. Use the
-    # GitHub-hosted runner so scheduled probes can actually start.
-    runs-on: ubuntu-latest
+    # Dedicated macOS runner on FeralHogPen. The custom label prevents this
+    # public repository's general CI jobs from executing on the personal host.
+    runs-on: [self-hosted, macOS, ARM64, octostore-monitor]
     outputs:
       status: ${{ steps.eval.outputs.status }}
       summary: ${{ steps.eval.outputs.summary }}
