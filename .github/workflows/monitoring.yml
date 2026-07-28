@@ -21,8 +21,9 @@ concurrency:
 
 jobs:
   probe:
-    # Blacksmith's 2-vCPU Ubuntu 24.04 runner replaces GitHub-hosted Ubuntu.
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    # Blacksmith is not provisioned for this GitHub organization. Use the
+    # GitHub-hosted runner so scheduled probes can actually start.
+    runs-on: ubuntu-latest
     outputs:
       status: ${{ steps.eval.outputs.status }}
       summary: ${{ steps.eval.outputs.summary }}
