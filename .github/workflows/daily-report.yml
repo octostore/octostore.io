@@ -17,14 +17,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout metrics branch
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ env.METRICS_BRANCH }}
           path: metrics
           fetch-depth: 0
 
       - name: Checkout repo (for release data)
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           path: repo
           sparse-checkout: |
@@ -38,11 +38,13 @@ jobs:
 
           if [[ ! -f "$METRICS_PATH" ]]; then
             echo "No metrics file yet."
-            echo "uptime_pct=n/a"         >> "$GITHUB_OUTPUT"
-            echo "avg_ms=n/a"             >> "$GITHUB_OUTPUT"
-            echo "p95_ms=n/a"             >> "$GITHUB_OUTPUT"
-            echo "total_checks=0"         >> "$GITHUB_OUTPUT"
-            echo "downtime_events=0"      >> "$GITHUB_OUTPUT"
+            {
+              echo "uptime_pct=n/a"
+              echo "avg_ms=n/a"
+              echo "p95_ms=n/a"
+              echo "total_checks=0"
+              echo "downtime_events=0"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -107,8 +109,8 @@ jobs:
             '[.[].assets[] | select(.downloads > 0)] | sort_by(-.downloads) | .[0:3] | .[] | "• \(.name): \(.downloads)"' \
             2>/dev/null || echo "none")
 
-          echo "total=$TOTAL"  >> "$GITHUB_OUTPUT"
           {
+            echo "total=$TOTAL"
             echo 'top<<EOF'
             echo "$TOP"
             echo 'EOF'
@@ -125,9 +127,11 @@ jobs:
           STARS=$(echo "$STATS" | jq '.stars')
           FORKS=$(echo "$STATS" | jq '.forks')
           ISSUES=$(echo "$STATS" | jq '.open_issues')
-          echo "stars=$STARS"   >> "$GITHUB_OUTPUT"
-          echo "forks=$FORKS"   >> "$GITHUB_OUTPUT"
-          echo "issues=$ISSUES" >> "$GITHUB_OUTPUT"
+          {
+            echo "stars=$STARS"
+            echo "forks=$FORKS"
+            echo "issues=$ISSUES"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build and post Discord daily report
         shell: bash

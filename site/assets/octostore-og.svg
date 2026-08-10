@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title description">
+  <title id="title">Stop two agents from doing the same work</title>
+  <desc id="description">OctoStore coordination board showing Agent Atlas owning one work item while Agent Comet waits.</desc>
+  <rect width="1200" height="630" fill="#070713"/>
+  <path d="M886 0h314v630H658z" fill="#18132f"/>
+  <path d="M963 0h74L743 630h-66z" fill="#231942" opacity="0.78"/>
+
+  <g transform="translate(56 20)">
+    <circle cx="13" cy="13" r="13" fill="#0b0b18" stroke="#55536d"/>
+    <circle cx="9" cy="13" r="3" fill="#8cff1a"/>
+    <circle cx="17" cy="13" r="3" fill="#496a27"/>
+    <text x="36" y="20" fill="#f5f3ff" font-family="Impact, sans-serif" font-size="23" letter-spacing="1.2">OCTOSTORE</text>
+  </g>
+  <text x="1144" y="36" fill="#aca8c5" font-family="'MesloLGMDZ Nerd Font', monospace" font-size="13" text-anchor="end">COORDINATION FOR AGENTS</text>
+  <path d="M56 63h1088" stroke="#403d57"/>
+
+  <g font-family="'MesloLGMDZ Nerd Font', monospace">
+    <circle cx="61" cy="158" r="5" fill="#8cff1a"/>
+    <text x="76" y="163" fill="#45dcff" font-size="13">ONE SHARED LEASE · BEFORE SIDE EFFECTS</text>
+  </g>
+
+  <g font-family="Impact, sans-serif" font-size="62" letter-spacing="0.7">
+    <text x="56" y="240" fill="#f6f4ff">STOP <tspan fill="#8cff1a">TWO</tspan> AGENTS</text>
+    <text x="56" y="307" fill="#f6f4ff">FROM DOING THE</text>
+    <text x="56" y="374" fill="#f6f4ff">SAME WORK.</text>
+  </g>
+  <g fill="#c4c1d5" font-family="'MesloLGMDZ Nerd Font', monospace" font-size="14">
+    <text x="56" y="426">ONE LEADS. ONE WAITS.</text>
+    <text x="56" y="451">BOTH KNOW WHEN AUTHORITY IS GONE.</text>
+  </g>
+
+  <g transform="translate(646 146)">
+    <rect width="498" height="344" rx="16" fill="#080812" stroke="#6b6883"/>
+    <path d="M0 49h498M0 196h498" stroke="#5a576e"/>
+    <text x="18" y="30" fill="#45dcff" font-family="'MesloLGMDZ Nerd Font', monospace" font-size="12">WORK ITEM 1842</text>
+    <text x="480" y="30" fill="#45dcff" font-family="'MesloLGMDZ Nerd Font', monospace" font-size="12" text-anchor="end">TERM 43</text>
+
+    <rect y="49" width="498" height="147" fill="#102608"/>
+    <circle cx="27" cy="98" r="14" fill="#254711"/>
+    <circle cx="27" cy="98" r="7" fill="#8cff1a"/>
+    <text x="56" y="103" fill="#f5f3ff" font-family="Impact, sans-serif" font-size="31">AGENT ATLAS</text>
+    <text x="56" y="124" fill="#b9b6cb" font-family="'MesloLGMDZ Nerd Font', monospace" font-size="11">LEASE ACQUIRED · TERM 43</text>
+    <text x="480" y="102" fill="#8cff1a" font-family="'MesloLGMDZ Nerd Font', monospace" font-size="11" text-anchor="end">OWNS WORK</text>
+
+    <circle cx="27" cy="245" r="7" fill="#ff6975"/>
+    <text x="56" y="250" fill="#f5f3ff" font-family="Impact, sans-serif" font-size="31">AGENT COMET</text>
+    <text x="56" y="271" fill="#b9b6cb" font-family="'MesloLGMDZ Nerd Font', monospace" font-size="11">CURRENT OWNER OBSERVED</text>
+    <text x="480" y="249" fill="#b9b6cb" font-family="'MesloLGMDZ Nerd Font', monospace" font-size="11" text-anchor="end">WAITS</text>
+
+    <path d="M18 307h462" stroke="#28263a"/>
+    <text x="18" y="328" fill="#77738e" font-family="'MesloLGMDZ Nerd Font', monospace" font-size="10">ACQUIRE BEFORE SIDE EFFECTS · STOP ON LOSS</text>
+  </g>
+
+  <path d="M56 572h1088" stroke="#403d57"/>
+  <text x="56" y="608" fill="#8cff1a" font-family="Impact, sans-serif" font-size="19" letter-spacing="0.6">SMALL PRIMITIVE. EXPLICIT OWNERSHIP.</text>
+  <text x="1144" y="607" fill="#aca8c5" font-family="'MesloLGMDZ Nerd Font', monospace" font-size="13" text-anchor="end">OCTOSTORE.IO</text>
+</svg>

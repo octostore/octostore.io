@@ -164,7 +164,7 @@ impl TimeSeriesMetrics {
             "12h" => 43200,
             "24h" => 86400,
             "7d" => 604800,
-            _ => 3600, // Default to 1 hour
+            _ => unreachable!("metrics window is validated by the HTTP boundary"),
         };
 
         let cutoff_time = now - seconds_back;

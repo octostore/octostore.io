@@ -1,22 +1,22 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OctoStore — Free hosted and open-source coordination</title>
-  <meta name="description" content="OctoStore is an open-source coordination service for distributed processes and agents. Use the totally free hosted version with no signup, or run it yourself.">
+  <title>Stop two agents from doing the same work — OctoStore</title>
+  <meta name="description" content="Give two independent agents one shared lease before side effects. One leads, one waits, and both know when authority is lost.">
   <meta name="theme-color" content="#171224">
-  <meta property="og:title" content="Meet OctoStore — Use it free or run it yourself">
-  <meta property="og:description" content="Open-source coordination for distributed processes and agents, with a totally free hosted version and no signup.">
+  <meta property="og:title" content="Stop two agents from doing the same work — OctoStore">
+  <meta property="og:description" content="One shared lease tells one agent go and everyone else wait before side effects.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://octostore.io/">
   <meta property="og:image" content="https://octostore.io/assets/octostore-og.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="OctoStore signal board showing one process elected leader while two processes wait">
+  <meta property="og:image:alt" content="OctoStore coordination wire showing one agent leading while another waits">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Meet OctoStore — Use it free or run it yourself">
-  <meta name="twitter:description" content="Open-source coordination with a totally free hosted version. No signup.">
+  <meta name="twitter:title" content="Stop two agents from doing the same work — OctoStore">
+  <meta name="twitter:description" content="A small coordination primitive for agents that run anywhere.">
   <meta name="twitter:image" content="https://octostore.io/assets/octostore-og.png">
   <link rel="canonical" href="https://octostore.io/">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -29,14 +29,14 @@
       "name": "OctoStore",
       "applicationCategory": "DeveloperApplication",
       "operatingSystem": "Linux, macOS",
-      "description": "Simple leader election and coordination over HTTP, available as a hosted API or a self-hosted Rust binary.",
+      "description": "Agent coordination and leader election through short-lived leases over HTTP.",
       "url": "https://octostore.io/",
       "codeRepository": "https://github.com/octostore/octostore.io",
       "license": "https://opensource.org/license/mit"
     }
   </script>
 </head>
-<body>
+<body class="agent-first-home">
   <a class="skip-link" href="#main">Skip to content</a>
 
   <div class="wrap">
@@ -46,243 +46,255 @@
         OctoStore
       </a>
       <div class="nav-links">
-        <a href="/leader-election/">Leader election</a>
-        <a href="/agents/">Agents</a>
-        <a href="/coordination/">Coordination</a>
+        <a href="/agents/">For agents</a>
+        <a href="#choose">Election or lock</a>
         <a href="/docs/">Docs</a>
         <a href="https://github.com/octostore/octostore.io">GitHub</a>
-        <a class="nav-cta" href="#live-race">Use it free</a>
+        <a class="nav-cta" href="https://github.com/octostore/octostore.io/releases/download/v0.14.0/octostore-agent-skill.md">Get the v0.14 skill</a>
       </div>
     </nav>
   </div>
 
   <main id="main">
-    <section class="hero product-hero wrap">
-      <div>
-        <div class="signal-label">Open coordination service</div>
-        <h1><span class="signal-word">Meet</span> OctoStore.</h1>
-        <p class="hero-copy">OctoStore helps distributed processes and agents agree on who gets to move. Use the totally free hosted version with no signup, or run the open-source server on your own infrastructure.</p>
+    <section class="agent-hero-shell wrap">
+      <div class="agent-hero-copy">
+        <div class="signal-label">Coordination for agents that run anywhere</div>
+        <h1>Stop two agents from doing the <span>same work.</span></h1>
+        <p class="agent-promise">One shared lease tells one agent “go” and everyone else “wait” before side effects.</p>
+        <p class="agent-boundary"><strong>The honest boundary:</strong> OctoStore does not run agents or undo writes. Your agent host must stop or fence work when the lease is lost.</p>
         <div class="button-row">
-          <a class="button primary" href="#live-race">Use OctoStore free</a>
-          <a class="button" href="https://github.com/octostore/octostore.io">View the open-source project</a>
+          <button class="button primary" type="button" data-run-election aria-controls="live-coordination-wire">Create one shared room</button>
+          <a class="button" href="https://github.com/octostore/octostore.io/releases/download/v0.14.0/octostore-agent-skill.md">Give the v0.14 skill to your agent</a>
         </div>
-        <p class="hero-note">Same HTTP API · hosted or self-hosted · MIT licensed</p>
+        <p class="hero-note">Hosted election: no login · Task locks: authenticated, hosted or self-hosted · MIT licensed</p>
       </div>
 
-      <div class="hero-visual">
-        <img class="hero-logo" src="/assets/octostore-logo.svg" alt="OctoStore: a hand-painted octopus lifts one leader from colorful work">
-        <div class="signal-tower" aria-label="OctoStore is available as a free hosted service or an open-source self-hosted server">
-          <div class="tower-head"><span>OCTOSTORE</span><span>TWO WAYS TO RUN</span></div>
-          <div class="lamp-stack">
-            <div class="lamp-row">
-              <span class="lamp go" aria-hidden="true"></span>
-              <span class="lamp-copy"><strong>Hosted</strong><span>FREE PUBLIC SERVICE</span></span>
-              <span class="term">NO LOGIN</span>
+      <div class="coordination-stage" id="live-coordination-wire" data-election-demo data-api-base="https://api.octostore.io">
+        <img class="stage-octopus" src="/assets/octostore-logo.svg" alt="" aria-hidden="true">
+        <div class="wire-board">
+          <div class="wire-head">
+            <span><i aria-hidden="true"></i> LIVE COORDINATION WIRE</span>
+            <span>HOSTED · NO LOGIN</span>
+          </div>
+          <div class="wire-role">
+            <span>MERGE COORDINATOR</span>
+            <span class="wire-room" data-election-room>room not created</span>
+          </div>
+          <div class="wire-candidates" role="group" aria-label="Two agents coordinating the merge coordinator role">
+            <div class="wire-candidate" data-candidate="agent-atlas" data-state="ready">
+              <span class="wire-node" aria-hidden="true"></span>
+              <span><strong>agent-atlas</strong><small>repo subtree / api</small></span>
+              <span class="wire-state" data-candidate-state>READY</span>
             </div>
-            <div class="lamp-row">
-              <span class="lamp open" aria-hidden="true"></span>
-              <span class="lamp-copy"><strong>Open source</strong><span>RUN IT YOURSELF</span></span>
-              <span class="term">MIT</span>
-            </div>
-            <div class="lamp-row">
-              <span class="lamp shared" aria-hidden="true"></span>
-              <span class="lamp-copy"><strong>Same API</strong><span>HTTP + JSON</span></span>
-              <span class="term">ANY STACK</span>
+            <div class="wire-candidate" data-candidate="agent-comet" data-state="ready">
+              <span class="wire-node" aria-hidden="true"></span>
+              <span><strong>agent-comet</strong><small>repo subtree / site</small></span>
+              <span class="wire-state" data-candidate-state>READY</span>
             </div>
           </div>
-          <div class="tower-foot"><span>USE OURS</span><span>OR OWN YOURS</span></div>
+          <div class="wire-action">
+            <button class="button primary wire-run" type="button" data-run-election>Create one shared room</button>
+            <p role="status" aria-live="polite" aria-atomic="true" data-race-status>Creates one real hosted room, then gives both agents the same room ID.</p>
+          </div>
+          <div class="agent-handoff" data-agent-handoff hidden>
+            <p class="handoff-heading">Give both agents the same room</p>
+            <div class="instruction-grid">
+              <div>
+                <label for="agent-atlas-instruction">Agent Atlas instruction</label>
+                <textarea id="agent-atlas-instruction" data-agent-instruction data-candidate-id="agent-atlas" readonly rows="5"></textarea>
+                <button class="copy-button" type="button" data-copy-target="#agent-atlas-instruction">Copy for agent Atlas</button>
+              </div>
+              <div>
+                <label for="agent-comet-instruction">Agent Comet instruction</label>
+                <textarea id="agent-comet-instruction" data-agent-instruction data-candidate-id="agent-comet" readonly rows="5"></textarea>
+                <button class="copy-button" type="button" data-copy-target="#agent-comet-instruction">Copy for agent Comet</button>
+              </div>
+            </div>
+          </div>
+          <div class="wire-foot">
+            <span>REAL ROOM + LIVE STATE</span>
+            <span>WORK RUNS IN YOUR AGENT HOST</span>
+          </div>
         </div>
       </div>
     </section>
 
-    <section class="section wrap" id="live-race">
-      <div class="section-intro">
-        <h2>Three processes. One answer.</h2>
-        <p>See the free hosted service make a real decision. OctoStore creates an anonymous room, races three workers, and returns one leader plus two followers that agree on who won.</p>
-      </div>
-
-      <div class="race-board" data-election-demo data-api-base="https://api.octostore.io">
-        <div class="race-toolbar">
-          <span class="race-room" data-election-room>no room yet</span>
-          <button class="button primary small" type="button" data-run-election>Run the election</button>
-        </div>
-        <div class="candidate-list">
-          <div class="candidate" data-candidate="worker-sea" data-route="sea">
-            <span class="candidate-light" aria-hidden="true"></span>
-            <span class="candidate-name">Worker SEA</span>
-            <span class="candidate-route">Seattle / cleanup-job</span>
-            <span class="candidate-state" data-candidate-state>Ready</span>
-          </div>
-          <div class="candidate" data-candidate="worker-iad" data-route="iad">
-            <span class="candidate-light" aria-hidden="true"></span>
-            <span class="candidate-name">Worker IAD</span>
-            <span class="candidate-route">Virginia / cleanup-job</span>
-            <span class="candidate-state" data-candidate-state>Ready</span>
-          </div>
-          <div class="candidate" data-candidate="worker-fra" data-route="fra">
-            <span class="candidate-light" aria-hidden="true"></span>
-            <span class="candidate-name">Worker FRA</span>
-            <span class="candidate-route">Frankfurt / cleanup-job</span>
-            <span class="candidate-state" data-candidate-state>Ready</span>
-          </div>
-        </div>
-        <p class="race-status" role="status" aria-live="polite" aria-atomic="true" data-race-status>Click “Run the election.” No credentials will be sent or created.</p>
-      </div>
-    </section>
-
-    <div class="proof-strip">
-      <div class="proof-list wrap" aria-label="Product facts">
-        <span>Any process that speaks HTTP</span>
-        <span>No shared database to wire up</span>
-        <span>Monotonic fencing terms</span>
-        <span>One binary to self-host</span>
+    <div class="agent-proof-strip">
+      <div class="wrap">
+        <span><strong>One room</strong> shared outside the agents</span>
+        <span><strong>One leader</strong> with a short lease</span>
+        <span><strong>One rule</strong> stop when authority is uncertain</span>
       </div>
     </div>
 
-    <section class="section wrap" id="two-calls">
-      <div class="split">
-        <div>
-          <h2>Two calls. One leader.</h2>
-          <p class="lede">Create an opaque room, share its ID with your processes, and let each candidate campaign. The winner receives the capability to renew or resign. Everyone else receives the winner and a retry delay.</p>
-          <div class="fact-line">
-            <span class="fact">no login</span>
-            <span class="fact">no API key</span>
-            <span class="fact">no SDK</span>
-          </div>
-          <p class="section-link"><a href="/leader-election/">Follow the 60-second leader-election guide →</a></p>
-        </div>
-
-        <div class="code-window">
+    <section class="agent-section wrap" id="install-skill">
+      <div class="section-kicker">Start here</div>
+      <div class="agent-section-head">
+        <h2>Give your agent one thing to read.</h2>
+        <p>The skill contains the primitive choice, shared-room rule, hold loop, machine events, exit codes, and stop-on-loss boundary. It is the onboarding surface; the API reference is the depth.</p>
+      </div>
+      <div class="skill-install-grid">
+        <div class="skill-command">
           <div class="code-head">
-            <span>shell · works from any runtime</span>
-            <button class="copy-button" type="button" data-copy-target="#election-code">Copy</button>
+            <span>Agent skill · installs as octostore</span>
+            <button class="copy-button" type="button" data-copy-target="#skill-install-command">Copy</button>
           </div>
-          <pre id="election-code"><code><span class="code-comment"># 1. Open a room.</span>
-ROOM=$(curl -s -X POST \
-  https://api.octostore.io/elections \
-  | jq -r .election_id)
-
-<span class="code-comment"># 2. Every process campaigns in that room.</span>
-curl -s -X POST \
-  "https://api.octostore.io/elections/$ROOM/campaign" \
-  -H "Content-Type: application/json" \
-  -d '{"candidate_id":"worker-a","ttl_seconds":30}'
-
-<span class="code-comment"># winner → leader_token + term + renew_after_ms</span>
-<span class="code-comment"># others → current leader + retry_after_ms</span></code></pre>
+          <pre id="skill-install-command" tabindex="0"><code>git clone --branch v0.14.0 --depth 1 https://github.com/octostore/octostore.io
+cd octostore.io
+npm ci --ignore-scripts --no-audit --no-fund
+./node_modules/.bin/skills add \
+  https://github.com/octostore/octostore.io/tree/v0.14.0 \
+  --skill octostore --agent codex -y</code></pre>
+          <p>Or hand your agent the immutable v0.14.0 release artifact:</p>
+          <a class="raw-skill-link" href="https://github.com/octostore/octostore.io/releases/download/v0.14.0/octostore-agent-skill.md"><span>READ</span><span class="raw-skill-url">octostore-agent-skill.md · v0.14.0</span><b aria-hidden="true">↗</b></a>
+        </div>
+        <div class="skill-contract">
+          <span class="contract-version">SKILL 0.14.0</span>
+          <h3>Small enough to read. Strict enough to supervise.</h3>
+          <ul>
+            <li>Election or lock in the first screenful</li>
+            <li>Acquire before any protected side effect</li>
+            <li>Stop on lost, uncertain, or malformed state</li>
+            <li>No tokens or lease capabilities in output</li>
+          </ul>
         </div>
       </div>
     </section>
 
-    <section class="section edge-section wrap">
-      <div class="section-intro">
-        <h2>The easy version breaks at the worst time.</h2>
-        <p>A database flag can choose a leader. It does not tell you what happens when two processes start together, the winner disappears, or an old leader wakes up and keeps writing.</p>
-      </div>
-
-      <div class="edge-list">
-        <div class="edge-row">
-          <strong>Two processes start together</strong>
-          <span>One lease is committed. Every caller sees the same leader.</span>
-        </div>
-        <div class="edge-row">
-          <strong>The leader crashes</strong>
-          <span>Renewal stops. The short lease expires and another candidate can win.</span>
-        </div>
-        <div class="edge-row">
-          <strong>The old leader wakes up</strong>
-          <span>A higher fencing term lets downstream systems reject stale authority.</span>
-        </div>
-        <div class="edge-row">
-          <strong>Your workers use different stacks</strong>
-          <span>They coordinate through JSON and HTTP instead of a language-specific client.</span>
-        </div>
-        <div class="edge-row">
-          <strong>You do not want another cluster</strong>
-          <span>Use the hosted API now, or run one Rust binary with one SQLite file.</span>
-        </div>
-      </div>
-    </section>
-
-    <section class="section use-section">
+    <section class="agent-section primitive-section" id="choose">
       <div class="wrap">
-        <div class="section-intro">
-          <h2>Use it anywhere one thing should run.</h2>
-          <p>Leader election is not an agent feature. It is a small answer to a common systems question: which process gets the turn?</p>
+        <div class="section-kicker">Only two nouns</div>
+        <div class="agent-section-head">
+          <h2>Settle exactly one argument.</h2>
+          <p>OctoStore is a coordination referee, not an agent manager. Choose the smallest primitive that matches the ownership question.</p>
         </div>
-        <div class="use-tape" aria-label="Leader election use cases">
-          <span>scheduled jobs</span>
-          <span>cleanup workers</span>
-          <span>singleton schedulers</span>
-          <span>reconcilers</span>
-          <span>migration runners</span>
-          <span>agent dispatchers</span>
+        <div class="primitive-rails">
+          <article class="primitive-rail election-rail">
+            <div class="primitive-index">01 / ELECTION</div>
+            <h3>Who coordinates this group right now?</h3>
+            <p>Use one shared election for a merge coordinator, scheduler, dispatcher, migration runner, or controller.</p>
+            <dl>
+              <div><dt>Hosted</dt><dd>No login or API key</dd></div>
+              <div><dt>Output</dt><dd>Leader, term, expiry</dd></div>
+              <div><dt>Failure</dt><dd>Lease expires; another may lead</dd></div>
+            </dl>
+            <a href="/leader-election/">Understand leader election <span aria-hidden="true">→</span></a>
+          </article>
+          <article class="primitive-rail lock-rail">
+            <div class="primitive-index">02 / LOCK</div>
+            <h3>Who owns this exact item right now?</h3>
+            <p>Use one stable lock key for an issue, deploy, migration, customer task, or other exact unit of work.</p>
+            <dl>
+              <div><dt>Boundary</dt><dd>Authenticated · hosted or self-hosted</dd></div>
+              <div><dt>Output</dt><dd>Owner, fencing term, expiry</dd></div>
+              <div><dt>Failure</dt><dd>Lock expires; another may acquire</dd></div>
+            </dl>
+            <a href="/coordination/">Understand task locks <span aria-hidden="true">→</span></a>
+          </article>
         </div>
-        <p class="use-note">Bash, Python, Go, Rust, JavaScript, a serverless function, or a thirty-year-old service. If it can send HTTP, it can campaign.</p>
       </div>
     </section>
 
-    <section class="section wrap">
-      <div class="section-intro">
-        <h2>Start with election. Add coordination only when you need it.</h2>
-        <p>The public API stays intentionally small. The self-hosted service adds durable task ownership and fleet coordination without taking over execution.</p>
+    <section class="agent-section wrap">
+      <div class="section-kicker">The operating loop</div>
+      <div class="agent-section-head compact-head">
+        <h2>The lease lives beside the work.</h2>
+        <p>The CLI owns heartbeat and lifecycle state. Your supervisor owns the worker.</p>
       </div>
-
-      <div class="path-list">
-        <a class="path-link" href="/agents/">
-          <span class="path-name">Agents</span>
-          <span><strong>Stop two agents from doing the same work.</strong><small>Leader election, task claims, sessions, and fencing for fleets.</small></span>
-          <span aria-hidden="true">→</span>
-        </a>
-        <a class="path-link" href="/coordination/">
-          <span class="path-name">Coordination</span>
-          <span><strong>Give every task one temporary owner.</strong><small>Named HTTP locks, expiry, renewal, release, watches, and webhooks.</small></span>
-          <span aria-hidden="true">→</span>
-        </a>
-        <a class="path-link" href="/docs/#self-host">
-          <span class="path-name">Self-host</span>
-          <span><strong>Move the referee inside your network.</strong><small>One binary, one SQLite database, static tokens, optional OAuth.</small></span>
-          <span aria-hidden="true">→</span>
-        </a>
+      <div class="lease-sequence" role="group" aria-label="Supervised lease lifecycle">
+        <div><span>1</span><strong>Start hold</strong><small>Before the worker</small></div>
+        <i aria-hidden="true"></i>
+        <div><span>2</span><strong>See leader</strong><small>Open the work gate</small></div>
+        <i aria-hidden="true"></i>
+        <div><span>3</span><strong>Renew</strong><small>While work is healthy</small></div>
+        <i aria-hidden="true"></i>
+        <div><span>4</span><strong>Stop on loss</strong><small>Cancel or fence work</small></div>
       </div>
-    </section>
-
-    <section class="section wrap" id="self-host">
-      <div class="split self-host-split">
-        <div>
-          <h2>Use ours now. Own yours when you need to.</h2>
-          <p class="lede">The hosted election API is the fastest path to one leader. Self-host the same API when the room, traffic, or coordination state must stay inside your boundary.</p>
-          <div class="button-row">
-            <a class="button primary" href="/docs/#self-host">Self-host in 60 seconds</a>
-            <a class="button" href="https://github.com/octostore/octostore.io/releases/latest">Download a release</a>
-          </div>
-        </div>
+      <div class="cli-proof">
         <div class="code-window">
-          <div class="code-head">
-            <span>shell · local referee</span>
-            <button class="copy-button" type="button" data-copy-target="#self-host-code">Copy</button>
-          </div>
-          <pre id="self-host-code"><code>curl -fsSL \
-  https://raw.githubusercontent.com/octostore/octostore.io/main/install.sh \
-  | sh
+          <div class="code-head"><span>agent host · supervised machine lifecycle</span><button class="copy-button" type="button" data-copy-target="#agent-hold-code">Copy</button></div>
+          <pre id="agent-hold-code" tabindex="0"><code>octostore-supervisor election "$OCTOSTORE_ELECTION" \
+  "$AGENT_ID" "$AGENT_WORKER" -- \
+  octostore election hold "$OCTOSTORE_ELECTION" \
+    --candidate "$AGENT_ID" --ttl 30 \
+    --acquire-timeout 60 --json</code></pre>
+        </div>
+        <div class="event-tape" role="group" aria-label="Example lifecycle events">
+          <p><span class="event-dot wait"></span><code>waiting</code><small>another agent leads</small></p>
+          <p><span class="event-dot go"></span><code>leader</code><small>term 42 · work may start</small></p>
+          <p><span class="event-dot renew"></span><code>renewed</code><small>authority confirmed</small></p>
+          <p><span class="event-dot stop"></span><code>uncertain</code><small>stop side effects · exit 20</small></p>
+        </div>
+      </div>
+      <p class="supervisor-note"><strong>Why a supervisor is required:</strong> a background heartbeat cannot stop an unrelated process. The installed reference supervisor gates worker start, validates authority age, contains its cooperative process groups, and only then publishes terminal release, loss, uncertainty, or error.</p>
+      <a class="text-link" href="https://github.com/octostore/octostore.io/blob/v0.14.0/scripts/reference-supervisor.sh">Read the v0.14.0 reference supervisor →</a>
+    </section>
 
-STATIC_TOKENS='ops:change-me' \
-DATABASE_URL='./octostore.db' \
-octostore
-
-<span class="code-comment"># listening on :3000</span>
-<span class="code-comment"># state persisted in SQLite WAL</span></code></pre>
+    <section class="agent-section boundary-section">
+      <div class="wrap boundary-grid">
+        <div>
+          <div class="section-kicker">What happens when an agent dies?</div>
+          <h2>Silence has an expiry.</h2>
+          <p>Heartbeats stop. The short lease expires. A waiting process can receive a higher term and decide whether to continue.</p>
+          <p>The term is the stale-writer defense: pass it downstream where the destination can reject an older generation.</p>
+        </div>
+        <div class="term-ladder" role="group" aria-label="Lease failure and replacement timeline">
+          <div><span>00:00</span><strong>agent-atlas leads</strong><small>term 42 · renewing</small></div>
+          <div><span>00:16</span><strong>network becomes uncertain</strong><small>worker is canceled or fenced</small></div>
+          <div><span>00:30</span><strong>lease expires</strong><small>term 42 is no longer current</small></div>
+          <div><span>00:31</span><strong>agent-comet may lead</strong><small>term 43 · reconcile before acting</small></div>
         </div>
       </div>
     </section>
 
-    <section class="closing">
+    <section class="agent-section wrap">
+      <div class="section-kicker">Keep the boundary small</div>
+      <div class="scope-split">
+        <div>
+          <h2>OctoStore coordinates authority.</h2>
+          <ul class="scope-list yes-list">
+            <li>One current coordinator</li>
+            <li>One temporary task owner</li>
+            <li>Short leases and renewal guidance</li>
+            <li>Monotonic terms and observable loss</li>
+          </ul>
+        </div>
+        <div>
+          <h2>Your agent system does the work.</h2>
+          <ul class="scope-list no-list">
+            <li>Task discovery and delegation</li>
+            <li>Prompts, tools, branches, and queues</li>
+            <li>Human approval and policy</li>
+            <li>Idempotency and downstream fencing</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="agent-section deeper-section">
       <div class="wrap">
-        <h2>Build the job. Stop rebuilding the election.</h2>
-        <p>Give every candidate the same room. Let one move. Let everyone else wait.</p>
+        <div class="section-kicker">Go deeper when you need to</div>
+        <div class="agent-section-head">
+          <h2>The API is still the source of truth.</h2>
+          <p>The CLI is a thin lease loop over the existing HTTP contract. Curl, OpenAPI, sessions, watches, webhooks, ACLs, and operator controls remain available after the first result.</p>
+        </div>
+        <div class="depth-links">
+          <a href="/agents/"><span>Agent guide</span><strong>Install, hold, supervise</strong><b aria-hidden="true">↗</b></a>
+          <a href="/docs/"><span>Human docs</span><strong>Exact behavior and examples</strong><b aria-hidden="true">↗</b></a>
+          <a href="https://api.octostore.io/docs"><span>OpenAPI</span><strong>Every HTTP route and schema</strong><b aria-hidden="true">↗</b></a>
+          <a href="https://github.com/octostore/octostore.io"><span>Open source</span><strong>Rust + SQLite · MIT</strong><b aria-hidden="true">↗</b></a>
+        </div>
+      </div>
+    </section>
+
+    <section class="agent-closing wrap">
+      <img src="/assets/octostore-logo.svg" alt="OctoStore octopus holding one leader above shared work">
+      <div>
+        <div class="section-kicker">One referee. Independent agents.</div>
+        <h2>Let the agents run. Settle who gets to move.</h2>
         <div class="button-row">
-          <a class="button primary" href="#live-race">Run a live election</a>
-          <a class="button" href="https://github.com/octostore/octostore.io">View OctoStore on GitHub</a>
+        <a class="button primary" href="https://github.com/octostore/octostore.io/releases/download/v0.14.0/octostore-agent-skill.md">Give your agent the v0.14 skill</a>
+          <a class="button" href="/agents/">Follow the agent quickstart</a>
         </div>
       </div>
     </section>
@@ -291,11 +303,10 @@ octostore
   <footer class="site-footer wrap">
     <span>© <span data-current-year>2026</span> OctoStore · MIT licensed</span>
     <span class="footer-links">
+          <a href="https://github.com/octostore/octostore.io/releases/download/v0.14.0/octostore-agent-skill.md">v0.14 agent skill</a>
       <a href="/leader-election/">Leader election</a>
-      <a href="/agents/">Agents</a>
-      <a href="/coordination/">Coordination</a>
+      <a href="/coordination/">Task locks</a>
       <a href="/docs/">Docs</a>
-      <a href="/blog/">Field notes</a>
       <a href="/status.html">Status</a>
       <a href="https://github.com/octostore/octostore.io">GitHub</a>
     </span>

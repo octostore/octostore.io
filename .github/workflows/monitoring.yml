@@ -33,36 +33,11 @@ jobs:
       usage_summary: ${{ steps.usage.outputs.summary }}
     steps:
       - name: Checkout metrics branch
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ env.METRICS_BRANCH }}
           path: metrics
           fetch-depth: 0
-
-      - name: Probe helper
-        shell: bash
-        run: |
-          cat > /tmp/probe.sh <<'EOF'
-          #!/usr/bin/env bash
-          set -euo pipefail
-          url="$1"
-          body_file="$2"
-          attempts="${3:-3}"
-          for i in $(seq 1 "$attempts"); do
-            timing=$(curl --silent --show-error --max-time 15 \
-              --output "$body_file" \
-              --write-out '%{http_code} %{time_total}' \
-              "$url" || echo "000 0")
-            code=$(awk '{print $1}' <<<"$timing")
-            if [[ "$code" =~ ^2|3|4 ]]; then
-              printf '%s\n' "$timing"
-              exit 0
-            fi
-            sleep 2
-          done
-          printf '%s\n' "$timing"
-          EOF
-          chmod +x /tmp/probe.sh
 
       - name: Check /health (with timing)
         id: health
@@ -70,16 +45,24 @@ jobs:
         run: |
           set -euo pipefail
           BODY_FILE=$(mktemp)
-          TIMING=$(/tmp/probe.sh "$API_BASE/health" "$BODY_FILE" 3)
+          trap 'rm -f "$BODY_FILE"' EXIT
+          TIMING=$(curl --silent --show-error --retry 2 --retry-all-errors --retry-delay 2 \
+            --max-time 15 --output "$BODY_FILE" --write-out '%{http_code} %{time_total}' \
+            "$API_BASE/health" || printf '000 0')
           CODE=$(awk '{print $1}' <<<"$TIMING")
           TIME_S=$(awk '{print $2}' <<<"$TIMING")
-          BODY=$(tr -d '\r\n' < "$BODY_FILE")
-          STATUS=$(jq -r '.status // empty' "$BODY_FILE" 2>/dev/null || true)
+          [[ "$CODE" =~ ^[0-9]{3}$ ]] || CODE=000
           MS=$(awk "BEGIN{printf \"%d\", $TIME_S * 1000}")
-          echo "code=$CODE"      >> "$GITHUB_OUTPUT"
-          echo "body=$BODY"      >> "$GITHUB_OUTPUT"
-          echo "status=$STATUS"  >> "$GITHUB_OUTPUT"
-          echo "response_ms=$MS" >> "$GITHUB_OUTPUT"
+          HEALTH_OK=0
+          if jq -e '.status == "ok"' "$BODY_FILE" >/dev/null 2>&1 \
+            || grep -Fxq OK "$BODY_FILE"; then
+            HEALTH_OK=1
+          fi
+          {
+            echo "code=$CODE"
+            echo "ok=$HEALTH_OK"
+            echo "response_ms=$MS"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Check unauthenticated /locks returns 401
         id: locks
@@ -87,8 +70,12 @@ jobs:
         run: |
           set -euo pipefail
           BODY_FILE=$(mktemp)
-          TIMING=$(/tmp/probe.sh "$API_BASE/locks" "$BODY_FILE" 3)
+          trap 'rm -f "$BODY_FILE"' EXIT
+          TIMING=$(curl --silent --show-error --retry 2 --retry-all-errors --retry-delay 2 \
+            --max-time 15 --output "$BODY_FILE" --write-out '%{http_code} %{time_total}' \
+            "$API_BASE/locks" || printf '000 0')
           CODE=$(awk '{print $1}' <<<"$TIMING")
+          [[ "$CODE" =~ ^[0-9]{3}$ ]] || CODE=000
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
 
       - name: Check OpenAPI version
@@ -98,6 +85,7 @@ jobs:
           set -euo pipefail
           OPENAPI=$(curl --fail --silent --show-error --max-time 15 "$API_BASE/openapi.yaml" || true)
           VERSION=$(printf '%s\n' "$OPENAPI" | awk '/^  version:/ {print $2; exit}')
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || VERSION=none
           echo "value=${VERSION:-none}" >> "$GITHUB_OUTPUT"
 
       - name: Check website root
@@ -106,12 +94,18 @@ jobs:
         run: |
           set -euo pipefail
           BODY_FILE=$(mktemp)
-          TIMING=$(/tmp/probe.sh "$SITE_BASE/" "$BODY_FILE" 3)
+          trap 'rm -f "$BODY_FILE"' EXIT
+          TIMING=$(curl --silent --show-error --retry 2 --retry-all-errors --retry-delay 2 \
+            --max-time 15 --output "$BODY_FILE" --write-out '%{http_code} %{time_total}' \
+            "$SITE_BASE/" || printf '000 0')
           CODE=$(awk '{print $1}' <<<"$TIMING")
+          [[ "$CODE" =~ ^[0-9]{3}$ ]] || CODE=000
           HAS_TITLE=0
           grep -qi 'OctoStore' "$BODY_FILE" && HAS_TITLE=1
-          echo "code=$CODE" >> "$GITHUB_OUTPUT"
-          echo "has_title=$HAS_TITLE" >> "$GITHUB_OUTPUT"
+          {
+            echo "code=$CODE"
+            echo "has_title=$HAS_TITLE"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Check usage endpoint (optional)
         id: usage
@@ -122,8 +116,10 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "${USAGE_ENDPOINT:-}" ]]; then
-            echo "enabled=false"   >> "$GITHUB_OUTPUT"
-            echo "summary=skipped" >> "$GITHUB_OUTPUT"
+            {
+              echo "enabled=false"
+              echo "summary=skipped"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -138,77 +134,212 @@ jobs:
             "$USAGE_ENDPOINT" || echo "000")
 
           if [[ "$CODE" != "200" ]]; then
-            echo "enabled=true"              >> "$GITHUB_OUTPUT"
-            echo "summary=http=$CODE (fail)" >> "$GITHUB_OUTPUT"
+            {
+              echo "enabled=true"
+              echo "summary=http=$CODE (fail)"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           Q=$(jq -r '.queries_24h // .usage.queries_24h // .queries24h // "?"' "$BODY_FILE" 2>/dev/null || echo "?")
           V=$(jq -r '.site_visits_24h // .visits_24h // .analytics.site_visits_24h // "?"' "$BODY_FILE" 2>/dev/null || echo "?")
-          echo "enabled=true"                          >> "$GITHUB_OUTPUT"
-          echo "queries_24h=$Q"                        >> "$GITHUB_OUTPUT"
-          echo "visits_24h=$V"                         >> "$GITHUB_OUTPUT"
-          echo "summary=queries_24h=$Q site_visits=$V" >> "$GITHUB_OUTPUT"
+          [[ "$Q" =~ ^[0-9]+$ ]] || Q='?'
+          [[ "$V" =~ ^[0-9]+$ ]] || V='?'
+          {
+            echo "enabled=true"
+            echo "queries_24h=$Q"
+            echo "visits_24h=$V"
+            echo "summary=queries_24h=$Q site_visits=$V"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Evaluate probe
         id: eval
         shell: bash
+        env:
+          HEALTH_CODE: ${{ steps.health.outputs.code }}
+          HEALTH_OK: ${{ steps.health.outputs.ok }}
+          HEALTH_MS: ${{ steps.health.outputs.response_ms }}
+          LOCKS_CODE: ${{ steps.locks.outputs.code }}
+          API_VERSION: ${{ steps.version.outputs.value }}
+          SITE_CODE: ${{ steps.site.outputs.code }}
+          SITE_TITLE: ${{ steps.site.outputs.has_title }}
+          USAGE_SUMMARY: ${{ steps.usage.outputs.summary || 'n/a' }}
         run: |
           status="ok"
-          [[ "${{ steps.health.outputs.code }}" != "200" ]] && status="fail"
-          if [[ "${{ steps.health.outputs.body }}" != "OK" && "${{ steps.health.outputs.status }}" != "ok" ]]; then
-            status="fail"
-          fi
-          [[ "${{ steps.locks.outputs.code }}"  != "401" ]] && status="fail"
-          [[ "${{ steps.version.outputs.value }}" == "none" ]] && status="fail"
-          [[ "${{ steps.site.outputs.code }}" != "200" ]] && status="fail"
-          [[ "${{ steps.site.outputs.has_title }}" != "1" ]] && status="fail"
+          [[ "$HEALTH_CODE" != "200" || "$HEALTH_OK" != "1" ]] && status="fail"
+          [[ "$LOCKS_CODE" != "401" ]] && status="fail"
+          [[ "$API_VERSION" == "none" ]] && status="fail"
+          [[ "$SITE_CODE" != "200" ]] && status="fail"
+          [[ "$SITE_TITLE" != "1" ]] && status="fail"
 
-          SUMMARY="health=${{ steps.health.outputs.code }}/${{ steps.health.outputs.body }} latency=${{ steps.health.outputs.response_ms }}ms locks=${{ steps.locks.outputs.code }} version=${{ steps.version.outputs.value }} site=${{ steps.site.outputs.code }} usage=${{ steps.usage.outputs.summary || 'n/a' }}"
+          SUMMARY="health=$HEALTH_CODE/$HEALTH_OK latency=${HEALTH_MS}ms locks=$LOCKS_CODE version=$API_VERSION site=$SITE_CODE usage=$USAGE_SUMMARY"
 
-          echo "status=$status"   >> "$GITHUB_OUTPUT"
-          echo "summary=$SUMMARY" >> "$GITHUB_OUTPUT"
+          {
+            echo "status=$status"
+            echo "summary=$SUMMARY"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Append metric record to monitoring branch
         shell: bash
+        env:
+          PROBE_STATUS: ${{ steps.eval.outputs.status }}
+          HEALTH_CODE: ${{ steps.health.outputs.code || 0 }}
+          HEALTH_MS: ${{ steps.health.outputs.response_ms || 0 }}
+          LOCKS_CODE: ${{ steps.locks.outputs.code || 0 }}
+          SITE_CODE: ${{ steps.site.outputs.code || 0 }}
+          API_VERSION: ${{ steps.version.outputs.value || 'none' }}
+          USAGE_SUMMARY: ${{ steps.usage.outputs.summary || 'n/a' }}
         run: |
+          set -euo pipefail
           TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           RECORD=$(jq -cn \
             --arg ts      "$TS" \
-            --argjson ok  "$([[ '${{ steps.eval.outputs.status }}' == 'ok' ]] && echo 1 || echo 0)" \
-            --argjson code "${{ steps.health.outputs.code || 0 }}" \
-            --argjson ms   "${{ steps.health.outputs.response_ms || 0 }}" \
-            --argjson locks "${{ steps.locks.outputs.code || 0 }}" \
-            --argjson site "${{ steps.site.outputs.code || 0 }}" \
-            --arg version "${{ steps.version.outputs.value || 'none' }}" \
-            --arg usage   "${{ steps.usage.outputs.summary || 'n/a' }}" \
+            --argjson ok  "$([[ "$PROBE_STATUS" == ok ]] && echo 1 || echo 0)" \
+            --argjson code "$HEALTH_CODE" --argjson ms "$HEALTH_MS" \
+            --argjson locks "$LOCKS_CODE" --argjson site "$SITE_CODE" \
+            --arg version "$API_VERSION" --arg usage "$USAGE_SUMMARY" \
             '{ts:$ts, ok:$ok, health_code:$code, response_ms:$ms, locks_code:$locks, site_code:$site, version:$version, usage:$usage}')
 
-          mkdir -p metrics/data
-          echo "$RECORD" >> metrics/${{ env.METRICS_FILE }}
+          METRICS_ROOT="$GITHUB_WORKSPACE/metrics"
+          if [[ ! -d "$METRICS_ROOT" || -L "$METRICS_ROOT" ]]; then
+            echo "ERROR: metrics checkout must be a real directory, not a symlink." >&2
+            exit 1
+          fi
+          METRICS_ROOT=$(cd "$METRICS_ROOT" && pwd -P)
+          case "$METRICS_FILE" in
+            /*|../*|*/../*|*/..|..|*//*|*/.|.)
+              echo "ERROR: unsafe metrics path: $METRICS_FILE" >&2
+              exit 1
+              ;;
+          esac
+          if [[ ! "$METRICS_FILE" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+            echo "ERROR: metrics path contains unsupported characters: $METRICS_FILE" >&2
+            exit 1
+          fi
 
-          cd metrics
+          METRICS_PARENT=${METRICS_FILE%/*}
+          METRICS_NAME=${METRICS_FILE##*/}
+          if [[ "$METRICS_PARENT" == "$METRICS_FILE" ]]; then
+            METRICS_PARENT=.
+          fi
+          verify_metrics_location() {
+            local current="$METRICS_ROOT"
+            local resolved
+            local part
+            if [[ "$METRICS_PARENT" != . ]]; then
+              IFS='/' read -r -a METRICS_PARTS <<<"$METRICS_PARENT"
+              for part in "${METRICS_PARTS[@]}"; do
+                current="$current/$part"
+                if [[ ! -d "$current" || -L "$current" ]]; then
+                  echo "ERROR: metrics parent must be a real directory: $current" >&2
+                  return 1
+                fi
+              done
+            fi
+            resolved=$(cd "$current" && pwd -P)
+            case "$resolved/" in
+              "$METRICS_ROOT"/|"$METRICS_ROOT"/*/) ;;
+              *)
+                echo "ERROR: metrics path resolves outside the checkout: $resolved" >&2
+                return 1
+                ;;
+            esac
+            if [[ -L "$resolved/$METRICS_NAME" ]]; then
+              echo "ERROR: metrics target must not be a symlink: $resolved/$METRICS_NAME" >&2
+              return 1
+            fi
+            if [[ -e "$resolved/$METRICS_NAME" && ! -f "$resolved/$METRICS_NAME" ]]; then
+              echo "ERROR: metrics target must be a regular file: $resolved/$METRICS_NAME" >&2
+              return 1
+            fi
+          }
+          CURRENT="$METRICS_ROOT"
+          if [[ "$METRICS_PARENT" != . ]]; then
+            IFS='/' read -r -a METRICS_PARTS <<<"$METRICS_PARENT"
+            for part in "${METRICS_PARTS[@]}"; do
+              CURRENT="$CURRENT/$part"
+              if [[ -L "$CURRENT" ]]; then
+                echo "ERROR: metrics path contains a symlink: $CURRENT" >&2
+                exit 1
+              fi
+              if [[ -e "$CURRENT" && ! -d "$CURRENT" ]]; then
+                echo "ERROR: metrics path parent is not a directory: $CURRENT" >&2
+                exit 1
+              fi
+              mkdir -p "$CURRENT"
+            done
+          fi
+          METRICS_DIR=$(cd "$CURRENT" && pwd -P)
+          case "$METRICS_DIR/" in
+            "$METRICS_ROOT"/|"$METRICS_ROOT"/*/) ;;
+            *)
+              echo "ERROR: metrics path resolves outside the checkout: $METRICS_DIR" >&2
+              exit 1
+              ;;
+          esac
+          verify_metrics_location
+
+          METRICS_TARGET="$METRICS_DIR/$METRICS_NAME"
+          if [[ -L "$METRICS_TARGET" ]]; then
+            echo "ERROR: metrics target must not be a symlink: $METRICS_TARGET" >&2
+            exit 1
+          fi
+          if [[ -e "$METRICS_TARGET" && ! -f "$METRICS_TARGET" ]]; then
+            echo "ERROR: metrics target must be a regular file: $METRICS_TARGET" >&2
+            exit 1
+          fi
+
+          METRICS_TEMP=$(mktemp "$METRICS_DIR/.octostore-metrics.XXXXXX")
+          trap 'rm -f "$METRICS_TEMP"' EXIT
+          if git -C "$METRICS_ROOT" cat-file -e "HEAD:$METRICS_FILE" 2>/dev/null; then
+            git -C "$METRICS_ROOT" show "HEAD:$METRICS_FILE" >"$METRICS_TEMP"
+          elif [[ -e "$METRICS_TARGET" ]]; then
+            echo "ERROR: refusing an untracked pre-existing metrics target." >&2
+            exit 1
+          fi
+          printf '%s\n' "$RECORD" >>"$METRICS_TEMP"
+          chmod 0644 "$METRICS_TEMP"
+          mv -f "$METRICS_TEMP" "$METRICS_TARGET"
+          METRICS_TEMP=""
+          if [[ ! -f "$METRICS_TARGET" || -L "$METRICS_TARGET" ]]; then
+            echo "ERROR: committed metrics target is not a regular in-checkout file." >&2
+            exit 1
+          fi
+          verify_metrics_location
+
+          cd "$METRICS_ROOT"
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add ${{ env.METRICS_FILE }}
-          git diff --cached --quiet || git commit -m "probe $TS status=${{ steps.eval.outputs.status }}"
+          git add -- "$METRICS_FILE"
+          git diff --cached --quiet || git commit -m "probe $TS status=$PROBE_STATUS"
+          if [[ $(git ls-files -s -- "$METRICS_FILE" | awk '{print $1}') != 100644 ]]; then
+            echo "ERROR: metrics path is not a regular file in the Git index." >&2
+            exit 1
+          fi
 
           for attempt in 1 2 3; do
-            if git push origin ${{ env.METRICS_BRANCH }}; then
+            verify_metrics_location
+            if [[ $(git ls-files -s -- "$METRICS_FILE" | awk '{print $1}') != 100644 ]]; then
+              echo "ERROR: metrics path changed type before push." >&2
+              exit 1
+            fi
+            if git push origin "$METRICS_BRANCH"; then
               exit 0
             fi
             if [[ "$attempt" == "3" ]]; then
               break
             fi
             sleep $((attempt * 5))
-            git pull --rebase origin ${{ env.METRICS_BRANCH }}
+            git pull --rebase origin "$METRICS_BRANCH"
           done
           exit 1
 
       - name: Create or update outage issue
         if: ${{ steps.eval.outputs.status == 'fail' }}
         id: outage_issue
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          PROBE_SUMMARY: ${{ steps.eval.outputs.summary }}
         with:
           script: |
             const owner = context.repo.owner;
@@ -221,7 +352,7 @@ jobs:
               '**Probe failed** — Blacksmith-hosted external monitor.',
               '',
               `- Run: ${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
-              `- Summary: ${{ steps.eval.outputs.summary }}`,
+              `- Summary: ${process.env.PROBE_SUMMARY}`,
               `- Timestamp: ${new Date().toISOString()}`,
             ].join('\n');
 
@@ -243,12 +374,14 @@ jobs:
         shell: bash
         env:
           DISCORD_WEBHOOK: ${{ secrets.OCTOSTORE_DISCORD_WEBHOOK_URL }}
+          PROBE_SUMMARY: ${{ steps.eval.outputs.summary }}
+          ISSUE_URL: ${{ steps.outage_issue.outputs.issue_url || 'n/a' }}
         run: |
           [[ -z "${DISCORD_WEBHOOK:-}" ]] && exit 0
           PAYLOAD=$(jq -n \
             --arg content "🚨 **OctoStore down**" \
-            --arg summary "${{ steps.eval.outputs.summary }}" \
-            --arg issue "${{ steps.outage_issue.outputs.issue_url || 'n/a' }}" \
+            --arg summary "$PROBE_SUMMARY" \
+            --arg issue "$ISSUE_URL" \
             --arg run "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             '{content:$content, embeds:[{color:15158332,title:"Uptime probe failed",fields:[{name:"Summary",value:$summary,inline:false},{name:"Issue",value:$issue,inline:false},{name:"Run",value:$run,inline:false}],timestamp:now|todate}] }')
           curl --silent --show-error --fail -X POST -H 'Content-Type: application/json' --data "$PAYLOAD" "$DISCORD_WEBHOOK"
@@ -256,7 +389,9 @@ jobs:
       - name: Auto-close outage issue on recovery
         if: ${{ steps.eval.outputs.status == 'ok' }}
         id: recover
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          PROBE_SUMMARY: ${{ steps.eval.outputs.summary }}
         with:
           script: |
             const owner  = context.repo.owner;
@@ -269,7 +404,7 @@ jobs:
 
             await github.rest.issues.createComment({
               owner, repo, issue_number: existing.number,
-              body: `✅ Recovered ${new Date().toISOString()} UTC\nSummary: ${{ steps.eval.outputs.summary }}`
+              body: `✅ Recovered ${new Date().toISOString()} UTC\nSummary: ${process.env.PROBE_SUMMARY}`
             });
             await github.rest.issues.update({ owner, repo, issue_number: existing.number, state: 'closed' });
             core.setOutput('closed', 'true');
@@ -280,11 +415,13 @@ jobs:
         shell: bash
         env:
           DISCORD_WEBHOOK: ${{ secrets.OCTOSTORE_DISCORD_WEBHOOK_URL }}
+          PROBE_SUMMARY: ${{ steps.eval.outputs.summary }}
+          ISSUE_URL: ${{ steps.recover.outputs.issue_url }}
         run: |
           [[ -z "${DISCORD_WEBHOOK:-}" ]] && exit 0
           PAYLOAD=$(jq -n \
             --arg content "✅ **OctoStore recovered**" \
-            --arg summary "${{ steps.eval.outputs.summary }}" \
-            --arg issue "${{ steps.recover.outputs.issue_url }}" \
+            --arg summary "$PROBE_SUMMARY" \
+            --arg issue "$ISSUE_URL" \
             '{content:$content, embeds:[{color:3066993,title:"Service restored",fields:[{name:"Summary",value:$summary,inline:false},{name:"Issue closed",value:$issue,inline:false}],timestamp:now|todate}] }')
           curl --silent --show-error --fail -X POST -H 'Content-Type: application/json' --data "$PAYLOAD" "$DISCORD_WEBHOOK"

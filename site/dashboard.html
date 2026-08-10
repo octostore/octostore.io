@@ -3,11 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-jzDdcc+v5DtXmNW8b7WLgXL4oEJd4jAeuZeVBrj1qis='; connect-src https: http://localhost:* http://127.0.0.1:* http://[::1]:*; img-src 'self' https://github.com https://avatars.githubusercontent.com data:; style-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'">
     <title>OctoStore Dashboard</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-dark.min.css">
     <style>
         :root {
             --bg-primary: #0a0a0b;
@@ -97,6 +94,43 @@
             color: var(--text-primary);
         }
 
+        .dashboard-nav {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .dashboard-nav a,
+        .dashboard-sign-out {
+            color: var(--text-muted);
+            font: inherit;
+            font-size: 0.875rem;
+            font-weight: 500;
+            padding: 8px 12px;
+            border-radius: 6px;
+        }
+
+        .dashboard-nav a:hover,
+        .dashboard-sign-out:hover,
+        .dashboard-nav a:focus-visible,
+        .dashboard-sign-out:focus-visible {
+            color: var(--text-primary);
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .dashboard-nav .active {
+            color: var(--text-secondary);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .dashboard-sign-out {
+            background: none;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            cursor: pointer;
+        }
+
         .user-section {
             display: flex;
             align-items: center;
@@ -167,6 +201,11 @@
             gap: 10px;
         }
 
+        .card-description {
+            color: var(--text-muted);
+            margin-bottom: 20px;
+        }
+
         .card-icon {
             font-size: 1.2rem;
         }
@@ -231,15 +270,6 @@
             background: var(--bg-secondary);
         }
 
-        .btn-danger {
-            background: var(--error);
-            color: white;
-        }
-
-        .btn-danger:hover {
-            background: #dc2626;
-        }
-
         /* Locks section */
         .locks-list {
             margin-top: 20px;
@@ -265,11 +295,6 @@
         .lock-meta {
             font-size: 0.875rem;
             color: var(--text-muted);
-        }
-
-        .lock-actions {
-            display: flex;
-            gap: 8px;
         }
 
         /* Code examples */
@@ -456,15 +481,15 @@
                 <span class="logo-icon">🐙</span>
                 <span class="logo-text">OctoStore Dashboard</span>
             </div>
-            <nav style="display: flex; gap: 24px; align-items: center;">
-                <a href="/" style="color: #a1a1aa; text-decoration: none; font-weight: 500; padding: 8px 16px; border-radius: 6px; transition: all 0.2s;">Home</a>
-                <a href="/dashboard.html" style="color: #e5e5e5; text-decoration: none; font-weight: 500; padding: 8px 16px; border-radius: 6px; background: rgba(255, 255, 255, 0.05);">Dashboard</a>
-                <a href="/docs" style="color: #a1a1aa; text-decoration: none; font-weight: 500; padding: 8px 16px; border-radius: 6px; transition: all 0.2s;">API Docs</a>
-                <a id="admin-link" href="/admin.html" style="display:none;color:#a1a1aa;text-decoration:none;font-weight:500;padding:8px 16px;border-radius:6px;transition:all 0.2s;">Admin</a>
-                <button onclick="signOut()" style="background:none;border:1px solid rgba(255,255,255,0.15);border-radius:6px;padding:8px 16px;color:#a1a1aa;cursor:pointer;font-size:14px;font-weight:500;">Sign out</button>
+            <nav class="dashboard-nav" aria-label="Dashboard navigation">
+                <a href="/">Home</a>
+                <a class="active" href="/dashboard.html" aria-current="page">Dashboard</a>
+                <a href="/docs">API Docs</a>
+                <a id="admin-link" href="/admin.html" hidden>Admin</a>
+            <button id="sign-out" class="dashboard-sign-out" type="button">Sign out</button>
             </nav>
             <div class="user-section">
-                <img id="user-avatar" class="user-avatar" src="" alt="User avatar">
+                <img id="user-avatar" class="user-avatar" src="/assets/octostore-logo.svg" alt="User avatar">
                 <div class="user-info">
                     <div id="user-name" class="user-name">Loading...</div>
                     <div id="user-id" class="user-id">Loading...</div>
@@ -484,16 +509,16 @@
                         <span class="card-icon">🔑</span>
                         Your API Token
                     </h2>
-                    <p style="color: var(--text-muted); margin-bottom: 20px;">
-                        Use this bearer token to authenticate with the OctoStore API.
+                    <p class="card-description">
+                        The credential stays out of rendered examples. Copy it once into an owner-only file for the CLI.
                     </p>
                     <div class="token-display">
-                        <div id="token-text" class="token-text">Loading...</div>
+                        <div id="token-text" class="token-text">Hidden from the page</div>
                         <div class="token-actions">
-                            <button id="copy-token" class="btn btn-primary">
+                            <button id="copy-token" class="btn btn-primary" type="button">
                                 📋 Copy Token
                             </button>
-                            <button id="rotate-token" class="btn btn-secondary">
+                            <button id="rotate-token" class="btn btn-secondary" type="button">
                                 🔄 Rotate Token
                             </button>
                         </div>
@@ -505,8 +530,8 @@
                         <span class="card-icon">🔒</span>
                         Active Locks
                     </h2>
-                    <p style="color: var(--text-muted); margin-bottom: 20px;">
-                        Locks currently held by your account.
+                    <p class="card-description">
+                        Capability-free status for locks visible to your account. Renew or release from the client that retained the lease ID returned by acquire.
                     </p>
                     <div id="locks-list" class="locks-list">
                         <div class="loading">
@@ -519,54 +544,50 @@
                 <div class="dashboard-card examples-section">
                     <h2 class="card-title">
                         <span class="card-icon">💻</span>
-                        Usage Examples
+                        Agent-ready CLI examples
                     </h2>
-                    <p style="color: var(--text-muted); margin-bottom: 20px;">
-                        Copy and paste these examples with your pre-filled token.
+                    <p class="card-description">
+                        Save the copied credential to an owner-only file. These commands reference the file and never put the bearer value in page content, shell history, or process arguments.
                     </p>
-                    
+
                     <div class="examples-grid">
                         <div class="example-card">
                             <div class="example-header">
-                                <h3 class="example-title">Acquire a Lock</h3>
+                                <h3 class="example-title">Set the authority and token file</h3>
                             </div>
                             <div class="example-code">
-                                <pre><code id="example-acquire"><span class="cmd">curl</span> <span class="flag">-X POST</span> <span class="url">https://api.octostore.io/locks/my-resource/acquire</span> \
-  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span> \
-  <span class="flag">-H</span> <span class="header">"Content-Type: application/json"</span> \
-  <span class="flag">-d</span> <span class="string">'{"ttl_seconds": 300}'</span></code></pre>
+                                <pre><code id="example-acquire"><span class="cmd">export</span> OCTOSTORE_URL=<span class="url">https://api.octostore.io</span>
+<span class="cmd">export</span> OCTOSTORE_TOKEN_FILE=<span class="string">/path/to/octostore-token</span></code></pre>
                             </div>
                         </div>
 
                         <div class="example-card">
                             <div class="example-header">
-                                <h3 class="example-title">Check Lock Status</h3>
+                                <h3 class="example-title">Hold one exact item</h3>
                             </div>
                             <div class="example-code">
-                                <pre><code id="example-status"><span class="cmd">curl</span> <span class="url">https://api.octostore.io/locks/my-resource</span> \
-  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span></code></pre>
+                                <pre><code id="example-status">AGENT_WORKER=<span class="string">./run-agent</span>
+<span class="cmd">octostore-supervisor</span> lock <span class="string">"repo/octostore/issue-1842"</span> - <span class="string">"$AGENT_WORKER"</span> -- \
+  <span class="cmd">octostore</span> lock hold <span class="string">"repo/octostore/issue-1842"</span> \
+    <span class="flag">--ttl 120 --acquire-timeout 60 --json</span></code></pre>
                             </div>
                         </div>
 
                         <div class="example-card">
                             <div class="example-header">
-                                <h3 class="example-title">List Your Locks</h3>
+                                <h3 class="example-title">Check current status</h3>
                             </div>
                             <div class="example-code">
-                                <pre><code id="example-list"><span class="cmd">curl</span> <span class="url">https://api.octostore.io/locks</span> \
-  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span></code></pre>
+                                <pre><code id="example-list"><span class="cmd">octostore</span> lock status <span class="string">"repo/octostore/issue-1842"</span> <span class="flag">--json</span></code></pre>
                             </div>
                         </div>
 
                         <div class="example-card">
                             <div class="example-header">
-                                <h3 class="example-title">Release a Lock</h3>
+                                <h3 class="example-title">Watch for ownership changes</h3>
                             </div>
                             <div class="example-code">
-                                <pre><code id="example-release"><span class="cmd">curl</span> <span class="flag">-X POST</span> <span class="url">https://api.octostore.io/locks/my-resource/release</span> \
-  <span class="flag">-H</span> <span class="header">"Authorization: Bearer YOUR_TOKEN"</span> \
-  <span class="flag">-H</span> <span class="header">"Content-Type: application/json"</span> \
-  <span class="flag">-d</span> <span class="string">'{"lease_id": "LEASE_ID_FROM_ACQUIRE"}'</span></code></pre>
+                                <pre><code id="example-release"><span class="cmd">octostore</span> lock watch <span class="string">"repo/octostore/issue-1842"</span> <span class="flag">--json</span></code></pre>
                             </div>
                         </div>
                     </div>
@@ -577,8 +598,24 @@
 
     <script>
         // Global state
+        const HOSTED_API_BASE = 'https://api.octostore.io';
         let authData = null;
         let userLocks = [];
+
+        function normalizeApiBase(value) {
+            const parsed = new URL(value);
+            const loopback = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' ||
+                parsed.hostname === '[::1]';
+            if ((parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && loopback)) ||
+                parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) {
+                throw new Error('OAuth issuer must be an HTTPS origin or an explicit loopback HTTP origin');
+            }
+            return parsed.origin;
+        }
+
+        function apiUrl(apiBase, path) {
+            return `${normalizeApiBase(apiBase)}${path}`;
+        }
 
         // DOM elements
         const loadingEl = document.getElementById('loading');
@@ -592,8 +629,8 @@
         // Initialize dashboard
         async function initDashboard() {
             try {
-                // Restore auth from URL (fresh OAuth) or localStorage (returning visitor)
-                const authInfo = getTokenFromUrl();
+                // Exchange a fresh one-time OAuth handoff or restore a returning visitor.
+                const authInfo = await getAuthForDashboard();
                 if (!authInfo || !authInfo.token) {
                     showError('No authentication token found. Please sign in again.');
                     window.location.href = '/';
@@ -603,10 +640,10 @@
                 const token = authInfo.token;
 
                 // Store token and set up auth data
-                authData = { token };
+                authData = authInfo;
 
                 // Validate token against API
-                const locksResponse = await fetch('https://api.octostore.io/locks', {
+                const locksResponse = await fetch(apiUrl(authData.apiBase, '/locks'), {
                     headers: {
                         'Authorization': `Bearer ${token}`
                     }
@@ -622,13 +659,13 @@
                 const userId   = authInfo.userId   || 'User';
 
                 // Update UI with user info
-                updateUserInfo(username, userId, token);
+                updateUserInfo(username, userId);
 
                 // Load locks
                 await loadUserLocks();
 
-                // Update examples with real token
-                updateExamples(token);
+                // Bind examples to the issuing authority without rendering the token.
+                updateExamples(authData.apiBase);
 
                 // Show main content
                 loadingEl.classList.add('hidden');
@@ -638,7 +675,6 @@
                 setupEventListeners();
 
             } catch (error) {
-                console.error('Dashboard initialization failed:', error);
                 showError('Failed to load dashboard. Please try signing in again.');
                 setTimeout(() => {
                     window.location.href = '/';
@@ -646,45 +682,91 @@
             }
         }
 
-        function getTokenFromUrl() {
-            // 1. Try URL parameters first (fresh OAuth redirect)
-            const urlParams = new URLSearchParams(window.location.search);
-            let token    = urlParams.get('token');
-            let username = urlParams.get('username');
-            let userId   = urlParams.get('user_id');
+        async function getAuthForDashboard() {
+            // The fragment carries only a short-lived, one-time handoff code. Scrub all
+            // URL state before making a request or persisting any returned credential.
+            const fragmentParams = new URLSearchParams(window.location.hash.substring(1));
+            const exchangeCode = fragmentParams.get('exchange_code');
+            const issuer = fragmentParams.get('issuer');
+            history.replaceState(null, '', window.location.pathname);
 
-            // 2. Try URL fragment if not in query params
-            if (!token && window.location.hash) {
-                const hashParams = new URLSearchParams(window.location.hash.substring(1));
-                token    = hashParams.get('token')    || token;
-                username = hashParams.get('username') || username;
-                userId   = hashParams.get('user_id')  || userId;
-            }
+            if (exchangeCode || issuer) {
+                if (!exchangeCode || !issuer) {
+                    throw new Error('Authentication handoff is missing its code or issuer');
+                }
+                const apiBase = normalizeApiBase(issuer);
+                const response = await fetch(apiUrl(apiBase, '/auth/github/exchange'), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ exchange_code: exchangeCode })
+                });
 
-            // 3. Found in URL → persist to localStorage and clean the address bar
-            if (token) {
-                const stored = { token };
-                if (username) stored.username = username;
-                if (userId)   stored.userId   = userId;
-                localStorage.setItem('octostore_auth', JSON.stringify(stored));
+                if (!response.ok) {
+                    throw new Error('Authentication exchange failed');
+                }
+
+                const normalizedAuth = persistAuthResponse(await response.json(), apiBase);
+
                 // Check if another page requested auth (e.g. admin.html)
                 const postAuthRedirect = localStorage.getItem('post_auth_redirect');
                 if (postAuthRedirect) {
                     localStorage.removeItem('post_auth_redirect');
                     window.location.replace(postAuthRedirect);
-                    return stored;
+                    return normalizedAuth;
                 }
-                history.replaceState(null, '', '/dashboard.html');
-                return stored;
+
+                return normalizedAuth;
             }
 
-            // 4. Returning visitor → restore from localStorage
+            // Returning visitors may have either the current API-shaped record or the
+            // previous dashboard-shaped record. Neither is ever restored from the URL.
             try {
                 const saved = localStorage.getItem('octostore_auth');
-                if (saved) return JSON.parse(saved);
+                if (saved) return normalizeStoredAuth(JSON.parse(saved));
             } catch (_) {}
 
             return null;
+        }
+
+        function normalizeStoredAuth(stored) {
+            if (!stored || typeof stored.token !== 'string' || !stored.token) return null;
+            const apiBase = normalizeApiBase(stored.api_base || HOSTED_API_BASE);
+            return {
+                token: stored.token,
+                username: stored.github_username || stored.username,
+                userId: stored.user_id || stored.userId,
+                apiBase
+            };
+        }
+
+        function validateAuthTokenResponse(response) {
+            const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
+            if (!response || typeof response !== 'object' || Array.isArray(response) ||
+                typeof response.token !== 'string' || !response.token ||
+                typeof response.user_id !== 'string' || !uuid.test(response.user_id) ||
+                typeof response.github_username !== 'string' || !response.github_username ||
+                !(response.namespace === null || typeof response.namespace === 'string')) {
+                throw new Error('Authentication response did not match the documented schema');
+            }
+            return {
+                token: response.token,
+                user_id: response.user_id,
+                github_username: response.github_username,
+                namespace: response.namespace
+            };
+        }
+
+        function persistAuthResponse(response, apiBase) {
+            const stored = validateAuthTokenResponse(response);
+            stored.api_base = normalizeApiBase(apiBase);
+            const serialized = JSON.stringify(stored);
+            localStorage.setItem('octostore_auth', serialized);
+            if (localStorage.getItem('octostore_auth') !== serialized) {
+                throw new Error('Authentication response was not persisted');
+            }
+            return normalizeStoredAuth(stored);
         }
 
         function signOut() {
@@ -692,22 +774,49 @@
             window.location.href = '/';
         }
 
-        function updateUserInfo(username, userId, token) {
+        function updateUserInfo(username, userId) {
             // Show admin link only for the site owner
             if (username === 'aronchick') {
                 const adminLink = document.getElementById('admin-link');
-                if (adminLink) adminLink.style.display = '';
+                if (adminLink) adminLink.hidden = false;
             }
             userNameEl.textContent = username;
             userIdEl.textContent = `ID: ${userId}`;
             userAvatarEl.src = `https://github.com/${username}.png`;
             userAvatarEl.alt = `${username}'s avatar`;
-            tokenTextEl.textContent = token;
+            tokenTextEl.textContent = 'Hidden from page content · use Copy Token to save it';
+        }
+
+        function isRfc3339DateTime(value) {
+            if (typeof value !== 'string') return false;
+            const match = /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:[Zz]|[+-](\d{2}):(\d{2}))$/.exec(value);
+            if (!match) return false;
+
+            const [, yearText, monthText, dayText, hourText, minuteText, secondText,
+                offsetHourText, offsetMinuteText] = match;
+            const year = Number(yearText);
+            const month = Number(monthText);
+            const day = Number(dayText);
+            const hour = Number(hourText);
+            const minute = Number(minuteText);
+            const second = Number(secondText);
+            const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+            const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+            if (month < 1 || month > 12 || day < 1 || day > daysInMonth[month - 1] ||
+                hour > 23 || minute > 59 || second > 59) {
+                return false;
+            }
+            if (offsetHourText !== undefined &&
+                (Number(offsetHourText) > 23 || Number(offsetMinuteText) > 59)) {
+                return false;
+            }
+            return true;
         }
 
         async function loadUserLocks() {
             try {
-                const response = await fetch('https://api.octostore.io/locks', {
+                const response = await fetch(apiUrl(authData.apiBase, '/locks'), {
                     headers: {
                         'Authorization': `Bearer ${authData.token}`
                     }
@@ -718,7 +827,7 @@
                 }
 
                 const data = await response.json();
-                userLocks = data.locks || [];
+                userLocks = validateLockListResponse(data);
                 renderLocks();
             } catch (error) {
                 console.error('Failed to load locks:', error);
@@ -729,6 +838,44 @@
                     </div>
                 `;
             }
+        }
+
+        function validateLockListResponse(data) {
+            if (!data || typeof data !== 'object' || Array.isArray(data) ||
+                !Array.isArray(data.locks) || !Number.isInteger(data.total) || data.total < 0 ||
+                !Object.prototype.hasOwnProperty.call(data, 'prefix') ||
+                !(data.prefix === null || typeof data.prefix === 'string')) {
+                throw new Error('Invalid lock list response');
+            }
+
+            for (const lock of data.locks) {
+                const hasRequiredFields = ['name', 'status', 'holder_id', 'fencing_token', 'expires_at', 'metadata']
+                    .every(field => Object.prototype.hasOwnProperty.call(lock || {}, field));
+                const validExpiry = lock && (lock.expires_at === null ||
+                    isRfc3339DateTime(lock.expires_at));
+                if (!lock || typeof lock !== 'object' || Array.isArray(lock) || !hasRequiredFields ||
+                    typeof lock.name !== 'string' || !lock.name ||
+                    !['free', 'held'].includes(lock.status) ||
+                    !(lock.holder_id === null || typeof lock.holder_id === 'string') ||
+                    !Number.isSafeInteger(lock.fencing_token) || !validExpiry ||
+                    !(lock.metadata === null || typeof lock.metadata === 'string')) {
+                    throw new Error('Invalid lock status response');
+                }
+            }
+
+            if (data.total !== data.locks.length) {
+                throw new Error('Invalid lock list total');
+            }
+            return data.locks;
+        }
+
+        function escapeHtml(value) {
+            return String(value)
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#039;');
         }
 
         function renderLocks() {
@@ -743,48 +890,49 @@
                 return;
             }
 
-            locksListEl.innerHTML = userLocks.map(lock => `
+            locksListEl.innerHTML = userLocks.map(lock => {
+                const holder = lock.holder_id === null ? 'None' : escapeHtml(lock.holder_id);
+                const expiry = lock.expires_at === null ? 'Not currently held' : lock.expires_at;
+                const metadata = lock.metadata === null ? 'None' : escapeHtml(lock.metadata);
+                return `
                 <div class="lock-item">
                     <div class="lock-info">
-                        <h4>${lock.name}</h4>
+                        <h4>${escapeHtml(lock.name)}</h4>
                         <div class="lock-meta">
-                            Lease ID: <code>${lock.lease_id}</code><br>
+                            Status: ${escapeHtml(lock.status)}<br>
+                            Holder pseudonym: <code>${holder}</code><br>
                             Fencing Token: <code>${lock.fencing_token}</code><br>
-                            Expires: ${new Date(lock.expires_at).toLocaleString()}
+                            Expires: ${escapeHtml(expiry)}<br>
+                            Metadata: ${metadata}
                         </div>
                     </div>
-                    <div class="lock-actions">
-                        <button class="btn btn-danger" onclick="releaseLock('${lock.name}', '${lock.lease_id}')">
-                            Release
-                        </button>
-                    </div>
                 </div>
-            `).join('');
+            `;
+            }).join('');
         }
 
-        function updateExamples(token) {
+        function updateExamples(apiBase) {
+            const safeApiBase = escapeHtml(normalizeApiBase(apiBase));
             document.getElementById('example-acquire').innerHTML = 
-                `<span class="cmd">curl</span> <span class="flag">-X POST</span> <span class="url">https://api.octostore.io/locks/my-resource/acquire</span> \\
-  <span class="flag">-H</span> <span class="header">"Authorization: Bearer ${token}"</span> \\
-  <span class="flag">-H</span> <span class="header">"Content-Type: application/json"</span> \\
-  <span class="flag">-d</span> <span class="string">'{"ttl_seconds": 300}'</span>`;
+                `<span class="cmd">export</span> OCTOSTORE_URL=<span class="url">${safeApiBase}</span>\n` +
+                `<span class="cmd">export</span> OCTOSTORE_TOKEN_FILE=<span class="string">/path/to/octostore-token</span>`;
 
             document.getElementById('example-status').innerHTML = 
-                `<span class="cmd">curl</span> <span class="url">https://api.octostore.io/locks/my-resource</span> \\
-  <span class="flag">-H</span> <span class="header">"Authorization: Bearer ${token}"</span>`;
+                `AGENT_WORKER=<span class="string">./run-agent</span>\n` +
+                `<span class="cmd">octostore-supervisor</span> lock <span class="string">"repo/octostore/issue-1842"</span> - <span class="string">"$AGENT_WORKER"</span> -- \\
+  <span class="cmd">octostore</span> lock hold <span class="string">"repo/octostore/issue-1842"</span> \\
+    <span class="flag">--ttl 120 --acquire-timeout 60 --json</span>`;
 
             document.getElementById('example-list').innerHTML = 
-                `<span class="cmd">curl</span> <span class="url">https://api.octostore.io/locks</span> \\
-  <span class="flag">-H</span> <span class="header">"Authorization: Bearer ${token}"</span>`;
+                `<span class="cmd">octostore</span> lock status <span class="string">"repo/octostore/issue-1842"</span> <span class="flag">--json</span>`;
 
             document.getElementById('example-release').innerHTML = 
-                `<span class="cmd">curl</span> <span class="flag">-X POST</span> <span class="url">https://api.octostore.io/locks/my-resource/release</span> \\
-  <span class="flag">-H</span> <span class="header">"Authorization: Bearer ${token}"</span> \\
-  <span class="flag">-H</span> <span class="header">"Content-Type: application/json"</span> \\
-  <span class="flag">-d</span> <span class="string">'{"lease_id": "LEASE_ID_FROM_ACQUIRE"}'</span>`;
+                `<span class="cmd">octostore</span> lock watch <span class="string">"repo/octostore/issue-1842"</span> <span class="flag">--json</span>`;
         }
 
         function setupEventListeners() {
+            document.getElementById('sign-out').addEventListener('click', signOut);
+
             // Copy token button
             document.getElementById('copy-token').addEventListener('click', copyToken);
             
@@ -808,7 +956,7 @@
                 button.disabled = true;
                 button.textContent = '🔄 Rotating...';
 
-                const response = await fetch('https://api.octostore.io/auth/token/rotate', {
+                const response = await fetch(apiUrl(authData.apiBase, '/auth/token/rotate'), {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${authData.token}`
@@ -819,10 +967,10 @@
                     throw new Error('Failed to rotate token');
                 }
 
-                const data = await response.json();
-                authData.token = data.token;
-                tokenTextEl.textContent = data.token;
-                updateExamples(data.token);
+                const nextAuth = persistAuthResponse(await response.json(), authData.apiBase);
+                authData = nextAuth;
+                tokenTextEl.textContent = 'Stored securely for this dashboard session';
+                updateExamples(nextAuth.apiBase);
                 
                 showNotification('Token rotated successfully!', 'success');
             } catch (error) {
@@ -832,29 +980,6 @@
                 const button = document.getElementById('rotate-token');
                 button.disabled = false;
                 button.textContent = '🔄 Rotate Token';
-            }
-        }
-
-        async function releaseLock(lockName, leaseId) {
-            try {
-                const response = await fetch(`https://api.octostore.io/locks/${lockName}/release`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${authData.token}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ lease_id: leaseId })
-                });
-
-                if (!response.ok) {
-                    throw new Error('Failed to release lock');
-                }
-
-                showNotification('Lock released successfully!', 'success');
-                await loadUserLocks(); // Refresh locks list
-            } catch (error) {
-                console.error('Failed to release lock:', error);
-                showNotification('Failed to release lock', 'error');
             }
         }
 
@@ -887,8 +1012,5 @@
         // Initialize when page loads
         document.addEventListener('DOMContentLoaded', initDashboard);
     </script>
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
 </body>
 </html>

@@ -48,6 +48,43 @@ pub struct LockEvent {
     pub timestamp: DateTime<Utc>,
 }
 
+/// Public lock-watch signal. This deliberately omits lease, session, holder,
+/// metadata, and other capabilities carried by the internal webhook event.
+#[derive(Debug, Clone, Serialize)]
+pub struct LockWatchEvent {
+    pub event: LockEventType,
+    pub lock_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fencing_token: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<DateTime<Utc>>,
+    pub observed_at: DateTime<Utc>,
+}
+
+impl From<LockEvent> for LockWatchEvent {
+    fn from(event: LockEvent) -> Self {
+        let (fencing_token, expires_at) = if matches!(
+            &event.event,
+            LockEventType::Acquired | LockEventType::Renewed
+        ) {
+            event
+                .lock
+                .as_ref()
+                .map(|lock| (Some(lock.fencing_token), Some(lock.expires_at)))
+                .unwrap_or((None, None))
+        } else {
+            (None, None)
+        };
+        Self {
+            event: event.event,
+            lock_name: event.lock_name,
+            fencing_token,
+            expires_at,
+            observed_at: event.timestamp,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LockAcl {
     pub acquire: Vec<String>,
@@ -74,7 +111,7 @@ pub struct UpdateLockAclResponse {
     pub acl: LockAcl,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "status")]
 pub enum AcquireLockResponse {
     #[serde(rename = "acquired")]
@@ -82,18 +119,21 @@ pub enum AcquireLockResponse {
         lease_id: Uuid,
         fencing_token: u64,
         expires_at: DateTime<Utc>,
+        renew_after_ms: u64,
         metadata: Option<String>,
     },
     #[serde(rename = "held")]
     Held {
         holder_id: uuid::Uuid,
         expires_at: DateTime<Utc>,
+        retry_after_ms: u64,
         metadata: Option<String>,
     },
     #[serde(rename = "delayed")]
     Delayed {
         available_at: DateTime<Utc>,
         lock_delay_seconds: u32,
+        retry_after_ms: u64,
     },
 }
 
@@ -108,13 +148,14 @@ pub struct RenewLockRequest {
     pub ttl_seconds: Option<u32>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RenewLockResponse {
     pub lease_id: Uuid,
     pub expires_at: DateTime<Utc>,
+    pub renew_after_ms: u64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct LockStatusResponse {
     pub name: String,
     pub status: String, // "free" or "held"
@@ -184,20 +225,20 @@ pub struct CreateSessionRequest {
     pub ttl_seconds: Option<u32>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CreateSessionResponse {
     pub session_id: Uuid,
     pub expires_at: DateTime<Utc>,
     pub keepalive_interval_secs: u32,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct KeepAliveResponse {
     pub session_id: Uuid,
     pub expires_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SessionStatusResponse {
     pub session_id: Uuid,
     pub user_id: Uuid,
@@ -547,6 +588,7 @@ mod tests {
             lease_id: uuid::Uuid::new_v4(),
             fencing_token: 42,
             expires_at: Utc::now(),
+            renew_after_ms: 15_000,
             metadata: Some("test".to_string()),
         };
         let json = serde_json::to_string(&acquired).unwrap();
@@ -558,6 +600,7 @@ mod tests {
         let held = AcquireLockResponse::Held {
             holder_id: uuid::Uuid::new_v4(),
             expires_at: Utc::now(),
+            retry_after_ms: 30_000,
             metadata: None,
         };
         let json = serde_json::to_string(&held).unwrap();

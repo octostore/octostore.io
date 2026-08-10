@@ -1,152 +1,291 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Stop agent collisions — OctoStore</title>
-  <meta name="description" content="Give agent fleets one leader and every task one temporary owner without replacing prompts, tools, queues, or execution. Hosted election or self-hosted coordination.">
+  <title>Stop two agents from doing the same work — OctoStore</title>
+  <meta name="description" content="Give two agents one skill and one shared room. Run one supervised worker, let the other wait, and prove takeover on cancellation.">
   <meta name="theme-color" content="#171224">
   <meta property="og:title" content="Stop two agents from doing the same work — OctoStore">
-  <meta property="og:description" content="Leader election, task claims, sessions, and fencing for agent fleets that run anywhere.">
+  <meta property="og:description" content="One supervised worker runs. One waits. Cancel the leader and watch the waiter take over.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://octostore.io/agents/">
   <meta property="og:image" content="https://octostore.io/assets/octostore-og.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="OctoStore signal board showing one process elected leader while two processes wait">
+  <meta property="og:image:alt" content="OctoStore coordination wire showing one agent leading while another waits">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Stop two agents from doing the same work — OctoStore">
-  <meta name="twitter:description" content="Keep agent execution decentralized. Centralize only the answer to who gets to move.">
+  <meta name="twitter:description" content="Give both agents one skill, share one room, and run the supervised handoff demo.">
   <meta name="twitter:image" content="https://octostore.io/assets/octostore-og.png">
   <link rel="canonical" href="https://octostore.io/agents/">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/assets/site.css">
   <script defer src="/assets/site.js"></script>
 </head>
-<body>
+<body class="agent-guide-page">
   <a class="skip-link" href="#main">Skip to content</a>
   <div class="wrap">
     <nav class="site-nav" aria-label="Primary navigation">
       <a class="brand" href="/"><span class="brand-signal" aria-hidden="true"></span>OctoStore</a>
       <div class="nav-links">
+        <a href="/agents/" aria-current="page">For agents</a>
         <a href="/leader-election/">Leader election</a>
-        <a href="/agents/" aria-current="page">Agents</a>
-        <a href="/coordination/">Coordination</a>
+        <a href="/coordination/">Task locks</a>
         <a href="/docs/">Docs</a>
         <a href="https://github.com/octostore/octostore.io">GitHub</a>
-        <a class="nav-cta" href="/#live-race">Try it live</a>
+        <a class="nav-cta" href="/agents/SKILL.md">Get the skill</a>
       </div>
     </nav>
   </div>
 
-  <main id="main" class="reading-wrap">
-    <header class="page-header guide-hero agent-hero">
-      <div class="signal-label">For agent fleets</div>
-      <h1>Stop two agents from doing the same work.</h1>
-      <p class="lede">Your agents can keep their prompts, tools, queues, and runtimes. OctoStore gives them one shared answer before side effects begin: who is leader, who owns this task, and whether that authority is still alive.</p>
-      <div class="button-row">
-        <a class="button primary" href="#choose">Choose a primitive</a>
-        <a class="button" href="/#live-race">Race three workers live</a>
+  <main id="main">
+    <header class="agent-guide-hero wrap">
+      <div>
+        <div class="signal-label">Coordination your agents can run themselves</div>
+        <h1>Stop two agents from doing the same work.</h1>
+        <p class="lede">Give both agents one skill and one shared room. Exactly one supervised worker runs; the other waits and can take over.</p>
+        <div class="button-row">
+          <a class="button primary" href="/agents/SKILL.md">Give your agent the skill</a>
+          <a class="button" href="#two-agent-demo">Run two supervised agents</a>
+        </div>
+        <p class="agent-boundary"><strong>Lease, not permission:</strong> your host still approves the task and must cancel or fence work when authority is lost or uncertain.</p>
       </div>
+      <aside class="skill-card" aria-label="OctoStore skill contract">
+        <div class="skill-card-head"><span>SKILL.md</span><span>v0.14.0</span></div>
+        <img src="/assets/octostore-logo.svg" alt="" aria-hidden="true">
+        <p><strong>Atlas</strong> leads and opens its work gate.</p>
+        <p><strong>Comet</strong> waits without touching the task.</p>
+        <p><strong>Atlas stops</strong> and its short lease ends.</p>
+        <p><strong>Comet takes over</strong> with a higher term.</p>
+      </aside>
     </header>
 
-    <section class="content-section collision-story">
-      <h2>The agents are behaving correctly. The fleet is not.</h2>
-      <p>Atlas sees an issue and starts a branch. Comet sees the same issue from another queue and starts another. Both agents followed their instructions. The system forgot to settle ownership first.</p>
-      <div class="collision-line" aria-label="Two agents collide on one task">
-        <span><strong>Atlas</strong> found issue 1842</span>
-        <span><strong>Comet</strong> found issue 1842</span>
-        <span class="collision-result"><strong>Collision</strong> two branches, two updates</span>
+    <section class="agent-guide-section quick-path-section" id="install-skill">
+      <div class="wrap">
+        <div class="section-kicker">Step 1 / give the agent the rules</div>
+        <div class="guide-step-grid">
+          <div>
+            <h2>Start with one focused skill.</h2>
+            <p>It tells an agent when to use an election or task lock, how to supervise a hold, and when it must stop claiming authority.</p>
+            <p>The skill is versioned with the compatible CLI/API range. It contains no credentials, installer, hidden actions, or repository mutation.</p>
+          </div>
+          <div class="code-window">
+            <div class="code-head"><span>skills CLI · pinned and unattended</span><button class="copy-button" type="button" data-copy-target="#agent-skill-install">Copy</button></div>
+        <pre id="agent-skill-install" tabindex="0"><code>git clone --branch v0.14.0 --depth 1 https://github.com/octostore/octostore.io
+cd octostore.io
+npm ci --ignore-scripts --no-audit --no-fund
+./node_modules/.bin/skills add \
+  https://github.com/octostore/octostore.io/tree/v0.14.0 \
+  --skill octostore --agent codex -y</code></pre>
+          </div>
+        </div>
+        <p class="inspection-line">Prefer inspection first? <a href="/agents/SKILL.md">Open the raw skill</a> before running the locked installer command.</p>
       </div>
-      <p>Put one small referee between “I found work” and “I changed something.”</p>
     </section>
 
-    <section class="content-section" id="choose">
-      <h2>Choose the smallest primitive that settles the argument.</h2>
-      <div class="table-scroll" role="region" aria-label="Agent coordination primitives" tabindex="0">
+    <section class="agent-guide-section" id="install-cli">
+      <div class="wrap">
+        <div class="section-kicker">Step 2 / install the thin CLI</div>
+        <div class="guide-step-grid">
+          <div>
+            <h2>Start from a supported fresh machine.</h2>
+            <p>Release binaries support Linux and macOS on AMD64 or ARM64. The locked skill installer needs Git, Node.js, and npm. The CLI installer needs a POSIX shell, <code>curl</code>, <code>jq</code>, and either <code>sha256sum</code> or <code>shasum</code>. Before installing the supervised pair, install Perl with <code>Time::HiRes</code>; Linux must expose <code>CLOCK_BOOTTIME</code> and macOS <code>CLOCK_MONOTONIC_RAW</code>. The repository's two-agent demo additionally requires Bash and <code>seq</code>.</p>
+            <p>Ask before installing software. The pinned installer is inspectable, requires GitHub's immutable per-asset digests to agree with the published <code>SHA256SUMS</code>, verifies the binary version, checks every supervisor runtime dependency, and exits before changing the destination when provenance or a dependency is unavailable.</p>
+            <p>The default destination is <code>/usr/local/bin</code>. The installer creates it when absent and requests <code>sudo</code> only when your account cannot create or write that path. Without <code>sudo</code>, set <code>OCTOSTORE_INSTALL_DIR="$HOME/.local/bin"</code> and add that directory to <code>PATH</code>.</p>
+          </div>
+          <div class="code-window">
+            <div class="code-head"><span>CLI v0.14.0 · pinned and verified</span><button class="copy-button" type="button" data-copy-target="#agent-cli-install">Copy</button></div>
+        <pre id="agent-cli-install" tabindex="0"><code>VERSION=v0.14.0
+curl -fsSLo octostore-install.sh \
+  "https://raw.githubusercontent.com/octostore/octostore.io/$VERSION/install.sh"
+cat octostore-install.sh
+OCTOSTORE_VERSION="$VERSION" sh octostore-install.sh
+octostore --version</code></pre>
+          </div>
+        </div>
+        <p class="inspection-line">The installer does not start a server or create credentials. It prints a loopback-only first-run recipe that generates a random bearer token in an owner-only file.</p>
+      </div>
+    </section>
+
+    <section class="agent-guide-section wrap" id="two-agent-demo">
+      <div class="section-kicker">Step 3 / run two supervised workers</div>
+      <div class="guide-step-grid">
+        <div>
+          <h2>Coordinate a real role, not a toy curl request.</h2>
+          <p>Point the demo at two executable agent workers. The script creates one hosted room, starts both supervisors concurrently, proves that one waits, cancels the leader, and proves the waiter takes over.</p>
+          <div class="shared-room-rule">
+            <span>merge coordinator</span><i aria-hidden="true"></i><span>agent Atlas</span>
+            <span aria-hidden="true"></span><i aria-hidden="true"></i><span>agent Comet</span>
+          </div>
+          <p class="warning-line"><strong>Your workers do the agent work.</strong> OctoStore only gates, renews, cancels, and hands over temporary authority.</p>
+        </div>
+        <div class="code-window">
+          <div class="code-head"><span>repository checkout · exact smoke-tested demo</span><button class="copy-button" type="button" data-copy-target="#supervised-two-agent-demo">Copy</button></div>
+        <pre id="supervised-two-agent-demo" tabindex="0"><code>git clone --branch v0.14.0 --depth 1 \
+  https://github.com/octostore/octostore.io
+cd octostore.io
+
+OCTOSTORE_ATLAS_WORKER=./run-agent-atlas \
+OCTOSTORE_COMET_WORKER=./run-agent-comet \
+./scripts/two-agent-supervised-demo.sh</code></pre>
+        </div>
+      </div>
+      <p class="inspection-line">Use executable wrappers for your agent runtime. For example, give both agents the same merge-coordinator objective and different candidate identities; keep task selection, prompts, tools, and human approval in those wrappers.</p>
+    </section>
+
+    <section class="agent-guide-section guide-dark-section">
+      <div class="wrap">
+        <div class="section-kicker">The dopamine hit / waiting, takeover, cancellation</div>
+        <div class="agent-section-head">
+          <h2>One runs. One waits. Then they trade places.</h2>
+          <p>The demo is successful only after both workers have started under supervision, the first has stopped, and the waiting worker has become leader.</p>
+        </div>
+        <div class="two-terminal-grid">
+          <div class="code-window">
+            <div class="code-head"><span>first authority</span></div>
+          <pre tabindex="0"><code>shared room: r_7m4…
+agent-atlas leads; agent-comet waits</code></pre>
+          </div>
+          <div class="code-window">
+            <div class="code-head"><span>after cancellation</span></div>
+          <pre tabindex="0"><code>agent-comet took over after cancellation
+two-agent supervised demo passed</code></pre>
+          </div>
+        </div>
+        <div class="machine-contract">
+          <div><span class="event-dot go"></span><strong>leader</strong><small>Open the work gate once</small></div>
+          <div><span class="event-dot wait"></span><strong>waiting</strong><small>Do not start protected work</small></div>
+          <div><span class="event-dot renew"></span><strong>renewed</strong><small>Authority remains current</small></div>
+          <div><span class="event-dot stop"></span><strong>lost / uncertain</strong><small>Stop side effects; exit 20</small></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="agent-guide-section wrap">
+      <div class="section-kicker">Step 4 / couple authority to execution</div>
+      <div class="supervisor-grid">
+        <div>
+          <h2>Do not leave the heartbeat beside an uncoupled worker.</h2>
+          <p>A hold process can report that authority is gone. It cannot reach into an arbitrary agent runtime and undo work by itself.</p>
+          <ol>
+            <li>Start hold before the worker.</li>
+            <li>Validate schema, kind, name, candidate, and all three authority budget fields.</li>
+            <li>Subtract the greater of wall-clock <code>authority_observed_unix_ms</code> age and suspend-inclusive <code>authority_observed_continuous_ms</code> same-host age; reject stale events.</li>
+            <li>Start work only after a fresh <code>leader</code> or <code>acquired</code>.</li>
+            <li>Cancel or fence work on loss, uncertainty, malformed output, or unexpected exit.</li>
+          </ol>
+          <p>The installer provides <code>octostore-supervisor</code>. It requires <code>jq</code> and Perl with <code>Time::HiRes</code>, arms a detached lifetime guardian before the hold can gain authority, and keeps hold and worker group identities reserved through containment. It publishes terminal lifecycle output only after containment. Keep the hold, supervisor, and worker on the same host; do not relay or persist authority events across machines or boots.</p>
+          <p><strong>Portable boundary:</strong> this is cooperative process-group containment, not a security sandbox. Workers and descendants must not daemonize, call <code>setsid</code>, create another process group, or hand work to another service. Use a dedicated container or cgroup for workers that may detach or cannot be trusted to follow that contract.</p>
+        </div>
+        <div class="supervisor-diagram" role="img" aria-label="Supervisor gates a worker based on OctoStore hold events">
+          <div class="diagram-box"><span>octostore hold</span><strong>JSONL + exit</strong></div>
+          <div class="diagram-arrow" aria-hidden="true">authority events ↓</div>
+          <div class="diagram-box supervisor-box"><span>your supervisor</span><strong>gate / cancel / fence</strong></div>
+          <div class="diagram-arrow" aria-hidden="true">permission to run ↓</div>
+          <div class="diagram-box worker-box"><span>your agent worker</span><strong>tools + side effects</strong></div>
+        </div>
+      </div>
+      <div class="button-row">
+        <a class="button primary" href="https://github.com/octostore/octostore.io/blob/v0.14.0/scripts/reference-supervisor.sh">Read the v0.14.0 supervisor</a>
+        <a class="button" href="https://github.com/octostore/octostore.io/blob/v0.14.0/scripts/smoke-supervisor.sh">Read its smoke test</a>
+      </div>
+    </section>
+
+    <section class="agent-guide-section guide-dark-section" id="choose-agent-primitive">
+      <div class="wrap">
+        <div class="section-kicker">Election or lock?</div>
+        <div class="primitive-comparison">
+          <div>
+            <span class="primitive-tag">ELECTION</span>
+            <h2>One coordinator for a group</h2>
+            <p>Good for a merge coordinator, scheduler, dispatcher, controller, or singleton maintenance role.</p>
+            <ul>
+              <li>Hosted path is account-free</li>
+              <li>Room is one shared coordination address</li>
+              <li>Candidate IDs identify processes, not users</li>
+            </ul>
+          </div>
+          <div>
+            <span class="primitive-tag lock-tag">LOCK</span>
+            <h2>One owner for an exact item</h2>
+            <p>Good for issue 1842, deploy production, migrate tenant 7, or another durable work identity.</p>
+            <ul>
+              <li>Authenticated hosted or self-hosted boundary</li>
+              <li>Stable key reused across retries</li>
+              <li>Private token file; no <code>--token</code> flag</li>
+            </ul>
+          </div>
+        </div>
+        <div class="code-window lock-hold-window">
+          <div class="code-head"><span>authenticated supervised exact-item hold</span><button class="copy-button" type="button" data-copy-target="#lock-hold">Copy</button></div>
+          <p>For hosted locks, sign in at <a href="/dashboard.html">the OctoStore dashboard</a>, save the issued bearer credential in an owner-only file, select the hosted authority explicitly, and set <code>AGENT_WORKER</code> to the protected executable.</p>
+          <pre id="lock-hold" tabindex="0"><code>chmod 600 /path/to/octostore-token
+OCTOSTORE_URL=https://api.octostore.io \
+OCTOSTORE_TOKEN_FILE=/path/to/octostore-token \
+octostore-supervisor lock "repo/octostore/issue-1842" - "$AGENT_WORKER" -- \
+  octostore lock hold "repo/octostore/issue-1842" \
+    --ttl 120 --acquire-timeout 60 --json</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="agent-guide-section wrap">
+      <div class="section-kicker">Machine contract</div>
+      <div class="agent-section-head">
+        <h2>Parse events, not prose.</h2>
+        <p>Human diagnostics go to stderr. <code>--json</code> writes versioned JSONL to stdout without leader tokens, lease IDs, or bearer credentials.</p>
+      </div>
+      <section class="table-scroll" aria-label="OctoStore CLI event and exit contract" tabindex="0">
         <table class="status-table">
-          <caption class="sr-only">Choose between agent leader election and task locks</caption>
-          <thead><tr><th>Question</th><th>Primitive</th><th>Use it for</th></tr></thead>
+          <caption class="sr-only">OctoStore CLI event and exit contract</caption>
+          <thead><tr><th>Signal</th><th>Meaning</th><th>Agent action</th></tr></thead>
           <tbody>
-            <tr><td>Who coordinates the fleet right now?</td><td><a href="/leader-election/"><code>/elections</code></a></td><td>Dispatchers, schedulers, reconcilers, maintenance leaders</td></tr>
-            <tr><td>Who owns this exact work item?</td><td><a href="/coordination/"><code>/locks</code></a></td><td>Issues, tickets, queue items, deploys, migrations, evaluations</td></tr>
+            <tr><td><code>leader</code> / <code>acquired</code></td><td>Authority started</td><td>Open the protected work gate</td></tr>
+            <tr><td><code>waiting</code></td><td>Someone else owns it or admission says retry</td><td>Wait for CLI guidance; do not work</td></tr>
+            <tr><td><code>renewed</code></td><td>Current term confirmed</td><td>Continue while the supervisor listens</td></tr>
+            <tr><td><code>lost</code> / <code>uncertain</code></td><td>Authority is gone or cannot be proven</td><td>Stop side effects; reconcile downstream</td></tr>
+            <tr><td>exit <code>11</code></td><td>Acquisition timed out</td><td>Do not work; retry only under policy</td></tr>
+            <tr><td>exit <code>20</code></td><td>Lease lost or uncertain</td><td>Cancel/fence and report loss</td></tr>
+            <tr><td>exit <code>64</code> / <code>70</code></td><td>Configuration or unexpected failure</td><td>Treat as not owned; inspect diagnostics</td></tr>
           </tbody>
         </table>
+      </section>
+    </section>
+
+    <section class="agent-guide-section safety-panel-section">
+      <div class="wrap">
+        <div class="section-kicker">Safety boundaries</div>
+        <h2>A lease is authority with an expiry—not exactly-once work.</h2>
+        <div class="safety-grid">
+          <p><strong>Public is not private.</strong> A generated room ID is hard to guess, but anyone who knows it can campaign or inspect current state.</p>
+          <p><strong>Uncertainty means stop.</strong> A timed-out renewal is never converted into success, even if the server may have received it.</p>
+          <p><strong>Terms need enforcement.</strong> Pass the generation to downstream systems that can reject stale writes.</p>
+          <p><strong>One authority.</strong> The supported server is one OctoStore process with one SQLite database, not an HA consensus cluster.</p>
+          <p><strong>Approval lives elsewhere.</strong> Winning a lease never grants permission for a destructive or irreversible action.</p>
+          <p><strong>Work lives elsewhere.</strong> OctoStore does not assign tasks, run prompts, store branches, merge code, or manage a queue.</p>
+        </div>
       </div>
     </section>
 
-    <section class="content-section">
-      <h2>Elect one agent without creating an account.</h2>
-      <p>Open a random room and let every candidate campaign. The winner receives a short lease, monotonic term, and secret leader token. Followers receive the same leader and exactly when to try again.</p>
-      <div class="code-window">
-        <div class="code-head"><span>shell · elect a dispatcher</span><button class="copy-button" type="button" data-copy-target="#agent-election-code">Copy</button></div>
-        <pre id="agent-election-code"><code>ROOM=$(curl -s -X POST https://api.octostore.io/elections \
-  | jq -r .election_id)
-
-curl -s -X POST \
-  "https://api.octostore.io/elections/$ROOM/campaign" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "candidate_id":"dispatcher-west",
-    "ttl_seconds":30,
-    "metadata":"fleet=support-agents"
-  }'</code></pre>
+    <section class="agent-guide-section wrap api-later-section">
+      <div class="section-kicker">HTTP is the deeper layer</div>
+      <div class="agent-section-head compact-head">
+        <h2>Need the exact wire contract?</h2>
+        <p>The CLI is optional. Every primitive remains ordinary HTTP with a complete OpenAPI document, stable error codes, retry guidance, request IDs, and bounded best-effort watches.</p>
       </div>
-      <p class="section-link"><a href="/leader-election/">Read the complete leader-election guide →</a></p>
-    </section>
-
-    <section class="content-section">
-      <h2>Claim work before tools touch it.</h2>
-      <p>For durable ownership, derive one lock name from the task. Authenticated agents race to acquire it. One gets the lease; the rest skip or wait.</p>
-      <div class="code-window">
-        <div class="code-head"><span>shell · claim issue 1842</span><button class="copy-button" type="button" data-copy-target="#agent-claim-code">Copy</button></div>
-        <pre id="agent-claim-code"><code>curl -s -X POST \
-  https://your-octostore.internal/locks/github-issue-1842/acquire \
-  -H "Authorization: Bearer $OCTOSTORE_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "ttl_seconds":120,
-    "metadata":"agent=atlas run=https://trace.example/7f2a"
-  }'</code></pre>
-      </div>
-      <p class="section-link"><a href="/coordination/">See the task-coordination path →</a></p>
-    </section>
-
-    <section class="content-section">
-      <h2>Build the safety loop around the lease.</h2>
-      <div class="operating-loop">
-        <div><strong>Acquire</strong><span>Campaign or claim before side effects.</span></div>
-        <div><strong>Fence</strong><span>Carry the term so stale agents can be rejected.</span></div>
-        <div><strong>Renew</strong><span>Heartbeat while the agent remains healthy.</span></div>
-        <div><strong>Release</strong><span>Resign cleanly; expire automatically after failure.</span></div>
-      </div>
-    </section>
-
-    <section class="content-section">
-      <h2>OctoStore does not run your agents.</h2>
-      <p>That boundary is the point. OctoStore coordinates authority. Your system still decides what work means, which model or tool runs, and how side effects become safe.</p>
-      <ul>
-        <li>Keep irreversible actions behind human or policy gates.</li>
-        <li>Write downstream operations so retries are safe.</li>
-        <li>Pass fencing terms to resources that can reject stale writers.</li>
-        <li>Use sessions when many ephemeral locks should disappear with one agent process.</li>
-        <li>Use watches or webhooks when operators and reconcilers need change events.</li>
-      </ul>
-    </section>
-
-    <section class="content-section">
-      <h2>Run the referee where the agents run.</h2>
-      <p>OctoStore is one Rust binary backed by one SQLite database in WAL mode. Start with static tokens. Add GitHub OAuth only if humans need it. Disable public elections on private installations with <code>PUBLIC_ELECTIONS=false</code>.</p>
-      <div class="button-row">
-        <a class="button primary" href="/docs/#self-host">Self-host OctoStore</a>
-        <a class="button" href="/docs/">Read the complete docs</a>
+      <div class="depth-links">
+        <a href="/docs/"><span>Human guide</span><strong>Concepts, setup, and operations</strong><b aria-hidden="true">↗</b></a>
+            <a href="https://api.octostore.io/docs"><span>Read-only API index</span><strong>Requests, responses, and errors</strong><b aria-hidden="true">↗</b></a>
+        <a href="https://api.octostore.io/openapi.yaml"><span>OpenAPI YAML</span><strong>Machine-readable contract</strong><b aria-hidden="true">↗</b></a>
+        <a href="https://github.com/octostore/octostore.io"><span>Source</span><strong>Implementation, tests, and release</strong><b aria-hidden="true">↗</b></a>
       </div>
     </section>
   </main>
 
   <footer class="site-footer wrap">
-    <span>Keep execution decentralized. Share the truth about ownership.</span>
-    <span class="footer-links"><a href="/leader-election/">Leader election</a><a href="/coordination/">Coordination</a><a href="/docs/">Docs</a><a href="https://github.com/octostore/octostore.io">GitHub</a></span>
+    <span>One shared lease before side effects.</span>
+    <span class="footer-links"><a href="/agents/SKILL.md">Agent skill</a><a href="/leader-election/">Leader election</a><a href="/coordination/">Task locks</a><a href="/docs/">Docs</a><a href="https://github.com/octostore/octostore.io">GitHub</a></span>
   </footer>
 </body>
 </html>

@@ -1,8 +1,9 @@
 [package]
 name = "octostore"
-version = "0.13.2"
+default-run = "octostore"
+version = "0.14.0"
 edition = "2021"
-description = "Simple leader election over HTTP with self-hosted task and agent coordination"
+description = "Account-free hosted elections and authenticated hosted or self-hosted task locks for agents"
 license = "MIT"
 repository = "https://github.com/octostore/octostore.io"
 homepage = "https://octostore.io"
@@ -10,7 +11,25 @@ documentation = "https://docs.rs/octostore"
 readme = "README.md"
 keywords = ["agents", "leader-election", "distributed", "locking", "coordination"]
 categories = ["web-programming::http-server", "database"]
-exclude = ["site/*", "design/*", "benches/*", "fuzz/*", ".github/*"]
+include = [
+    "/Cargo.lock",
+    "/Cargo.toml",
+    "/LICENSE-MIT",
+    "/README.md",
+    "/benches/**/*.rs",
+    "/install.sh",
+    "/openapi.yaml",
+    "/scripts/reference-supervisor.sh",
+    "/scripts/smoke-release-fixture.sh",
+    "/scripts/smoke-supervisor.sh",
+    "/scripts/smoke-two-agents.sh",
+    "/scripts/two-agent-supervised-demo.sh",
+    "/site/agents/SKILL.md",
+    "/site/assets/octostore-logo.svg",
+    "/skills/octostore/SKILL.md",
+    "/src/**/*.rs",
+    "/tests/**/*.rs",
+]
 
 [lib]
 name = "octostore"
@@ -35,7 +54,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 dashmap = "5.5"
 rusqlite = { version = "0.30", features = ["bundled"] }
-reqwest = { version = "0.11", features = ["json", "stream"] }
+reqwest = { version = "0.11", default-features = false, features = ["json", "stream", "rustls-tls", "rustls-tls-native-roots"] }
 thiserror = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -50,6 +69,7 @@ urlencoding = "2.1"
 clap = { version = "4.0", features = ["derive"] }
 sha2 = "0.10"
 futures = "0.3"
+libc = "0.2"
 tokio-stream = { version = "0.1", features = ["sync"] }
 hmac = "0.12"
 hex = "0.4"
@@ -64,3 +84,8 @@ tempfile = "3.8"
 criterion = { version = "0.5", features = ["html_reports"] }
 proptest = "1.3"
 tokio-test = "0.4"
+serde_yaml = "0.9"
+rcgen = "0.12"
+rustls = "0.21"
+tokio-rustls = "0.24"
+serial_test = "=3.2.0"

@@ -35,7 +35,7 @@
         <a href="/coordination/">Coordination</a>
         <a href="/docs/">Docs</a>
         <a href="https://github.com/octostore/octostore.io">GitHub</a>
-        <a class="nav-cta" href="/#live-race">Try it live</a>
+        <a class="nav-cta" href="/#live-coordination-wire">Try it live</a>
       </div>
     </nav>
   </div>
@@ -75,7 +75,7 @@
       <h2>The smallest complete model.</h2>
       <div class="plain-list">
         <p><strong>Room</strong> A shared address where candidates meet.</p>
-        <p><strong>Lease</strong> Time-bounded permission for one candidate to lead.</p>
+        <p><strong>Lease</strong> Time-bounded advisory authority for one candidate to lead. It is not permission for the underlying action.</p>
         <p><strong>Capability</strong> A secret token that can renew or resign that lease.</p>
         <p><strong>Term</strong> A monotonic number that exposes stale authority.</p>
         <p><strong>Retry delay</strong> The moment followers should campaign again.</p>
@@ -105,11 +105,11 @@ curl -s -X POST \
       <p>Simple leader election should be simple to use. It should not pretend failure is simple.</p>
 
       <div class="callout">
-        <h2>Pick one leader. Everyone else waits.</h2>
+        <h2>Stop two agents from doing the same work.</h2>
         <p>Run the production-backed election, copy the two-call quickstart, or host the same API inside your network.</p>
         <div class="button-row">
-          <a class="button primary" href="/#live-race">Run a live election</a>
-          <a class="button" href="/leader-election/">Read the 60-second guide</a>
+          <a class="button primary" href="/#live-coordination-wire">Create one shared room</a>
+          <a class="button" href="/leader-election/">Read the agent-first guide</a>
         </div>
       </div>
     </article>

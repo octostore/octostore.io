@@ -2,6 +2,37 @@
 
 All notable changes to Octostore will be documented in this file.
 
+## v0.14.0 - 2026-08-09
+
+OctoStore now gives agents a direct, supervised coordination path while keeping the HTTP API as the source of truth. Create one shared account-free hosted election for a coordinator or hold one authenticated hosted or self-hosted lock for an exact work item.
+
+### Added
+
+- `election create|hold|status|watch`, `lock hold|status|watch`, and explicit `serve` CLI commands without changing bare `octostore` server startup.
+- Versioned JSONL lifecycle events with queue-age-adjustable authority budgets, bounded acquisition and renewal deadlines, exact signal exits, secret-safe token-file input, and fail-closed authority loss.
+- A canonical installable `octostore` agent skill and a tested supervisor that gates and cancels protected workers.
+- End-to-end two-agent failover, supervisor, stalled-I/O, shutdown-budget, session-deadline, leakage, namespace, watch-capacity, and release-install fixtures.
+- Bounded best-effort election and lock watches with initial reconciliation, reconnect guidance, close-on-lag behavior, and capability-free lock events.
+
+### Changed
+
+- Rebuilt the homepage, agent guide, docs, election guide, lock guide, and README around “stop two agents from doing the same work,” with skill and CLI before curl.
+- Standardized public API error codes, request IDs, retry guidance, and OpenAPI route/error correspondence.
+- Scoped namespaced reads and session status to their owners; aligned ephemeral session-lock expiry across runtime cleanup and restart.
+- Hardened release publication around an exact tagged commit on `origin/main`, local-equivalent checks, portable Rustls/MUSL assets, native execution, a draft release, and deployment only after publication.
+
+### Security
+
+- Lock watch events no longer expose lease IDs, session IDs, holder metadata, or other mutation capabilities.
+- Token files are opened once without symlink following and validated from the opened descriptor for owner, type, and mode.
+- Lease and session authority fail closed on the earlier monotonic confirmation deadline, including stalled response bodies and long lock TTLs.
+- Watch-channel storage is bounded and pruned, and lag or serialization failure closes the stream so clients reconcile.
+- Local registration is disabled by default, restricted to an explicit numeric loopback bind when enabled, incompatible with other identity sources, and rejects case-insensitive local/static/OAuth username collisions without returning an existing bearer token; ambiguous legacy identities fail startup.
+- GitHub OAuth handoffs now bind the configured dashboard, CORS origin, one-time exchange, persisted credential, and subsequent browser API requests to the issuing deployment; unsafe or incomplete self-hosted authorities fail startup.
+- Buffered authority events cannot restart a stale safety budget, and a detached guardian plus main-process fallback contain protected worker groups even if the supervisor or guardian dies; terminal lifecycle events are withheld until containment is verified.
+- The portable supervisor documents its cooperative process-group boundary. A direct worker `setsid` escape is detected and contained, but untrusted or daemonizing descendants require a platform boundary such as a container or cgroup.
+- Crate publication uses a strict file allowlist and exact archive inspection, and resumable crates.io publication accepts an existing version only when its unyanked checksum matches the exact candidate archive.
+
 ## v0.13.2 - 2026-07-18
 
 ### Changed

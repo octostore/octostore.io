@@ -1,0 +1,9 @@
+extends:
+  - recommended
+
+# These generic rules do not model valid OctoStore surfaces: a documented local
+# authority, redirect-only OAuth endpoints, and infallible static/health reads.
+rules:
+  no-server-example.com: off
+  operation-2xx-response: off
+  operation-4xx-response: off

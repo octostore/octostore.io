@@ -1,6 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+cargo fmt --check
+cargo fmt --manifest-path fuzz/Cargo.toml -- --check
 cargo check --all-targets --all-features --locked
+cargo check --manifest-path fuzz/Cargo.toml --all-targets --locked
 RUST_TEST_THREADS=1 cargo test --all-targets --all-features --locked
 cargo clippy --all-targets --all-features --locked -- -D warnings
+scripts/check-package.sh
+shellcheck install.sh deploy/deploy.sh scripts/*.sh tests/fixtures/*.sh
+go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+scripts/check-release-contract.sh
+scripts/smoke-downgrade-compatibility.sh
+npm ci --ignore-scripts --no-audit --no-fund
+./node_modules/.bin/playwright install chromium
+npm run lint:openapi
+npm run lint:html
+npm run test:site:static
+npm run test:site:browser
+scripts/smoke-skill-install.sh
+scripts/smoke-release-fixture.sh

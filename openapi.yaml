@@ -2,15 +2,17 @@ openapi: 3.0.3
 info:
   title: OctoStore API
   description: >-
-    Simple leader election over HTTP. Elect one remote leader without an account,
-    API key, or SDK. Self-host the same API plus durable task locks, sessions,
-    webhooks, and fencing terms in a single Rust binary backed by SQLite.
+    Simple coordination over HTTP. Elect one remote leader without an account,
+    API key, or SDK. Use authenticated durable task locks on the production server,
+    or self-host the same elections, locks, sessions, webhooks, and fencing terms
+    in a single Rust binary backed by SQLite.
   version: 0.0.0-dev
   contact:
     name: OctoStore
     url: https://octostore.io
   license:
     name: MIT
+    url: https://opensource.org/license/mit
 servers:
 - url: https://api.octostore.io
   description: Production server
@@ -21,6 +23,7 @@ security:
 paths:
   /elections:
     post:
+      operationId: createElection
       tags:
       - Leader Elections
       summary: Create an account-free election room
@@ -33,7 +36,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [election_id, campaign_path, status_path]
+                required: [election_id, campaign_path, status_path, watch_path]
                 properties:
                   election_id:
                     type: string
@@ -42,12 +45,48 @@ paths:
                     type: string
                   status_path:
                     type: string
+                  watch_path:
+                    type: string
+                    description: Best-effort SSE stream for current election state
+        '403':
+          $ref: '#/components/responses/PublicElectionsDisabled'
+        '429':
+          $ref: '#/components/responses/PublicElectionRateLimited'
+  /elections/{election_id}/watch:
+    get:
+      operationId: watchElection
+      tags:
+      - Leader Elections
+      summary: Watch current election state
+      description: >-
+        Best-effort Server-Sent Events stream. The first `state` event is a current
+        snapshot. Later events are hints that re-read authoritative state. Duplicate
+        states are allowed. The stream closes on lag, internal failure, or its configured
+        maximum lifetime. It has no replay log, omits SSE IDs, and ignores Last-Event-ID;
+        reconnecting clients must reconcile with GET /elections/{election_id} before acting.
+      security: []
+      parameters:
+      - $ref: '#/components/parameters/ElectionId'
+      responses:
+        '200':
+          description: Bounded election state stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              example: |-
+                event: state
+                retry:1000
+                data: {"schema_version":1,"election_id":"g15BTc54MStBoX-momDJm6uBhJQKKtqQ","status":"vacant","leader":null,"retry_after_ms":0,"observed_at":"2026-08-02T12:00:00Z"}
+        '400':
+          $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/PublicElectionsDisabled'
         '429':
           $ref: '#/components/responses/PublicElectionRateLimited'
   /elections/{election_id}:
     get:
+      operationId: getElectionStatus
       tags:
       - Leader Elections
       summary: Inspect the current leader
@@ -68,6 +107,7 @@ paths:
           $ref: '#/components/responses/PublicElectionsDisabled'
   /elections/{election_id}/campaign:
     post:
+      operationId: campaignForElection
       tags:
       - Leader Elections
       summary: Campaign for leadership
@@ -112,11 +152,12 @@ paths:
         '403':
           $ref: '#/components/responses/PublicElectionsDisabled'
         '409':
-          description: Public election capacity reached
+          $ref: '#/components/responses/PublicElectionCapacityExceeded'
         '429':
           $ref: '#/components/responses/PublicElectionRateLimited'
   /elections/{election_id}/renew:
     post:
+      operationId: renewElectionLeadership
       tags:
       - Leader Elections
       summary: Renew leadership
@@ -142,9 +183,10 @@ paths:
         '403':
           $ref: '#/components/responses/PublicElectionsDisabled'
         '404':
-          description: Election has no current leader
+          $ref: '#/components/responses/LeaseNotCurrent'
   /elections/{election_id}/resign:
     post:
+      operationId: resignElectionLeadership
       tags:
       - Leader Elections
       summary: Resign leadership
@@ -185,28 +227,47 @@ paths:
         '403':
           $ref: '#/components/responses/PublicElectionsDisabled'
         '404':
-          description: Election has no current leader
+          $ref: '#/components/responses/LeaseNotCurrent'
   /auth/github:
     get:
+      operationId: beginGitHubAuthentication
       tags:
       - Authentication
       summary: Initiate GitHub OAuth flow
-      description: Redirects to GitHub OAuth authorization page
+      description: >-
+        Issues a browser-bound, HttpOnly OAuth state cookie and redirects to GitHub.
+        The state is single-use and expires after five minutes.
       security: []
       responses:
-        '302':
+        '303':
           description: Redirect to GitHub OAuth
           headers:
             Location:
               schema:
                 type: string
-                example: https://github.com/login/oauth/authorize?client_id=...
+                example: https://github.com/login/oauth/authorize?client_id=...&state=...
+            Set-Cookie:
+              schema:
+                type: string
+              description: Secure, HttpOnly, SameSite=Lax, browser-bound OAuth state cookie
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+        '409':
+          $ref: '#/components/responses/CapacityExceeded'
   /auth/github/callback:
     get:
+      operationId: completeGitHubAuthentication
       tags:
       - Authentication
       summary: GitHub OAuth callback
-      description: Internal callback endpoint for GitHub OAuth flow
+      description: >-
+        Validates and consumes the query/cookie OAuth state, exchanges the GitHub code,
+        and redirects with a 60-second single-use exchange code plus the validated issuing
+        API origin in the URL fragment. The configured dashboard exchanges and retains
+        that issuer for subsequent API requests. The API bearer token is never placed in
+        Location.
       security: []
       parameters:
       - name: code
@@ -217,37 +278,124 @@ paths:
         description: OAuth authorization code from GitHub
       - name: state
         in: query
-        required: false
+        required: true
         schema:
           type: string
-        description: OAuth state parameter
+        description: OAuth state parameter that must match the browser-bound cookie
+      responses:
+        '303':
+          description: Authentication succeeded; redirect to the configured dashboard with a one-time code and issuing API origin
+          headers:
+            Location:
+              schema:
+                type: string
+                example: https://octostore.io/dashboard.html#exchange_code=...&issuer=https%3A%2F%2Fapi.octostore.io
+            Set-Cookie:
+              schema:
+                type: string
+              description: Clears the one-time OAuth state cookie
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          $ref: '#/components/responses/CapacityExceeded'
+        '502':
+          $ref: '#/components/responses/UpstreamUnavailable'
+  /auth/github/exchange:
+    post:
+      operationId: exchangeGitHubAuthenticationHandoff
+      tags:
+      - Authentication
+      summary: Exchange a one-time browser handoff code
+      description: >-
+        Consumes a single-use code from the dashboard URL fragment and returns the API bearer
+        token once. Codes expire after 60 seconds. Responses are never cacheable.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [exchange_code]
+              properties:
+                exchange_code:
+                  type: string
+                  minLength: 1
       responses:
         '200':
-          description: Authentication successful
+          description: One-time code exchanged
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  token:
-                    type: string
-                    description: Bearer token for API access
-                  user:
-                    type: object
-                    properties:
-                      login:
-                        type: string
-                        description: GitHub username
-                      avatar_url:
-                        type: string
-                        description: GitHub avatar URL
-                required:
-                - token
-                - user
-        '401':
-          $ref: '#/components/responses/Unauthorized'
+                $ref: '#/components/schemas/AuthToken'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /auth/register:
+    post:
+      operationId: registerLocalUser
+      tags:
+      - Authentication
+      summary: Register a local user
+      description: >-
+        Disabled by default. Available only when LOCAL_REGISTRATION=true, BIND_ADDR
+        is an explicit numeric loopback address, and neither GitHub OAuth nor a static
+        token source is configured. Creates a new local user and returns its bearer
+        token once. Usernames are unique case-insensitively across local, static,
+        and OAuth identities. Existing usernames fail with 409 and never return a
+        stored token.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username]
+              properties:
+                username:
+                  type: string
+                  minLength: 1
+                  maxLength: 64
+                  pattern: '^[A-Za-z0-9_-]+$'
+                namespace:
+                  type: string
+                  nullable: true
+                  minLength: 1
+                  maxLength: 64
+                  pattern: '^[A-Za-z0-9._-]+$'
+      responses:
+        '200':
+          description: Local user registered
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocalRegistration'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /auth/token/rotate:
     post:
+      operationId: rotateAuthenticationToken
       tags:
       - Authentication
       summary: Rotate bearer token
@@ -255,20 +403,20 @@ paths:
       responses:
         '200':
           description: Token rotated successfully
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  token:
-                    type: string
-                    description: New bearer token
-                required:
-                - token
+                $ref: '#/components/schemas/AuthToken'
         '401':
           $ref: '#/components/responses/Unauthorized'
   /locks/{name}/acquire:
     post:
+      operationId: acquireLock
       tags:
       - Locks
       summary: Acquire a lock
@@ -276,7 +424,8 @@ paths:
 
         Returns the lock status and lease information if successful. An optional
         acquire ACL becomes sticky for this lock name and restricts future
-        acquisitions to its listed principals.
+        acquisitions to its listed principals. A first lease and its requested
+        ACL are committed atomically: a persistence failure creates neither.
 
         '
       parameters:
@@ -298,11 +447,16 @@ paths:
                 metadata:
                   type: string
                   maxLength: 1024
-                  description: Optional owner or trace context
+                  description: >-
+                    Optional non-secret owner or trace context for a new lease. An idempotent
+                    same-holder reacquisition preserves and returns the current lease metadata.
                 session_id:
                   type: string
                   format: uuid
-                  description: Optional session that owns this lock
+                  description: >-
+                    Optional session correlation. Ephemeral locks are revoked with the session;
+                    non-ephemeral locks retain the authenticated user as their durable holder and
+                    remain manageable after the session ends.
                 ephemeral:
                   type: boolean
                   default: false
@@ -317,11 +471,15 @@ paths:
                   $ref: '#/components/schemas/LockAcl'
       responses:
         '200':
-          description: Lock acquired or already held by caller
+          description: Lock acquired by this principal or held by another principal
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/LockResponse'
+                oneOf:
+                - $ref: '#/components/schemas/LockAcquired'
+                - $ref: '#/components/schemas/LockHeld'
+        '400':
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -331,19 +489,25 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
-          description: Lock currently held by another user
+          description: Lock is in its configured release delay, or the requested ACL conflicts
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/LockConflict'
+                oneOf:
+                - $ref: '#/components/schemas/LockDelayed'
+                - $ref: '#/components/schemas/Error'
         '422':
           $ref: '#/components/responses/ValidationError'
   /locks/{name}/acl:
     put:
+      operationId: updateLockAcl
       tags:
       - Locks
       summary: Replace a lock's acquire ACL
-      description: The current unexpired lock holder or an administrator may replace the sticky acquire ACL.
+      description: >-
+        The exact current unexpired lock holder or an administrator may replace the sticky
+        acquire ACL. Releasing and reacquiring the lock invalidates an in-flight holder update,
+        even when the same principal later becomes holder again.
       parameters:
       - $ref: '#/components/parameters/LockName'
       requestBody:
@@ -364,6 +528,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UpdateLockAclResponse'
+        '400':
+          description: ACL content failed semantic validation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -378,6 +548,7 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /locks/{name}/release:
     post:
+      operationId: releaseLock
       tags:
       - Locks
       summary: Release a lock
@@ -404,23 +575,20 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    enum:
-                    - released
-                  message:
-                    type: string
-                    example: Lock released
+                type: string
+                nullable: true
+              example: null
+        '400':
+          $ref: '#/components/responses/LeaseNotCurrent'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
-          $ref: '#/components/responses/LockNotFound'
+          $ref: '#/components/responses/LeaseNotCurrent'
         '422':
           $ref: '#/components/responses/ValidationError'
   /locks/{name}/renew:
     post:
+      operationId: renewLock
       tags:
       - Locks
       summary: Renew a lock's TTL
@@ -443,26 +611,68 @@ paths:
                   type: integer
                   minimum: 1
                   maximum: 3600
+                  default: 60
                   description: New TTL in seconds (max 1 hour)
                   example: 300
               required:
               - lease_id
-              - ttl_seconds
       responses:
         '200':
           description: Lock renewed successfully
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/LockResponse'
+                $ref: '#/components/schemas/RenewLockResponse'
+        '400':
+          $ref: '#/components/responses/LeaseNotCurrent'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
-          $ref: '#/components/responses/LockNotFound'
+          $ref: '#/components/responses/LeaseNotCurrent'
         '422':
           $ref: '#/components/responses/ValidationError'
+  /locks/{name}/watch:
+    get:
+      operationId: watchLock
+      tags:
+      - Locks
+      summary: Watch lock state changes
+      description: >-
+        Best-effort authenticated Server-Sent Events stream of acquired, renewed,
+        released, and expired events. The stream is not a durable log, has no replay
+        contract, and closes if the subscriber lags. The first frame is a capability-free
+        current-state snapshot: `acquired` when the lock is held or `released` when it is
+        vacant. A transition racing with that snapshot may produce a duplicate state hint.
+        Later frames describe observed transitions. Reconcile through GET /locks/{name}
+        before acting or reconnecting. Each data field is JSON with `event`, `lock_name`,
+        and `observed_at`, plus `fencing_token` and `expires_at` for acquired or renewed
+        state. Frames never include lease IDs, session IDs, holder IDs, credentials, or
+        caller metadata.
+      parameters:
+      - $ref: '#/components/parameters/LockName'
+      responses:
+        '200':
+          description: Best-effort lock event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: >-
+                  SSE wire frames whose data field is the capability-free JSON signal
+                  described by this operation.
+              example: |-
+                data: {"event":"acquired","lock_name":"jobs/import","fencing_token":42,"expires_at":"2026-08-03T01:02:03Z","observed_at":"2026-08-03T01:01:03Z"}
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/CapacityExceeded'
   /locks/{name}:
     get:
+      operationId: getLockStatus
       tags:
       - Locks
       summary: Get lock status
@@ -475,20 +685,24 @@ paths:
           content:
             application/json:
               schema:
-                oneOf:
-                - $ref: '#/components/schemas/LockResponse'
-                - $ref: '#/components/schemas/LockNotHeld'
+                $ref: '#/components/schemas/LockStatus'
+        '400':
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /locks:
     get:
+      operationId: listLocks
       tags:
       - Locks
       summary: List locks by prefix
       description: |
         List all currently-held locks, optionally filtered by a hierarchical
-        name prefix. Lock names use `/` as the path separator
-        (e.g. `service/component/resource`).
+        name prefix. Namespaced callers who omit `prefix` are automatically
+        scoped to their own `<namespace>.` prefix and cannot enumerate other
+        namespaces. Unscoped callers may list across names.
       parameters:
       - name: prefix
         in: query
@@ -508,11 +722,12 @@ paths:
           $ref: '#/components/responses/Unauthorized'
   /sessions:
     post:
+      operationId: createSession
       tags:
       - Sessions
       summary: Create a new session
       description: 'Create a session with a keepalive TTL. Locks acquired with this
-        session_id will be automatically released when the session expires.
+        session_id and ephemeral=true are automatically released when the session expires.
 
         '
       requestBody:
@@ -524,9 +739,9 @@ paths:
               properties:
                 ttl_seconds:
                   type: integer
-                  minimum: 10
-                  maximum: 300
-                  description: Session TTL in seconds (default 60, min 10, max 300)
+                  description: >-
+                    Requested session TTL in seconds. The server defaults an omitted value to 60
+                    and clamps supplied values into the inclusive 10–300 second range.
                   example: 60
       responses:
         '201':
@@ -539,6 +754,7 @@ paths:
           $ref: '#/components/responses/Unauthorized'
   /sessions/{id}/keepalive:
     post:
+      operationId: keepSessionAlive
       tags:
       - Sessions
       summary: Extend session expiry
@@ -568,10 +784,13 @@ paths:
                 $ref: '#/components/schemas/Error'
   /sessions/{id}:
     get:
+      operationId: getSessionStatus
       tags:
       - Sessions
       summary: Get session status
-      description: Returns session details including the number of locks held
+      description: >-
+        Returns details for a session owned by the authenticated caller, including
+        the number of associated locks. Foreign and absent session IDs both return 404.
       parameters:
       - $ref: '#/components/parameters/SessionId'
       responses:
@@ -590,10 +809,14 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
     delete:
+      operationId: terminateSession
       tags:
       - Sessions
       summary: Terminate a session
-      description: Explicitly close a session and release all associated locks
+      description: >-
+        Explicitly close a caller-owned session and release its ephemeral locks.
+        Non-ephemeral locks retain their independent lease TTL and remain manageable by
+        their authenticated user principal.
       parameters:
       - $ref: '#/components/parameters/SessionId'
       responses:
@@ -609,20 +832,53 @@ paths:
                 $ref: '#/components/schemas/Error'
   /webhooks:
     post:
+      operationId: createWebhook
       tags:
       - Webhooks
       summary: Create a webhook
       description: |
         Register a webhook to receive POST callbacks on lock events.
         URL must use HTTPS. Maximum 10 webhooks per user.
+        By default, localhost plus private, link-local, and reserved literal or
+        DNS-resolved addresses are rejected on every delivery attempt. A
+        self-hosted operator may explicitly opt into private destinations with
+        OCTOSTORE_WEBHOOK_ALLOW_PRIVATE_NETWORKS=true.
+        Redirects are never followed. Callbacks are delivered only for locks
+        owned by the authenticated webhook principal, including that user's
+        active session-held locks.
         If a secret is provided, payloads are signed with HMAC-SHA256
         and the signature is sent in the X-OctoStore-Signature header.
+        Callback bodies use the WebhookEvent schema. Its holder_id is a stable
+        one-way pseudonym and is never an actionable user or session UUID.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateWebhookRequest'
+      callbacks:
+        lockEvent:
+          '{$request.body#/url}':
+            post:
+              operationId: receiveLockWebhookEvent
+              summary: Receive an authorized OctoStore lock event
+              parameters:
+              - name: X-OctoStore-Signature
+                in: header
+                required: false
+                schema:
+                  type: string
+                  pattern: '^sha256=[0-9a-f]{64}$'
+                description: Present when the webhook was registered with a secret
+              requestBody:
+                required: true
+                content:
+                  application/json:
+                    schema:
+                      $ref: '#/components/schemas/WebhookEvent'
+              responses:
+                '2XX':
+                  description: Callback accepted
       responses:
         '201':
           description: Webhook created
@@ -639,6 +895,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
     get:
+      operationId: listWebhooks
       tags:
       - Webhooks
       summary: List your webhooks
@@ -657,6 +914,7 @@ paths:
           $ref: '#/components/responses/Unauthorized'
   /webhooks/{id}:
     delete:
+      operationId: deleteWebhook
       tags:
       - Webhooks
       summary: Delete a webhook
@@ -683,6 +941,7 @@ paths:
                 $ref: '#/components/schemas/Error'
   /health:
     get:
+      operationId: getHealth
       tags:
       - System
       summary: Health check
@@ -692,16 +951,148 @@ paths:
         '200':
           description: Service is healthy
           content:
-            text/plain:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+  /status:
+    get:
+      operationId: getPublicStatus
+      tags:
+      - System
+      summary: Public service status
+      security: []
+      responses:
+        '200':
+          description: Public runtime counters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicStatus'
+  /admin/status:
+    get:
+      operationId: getAdminStatus
+      tags:
+      - Operations
+      summary: Detailed administrative status
+      description: Requires an admin header, admin bearer key, or configured admin user token.
+      security:
+      - adminKey: []
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Detailed server, lock, and user status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /metrics:
+    get:
+      operationId: getMetrics
+      tags:
+      - Operations
+      summary: Current administrative metrics snapshot
+      security:
+      - adminKey: []
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Current metrics snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminMetrics'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /admin/metrics/timeseries:
+    get:
+      operationId: getMetricsTimeseries
+      tags:
+      - Operations
+      summary: Administrative metrics time series
+      security:
+      - adminKey: []
+      - bearerAuth: []
+      parameters:
+      - name: window
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [1h, 12h, 24h, 7d]
+          default: 1h
+        description: Requested in-memory metrics window. Unsupported values are rejected.
+      responses:
+        '200':
+          description: Metrics time series
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminMetricsTimeseries'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /openapi.yaml:
+    get:
+      operationId: getOpenApiDocument
+      tags:
+      - Documentation
+      summary: Retrieve the versioned OpenAPI document
+      security: []
+      responses:
+        '200':
+          description: OpenAPI YAML with the running binary version
+          content:
+            application/yaml:
               schema:
                 type: string
-                example: OK
+  /docs:
+    get:
+      operationId: getApiDocumentation
+      tags:
+      - Documentation
+      summary: Open the static API reference
+      security: []
+      responses:
+        '200':
+          description: Read-only HTML API index linking to the versioned OpenAPI document
+          content:
+            text/html:
+              schema:
+                type: string
+  /:
+    get:
+      operationId: getApiRootDocumentation
+      tags:
+      - Documentation
+      summary: Open the static API reference
+      security: []
+      responses:
+        '200':
+          description: Read-only HTML API index linking to the versioned OpenAPI document
+          content:
+            text/html:
+              schema:
+                type: string
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       description: Bearer token from optional GitHub OAuth or a self-hosted static token
+    adminKey:
+      type: apiKey
+      in: header
+      name: X-OctoStore-Admin-Key
+      description: Self-hosted administrative key
   parameters:
     ElectionId:
       name: election_id
@@ -727,14 +1118,307 @@ components:
       required: true
       schema:
         type: string
-        pattern: ^[a-zA-Z0-9._-]+(/[a-zA-Z0-9._-]+)*$
         minLength: 1
-        maxLength: 256
       description: 'Hierarchical lock name using `/` as path separator. Components
-        may contain alphanumeric characters, hyphens, underscores, and dots (max 64
-        chars each).'
+        may contain Unicode alphanumeric characters, hyphens, underscores, and dots
+        (max 64 UTF-8 bytes each; max 256 UTF-8 bytes total). Empty components and
+        all other characters are rejected.'
       example: service/component/my-lock
   schemas:
+    LocalRegistration:
+      type: object
+      required: [token, user_id, username, namespace]
+      properties:
+        token:
+          type: string
+          description: Bearer token; treat as a secret
+        user_id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        namespace:
+          type: string
+          nullable: true
+    AuthToken:
+      type: object
+      required: [token, user_id, github_username, namespace]
+      properties:
+        token:
+          type: string
+          description: New bearer token; treat as a secret
+        user_id:
+          type: string
+          format: uuid
+        github_username:
+          type: string
+        namespace:
+          type: string
+          nullable: true
+    HealthStatus:
+      type: object
+      required: [status, storage, db_size_bytes]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        storage:
+          type: string
+          enum: [wal]
+        db_size_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+    PublicStatus:
+      type: object
+      required: [status, uptime_seconds, active_locks, total_users, total_acquires, total_releases]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        uptime_seconds:
+          type: integer
+          format: int64
+          minimum: 0
+        active_locks:
+          type: integer
+          minimum: 0
+        total_users:
+          type: integer
+          minimum: 0
+        total_acquires:
+          type: integer
+          format: int64
+          minimum: 0
+        total_releases:
+          type: integer
+          format: int64
+          minimum: 0
+    AdminUser:
+      type: object
+      additionalProperties: false
+      required: [id, github_username, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        github_username:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    AdminLock:
+      type: object
+      additionalProperties: false
+      required: [name, holder_username, metadata, fencing_token, expires_at, ttl_remaining_seconds]
+      properties:
+        name:
+          type: string
+          maxLength: 256
+        holder_username:
+          type: string
+        metadata:
+          type: string
+          nullable: true
+          maxLength: 1024
+        fencing_token:
+          type: integer
+          format: int64
+          minimum: 1
+        expires_at:
+          type: string
+          format: date-time
+        ttl_remaining_seconds:
+          type: integer
+          format: int64
+          minimum: 0
+    AdminStatus:
+      type: object
+      additionalProperties: false
+      required: [healthy, uptime_seconds, active_locks, total_users, total_acquires, total_releases, locks, users]
+      properties:
+        healthy:
+          type: boolean
+          enum: [true]
+        uptime_seconds:
+          type: integer
+          format: int64
+          minimum: 0
+        active_locks:
+          type: integer
+          minimum: 0
+        total_users:
+          type: integer
+          minimum: 0
+        total_acquires:
+          type: integer
+          format: int64
+          minimum: 0
+        total_releases:
+          type: integer
+          format: int64
+          minimum: 0
+        locks:
+          type: array
+          maxItems: 10000
+          items:
+            $ref: '#/components/schemas/AdminLock'
+        users:
+          type: array
+          maxItems: 10000
+          items:
+            $ref: '#/components/schemas/AdminUser'
+    AdminEndpointMetrics:
+      type: object
+      additionalProperties: false
+      required: [count, avg_ms, p50_ms, p95_ms, p99_ms, errors, min_ms, max_ms]
+      properties:
+        count:
+          type: integer
+          format: int64
+          minimum: 0
+        avg_ms:
+          type: string
+          pattern: '^[0-9]+(?:\.[0-9]+)?$'
+        p50_ms:
+          type: string
+          pattern: '^[0-9]+(?:\.[0-9]+)?$'
+        p95_ms:
+          type: string
+          pattern: '^[0-9]+(?:\.[0-9]+)?$'
+        p99_ms:
+          type: string
+          pattern: '^[0-9]+(?:\.[0-9]+)?$'
+        errors:
+          type: integer
+          format: int64
+          minimum: 0
+        min_ms:
+          type: integer
+          format: int64
+          minimum: 0
+        max_ms:
+          type: integer
+          format: int64
+          minimum: 0
+    AdminEndpointMetricsSet:
+      type: object
+      additionalProperties: false
+      required: [acquire, release, renew, status, list, auth, election]
+      properties:
+        acquire:
+          $ref: '#/components/schemas/AdminEndpointMetrics'
+        release:
+          $ref: '#/components/schemas/AdminEndpointMetrics'
+        renew:
+          $ref: '#/components/schemas/AdminEndpointMetrics'
+        status:
+          $ref: '#/components/schemas/AdminEndpointMetrics'
+        list:
+          $ref: '#/components/schemas/AdminEndpointMetrics'
+        auth:
+          $ref: '#/components/schemas/AdminEndpointMetrics'
+        election:
+          $ref: '#/components/schemas/AdminEndpointMetrics'
+    AdminLockStoreMetrics:
+      type: object
+      additionalProperties: false
+      required: [total_acquires, total_releases, total_expirations, cache_hits, cache_misses]
+      properties:
+        total_acquires:
+          type: integer
+          format: int64
+          minimum: 0
+        total_releases:
+          type: integer
+          format: int64
+          minimum: 0
+        total_expirations:
+          type: integer
+          format: int64
+          minimum: 0
+        cache_hits:
+          type: integer
+          format: int64
+          minimum: 0
+        cache_misses:
+          type: integer
+          format: int64
+          minimum: 0
+    AdminMetrics:
+      type: object
+      additionalProperties: false
+      required: [uptime_seconds, total_requests, requests_per_second, active_locks, total_users, endpoints, lock_store, memory_bytes]
+      properties:
+        uptime_seconds:
+          type: integer
+          format: int64
+          minimum: 0
+        total_requests:
+          type: integer
+          format: int64
+          minimum: 0
+        requests_per_second:
+          type: number
+          format: double
+          minimum: 0
+        active_locks:
+          type: integer
+          minimum: 0
+        total_users:
+          type: integer
+          minimum: 0
+        endpoints:
+          $ref: '#/components/schemas/AdminEndpointMetricsSet'
+        lock_store:
+          $ref: '#/components/schemas/AdminLockStoreMetrics'
+        memory_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+    AdminMetricsTimeseries:
+      type: object
+      additionalProperties: false
+      required: [window, timestamps, request_volume, acquire_rates, release_rates, active_locks]
+      properties:
+        window:
+          type: string
+          enum: [1h, 12h, 24h, 7d]
+        timestamps:
+          type: array
+          maxItems: 10080
+          items:
+            type: integer
+            format: int64
+            minimum: 0
+        request_volume:
+          type: array
+          maxItems: 10080
+          items:
+            type: integer
+            format: int64
+            minimum: 0
+        acquire_rates:
+          type: array
+          maxItems: 10080
+          items:
+            type: integer
+            format: int64
+            minimum: 0
+        release_rates:
+          type: array
+          maxItems: 10080
+          items:
+            type: integer
+            format: int64
+            minimum: 0
+        active_locks:
+          type: array
+          maxItems: 10080
+          items:
+            type: integer
+            format: int64
+            minimum: 0
     LockAcl:
       type: object
       description: Sticky allowlist controlling who may acquire a lock
@@ -791,12 +1475,14 @@ components:
           type: string
           enum: [leader, vacant]
         leader:
+          type: object
           allOf:
           - $ref: '#/components/schemas/ElectionLeader'
           nullable: true
         retry_after_ms:
           type: integer
           format: int64
+          minimum: 0
     ElectionLeaderResult:
       type: object
       required: [status, election_id, leader, leader_token, renew_after_ms]
@@ -814,6 +1500,7 @@ components:
         renew_after_ms:
           type: integer
           format: int64
+          minimum: 0
     ElectionFollowerResult:
       type: object
       required: [status, election_id, leader, retry_after_ms]
@@ -828,6 +1515,7 @@ components:
         retry_after_ms:
           type: integer
           format: int64
+          minimum: 0
     LeaderAction:
       type: object
       required: [leader_token]
@@ -840,148 +1528,133 @@ components:
           minimum: 5
           maximum: 300
           default: 30
-    LockResponse:
+    LockAcquired:
       type: object
+      required: [status, lease_id, fencing_token, expires_at, renew_after_ms, metadata]
       properties:
         status:
           type: string
-          enum:
-          - acquired
-          - held
-          description: Lock status
-        name:
-          type: string
-          description: Lock name
+          enum: [acquired]
         lease_id:
           type: string
           format: uuid
-          description: Unique lease identifier
+          description: Secret lease capability retained by the holder
         fencing_token:
           type: integer
-          description: Monotonically increasing fencing token for safety
+          format: int64
+          minimum: 1
+          description: >-
+            Monotonic lease generation within this OctoStore authority. Compare only
+            generations for the same protected resource and authority.
         expires_at:
           type: string
           format: date-time
-          description: Lock expiration time in RFC3339 format
-        holder:
+        renew_after_ms:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Recommended renewal delay measured locally from this response
+        metadata:
           type: string
-          description: GitHub username of the lock holder
-        acl:
-          allOf:
-          - $ref: '#/components/schemas/LockAcl'
           nullable: true
-          description: Sticky acquire ACL. Token principals are redacted.
-      required:
-      - status
-      - name
-      - lease_id
-      - fencing_token
-      - expires_at
-      - holder
-      example:
-        status: acquired
-        name: my-resource
-        lease_id: 550e8400-e29b-41d4-a716-446655440000
-        fencing_token: 42
-        expires_at: '2024-01-01T12:00:00Z'
-        holder: username
-    LockConflict:
+          maxLength: 1024
+    LockHeld:
       type: object
+      required: [status, holder_id, expires_at, retry_after_ms, metadata]
       properties:
-        error:
+        status:
           type: string
-          example: Lock already held
-        lock:
+          enum: [held]
+        holder_id:
+          type: string
+          format: uuid
+          description: >-
+            Stable public pseudonym for the current holder. It is not a session identifier and
+            cannot be used with session status, keepalive, or termination endpoints.
+        expires_at:
+          type: string
+          format: date-time
+        retry_after_ms:
+          type: integer
+          format: int64
+          minimum: 0
+        metadata:
+          type: string
+          nullable: true
+          maxLength: 1024
+    LockDelayed:
+      type: object
+      required: [status, available_at, lock_delay_seconds, retry_after_ms]
+      properties:
+        status:
+          type: string
+          enum: [delayed]
+        available_at:
+          type: string
+          format: date-time
+        lock_delay_seconds:
+          type: integer
+          minimum: 0
+          maximum: 30
+        retry_after_ms:
+          type: integer
+          format: int64
+          minimum: 0
+    RenewLockResponse:
+      type: object
+      required: [lease_id, expires_at, renew_after_ms]
+      properties:
+        lease_id:
+          type: string
+          format: uuid
+        expires_at:
+          type: string
+          format: date-time
+        renew_after_ms:
+          type: integer
+          format: int64
+          minimum: 0
+    LockStatus:
+      type: object
+      required: [name, status, holder_id, fencing_token, expires_at, metadata]
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          enum: [free, held]
+        holder_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Stable public pseudonym for the current holder, or null while free. It is not an
+            actionable session identifier.
+        fencing_token:
+          type: integer
+          format: int64
+          description: Current or most recently allocated fencing generation
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        metadata:
+          type: string
+          nullable: true
+        acl:
           type: object
-          properties:
-            name:
-              type: string
-            holder:
-              type: string
-              description: Current holder's GitHub username
-            expires_at:
-              type: string
-              format: date-time
-      required:
-      - error
-      - lock
-    LockNotHeld:
-      type: object
-      properties:
-        status:
-          type: string
-          enum:
-          - available
-        name:
-          type: string
-        message:
-          type: string
-          example: Lock not currently held
-        acl:
           allOf:
           - $ref: '#/components/schemas/LockAcl'
           nullable: true
-          description: Sticky acquire ACL. Token principals are redacted.
-      required:
-      - status
-      - name
-    LockInfo:
-      type: object
-      properties:
-        name:
-          type: string
-          description: Lock name
-        lease_id:
-          type: string
-          format: uuid
-          description: Lease identifier
-        fencing_token:
-          type: integer
-          description: Current fencing token
-        expires_at:
-          type: string
-          format: date-time
-          description: Lock expiration time
-      required:
-      - name
-      - lease_id
-      - fencing_token
-      - expires_at
+          description: Sticky acquire ACL when configured. Token principals are redacted.
     ListLocksResponse:
       type: object
+      required: [locks, total, prefix]
       properties:
         locks:
           type: array
           items:
-            type: object
-            properties:
-              name:
-                type: string
-                description: Lock name
-              status:
-                type: string
-                enum:
-                - held
-                description: Lock status (always "held" for active locks)
-              holder_id:
-                type: string
-                format: uuid
-                description: UUID of the lock holder
-              fencing_token:
-                type: integer
-                description: Monotonically increasing fencing token
-              expires_at:
-                type: string
-                format: date-time
-                description: Lock expiration time
-              metadata:
-                type: string
-                nullable: true
-                description: User-defined metadata
-            required:
-            - name
-            - status
-            - fencing_token
+            $ref: '#/components/schemas/LockStatus'
         total:
           type: integer
           description: Total number of locks returned
@@ -989,11 +1662,11 @@ components:
         prefix:
           type: string
           nullable: true
-          description: The prefix filter that was applied (null if none)
+          description: >-
+            The prefix filter that was applied. For a namespaced caller, an omitted
+            prefix defaults to that caller's namespace; null is possible only for an
+            unscoped caller that omitted the filter.
           example: service/
-      required:
-      - locks
-      - total
     CreateSessionResponse:
       type: object
       properties:
@@ -1123,55 +1796,103 @@ components:
       - events
       - created_at
       - active
-    WebhookPayload:
+    WebhookEvent:
       type: object
-      description: Payload POSTed to webhook URLs on lock events
+      additionalProperties: false
+      description: JSON body POSTed to an authorized webhook callback
+      required: [event, lock, holder_id, fencing_token, timestamp]
       properties:
         event:
           type: string
-          enum:
-          - acquired
-          - released
-          - expired
-          - renewed
-          description: Lock event type
+          enum: [acquired, released, renewed, expired]
         lock:
           type: string
-          description: Lock name
+          maxLength: 256
         holder_id:
           type: string
           format: uuid
           nullable: true
-          description: UUID of the lock holder (null for release/expiry)
+          description: Stable one-way holder pseudonym; never an actionable user or session capability
         fencing_token:
           type: integer
+          format: int64
+          minimum: 1
           nullable: true
-          description: Fencing token (null for release/expiry)
         timestamp:
           type: string
           format: date-time
-          description: Event timestamp in RFC3339 format
-      required:
-      - event
-      - lock
-      - timestamp
     Error:
       type: object
+      required: [error, code, details, request_id]
       properties:
         error:
           type: string
-          description: Error message
+          description: Safe human-readable summary; not a parsing contract
+        code:
+          type: string
+          description: Stable machine-readable error code
+          enum:
+          - authentication_required
+          - authentication_failed
+          - forbidden
+          - invalid_input
+          - invalid_ttl
+          - invalid_lock_name
+          - not_found
+          - session_expired
+          - lease_not_current
+          - conflict
+          - capacity_exceeded
+          - lock_limit_exceeded
+          - rate_limited
+          - upstream_unavailable
+          - internal_error
         details:
           type: string
-          description: Additional error details (optional)
-      required:
-      - error
+          description: Safe client-action context with internal diagnostics removed
+        retry_after_ms:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Present only when retrying is meaningful
+        request_id:
+          type: string
+          pattern: '^req_[0-9a-f]{32}$'
+          description: Server-generated correlation ID matching X-Request-Id
+  headers:
+    RequestId:
+      description: Server-generated request correlation ID
+      schema:
+        type: string
+        pattern: '^req_[0-9a-f]{32}$'
   responses:
-    PublicElectionRateLimited:
-      description: This client exceeded the configured public election admission rate
+    CapacityExceeded:
+      description: A bounded server registry has reached capacity
       headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
         Retry-After:
-          description: Seconds until the client's current admission window resets
+          description: Seconds before the client should retry admission
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Capacity exceeded
+            code: capacity_exceeded
+            details: 'Capacity exceeded: Watch registry capacity reached; retry after idle streams close'
+            retry_after_ms: 1000
+            request_id: req_0123456789abcdef0123456789abcdef
+    PublicElectionRateLimited:
+      description: The client or global public election watch admission bound was reached
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        Retry-After:
+          description: Seconds before attempting another watch admission
           schema:
             type: integer
             minimum: 1
@@ -1181,33 +1902,114 @@ components:
             $ref: '#/components/schemas/Error'
           example:
             error: Rate limit exceeded
+            code: rate_limited
             details: Rate limit exceeded; retry in 42 seconds
+            retry_after_ms: 42000
+            request_id: req_0123456789abcdef0123456789abcdef
+    PublicElectionCapacityExceeded:
+      description: Configured active public-election capacity has been reached
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        Retry-After:
+          description: Seconds before the client should re-check capacity
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Capacity exceeded
+            code: capacity_exceeded
+            details: 'Capacity exceeded: Public election capacity reached; retry later or self-host OctoStore'
+            retry_after_ms: 30000
+            request_id: req_0123456789abcdef0123456789abcdef
     PublicElectionsDisabled:
       description: Public elections are disabled on this server
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
           example:
-            error: Public elections are disabled on this server
+            error: Forbidden
+            code: forbidden
+            details: 'Forbidden: Public elections are disabled on this server'
+            request_id: req_0123456789abcdef0123456789abcdef
     Unauthorized:
       description: Invalid or missing authentication token
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
           example:
-            error: Invalid or missing authorization header
+            error: Authorization header required
+            code: authentication_required
+            details: Bearer token required
+            request_id: req_0123456789abcdef0123456789abcdef
+    Forbidden:
+      description: The current credential or capability lacks authority
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ConflictError:
+      description: The requested resource already exists or conflicts with current state
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Conflict
+            code: conflict
+            details: 'Conflict: local registration is unavailable for that username'
+            request_id: req_0123456789abcdef0123456789abcdef
     LockNotFound:
       description: Lock not found or not owned by caller
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
           example:
-            error: Lock not found or not owned by caller
+            error: Lock not found
+            code: not_found
+            details: 'Lock not found: example-lock'
+            request_id: req_0123456789abcdef0123456789abcdef
+    LeaseNotCurrent:
+      description: Lease capability is malformed, stale, expired, or not current; authority is not held
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Lease is not current
+            code: lease_not_current
+            details: Invalid lease ID
+            request_id: req_0123456789abcdef0123456789abcdef
     ValidationError:
       description: Request validation failed
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
       content:
         application/json:
           schema:
@@ -1216,11 +2018,40 @@ components:
             invalid_ttl:
               summary: Invalid TTL
               value:
-                error: TTL must be between 1 and 3600 seconds
+                error: Invalid TTL
+                code: invalid_ttl
+                details: 'Invalid TTL: TTL must be between 1 and 3600 seconds'
+                request_id: req_0123456789abcdef0123456789abcdef
             invalid_uuid:
               summary: Invalid lease ID
               value:
-                error: Invalid lease_id format
+                error: Invalid input
+                code: invalid_input
+                details: Invalid input
+                request_id: req_0123456789abcdef0123456789abcdef
+    UpstreamUnavailable:
+      description: A required upstream service failed
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalError:
+      description: Internal server failure with diagnostics redacted
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Internal server error
+            code: internal_error
+            details: Internal server error
+            request_id: req_0123456789abcdef0123456789abcdef
 tags:
 - name: Leader Elections
   description: Account-free, capability-based leader election over HTTP
@@ -1234,3 +2065,7 @@ tags:
   description: Webhook registration and management for lock event callbacks
 - name: System
   description: System health and status
+- name: Operations
+  description: Authenticated administrative status and metrics
+- name: Documentation
+  description: Versioned OpenAPI contract and read-only HTML index
