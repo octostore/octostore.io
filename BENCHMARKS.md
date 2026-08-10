@@ -1,81 +1,36 @@
-# OctoStore Benchmarks
+# OctoStore benchmarks
 
-## System Specifications
+## Evidence status
 
-- **OS**: Linux 6.8.0-94-generic (Ubuntu)
-- **CPU**: 16 cores (x86_64)
-- **RAM**: 30GB total, ~25GB available
-- **Storage**: SSD (demo-host: expanso-demo-machine)
-- **Date**: 2026-02-13
+The Criterion benchmark suite compiles and exercises the in-process `LockStore` API. It does not currently contain an HTTP benchmark, a hosted-service benchmark, or evidence for a latency service-level objective.
 
-## Benchmark Results
+No latency or throughput number is a public OctoStore claim until it is recorded from a named commit with the machine, database, concurrency, workload, sample size, and command used to produce it. Architecture alone is not performance evidence.
 
-### Current Status
+## Included benchmarks
 
-⚠️ **Note**: Benchmarks are currently experiencing compilation issues due to test code requiring fixes. The benchmark infrastructure is in place with comprehensive criterion-based tests.
+`benches/lock_benchmarks.rs` currently contains:
 
-### Available Benchmarks
+- `acquire_lock`
+- `release_lock`
+- `acquire_release_cycle`
+- `contention_2_threads`
+- `contention_10_attempts`
+- `many_different_locks/1000`
+- `fencing_token_generation/acquire_generates_token`
+- `sqlite_persistence`
 
-The project includes comprehensive benchmarks in `benches/lock_benchmarks.rs`:
+These are direct store and SQLite measurements. They do not include Axum routing, HTTP serialization, network transit, the CLI lease loop, or the hosted deployment.
 
-#### Micro-benchmarks (Direct LockStore API)
-- `acquire_lock` - Measures lock acquisition latency
-- `release_lock` - Measures lock release latency  
-- `acquire_release_cycle` - Full acquire→release cycle time
-- `fencing_token_generation` - Fencing token generation performance
-- `sqlite_persistence` - SQLite write-through latency
+## Reproduce
 
-#### Concurrency Benchmarks
-- `contention_2_threads` - Lock contention with 2 competing threads
-- `contention_10_threads` - Lock contention with 10 competing threads
-- `many_different_locks` - Performance with 1000+ unique locks
-
-#### HTTP-level Benchmarks
-- `http_acquire_release` - Full HTTP stack performance
-
-### Benchmark Categories
-
-1. **Latency Tests**: Single-operation timing
-2. **Throughput Tests**: Operations per second under load
-3. **Concurrency Tests**: Multi-threaded lock contention
-4. **Persistence Tests**: SQLite I/O performance
-5. **HTTP Stack Tests**: End-to-end API performance
-
-## Reproduction Instructions
+The repository already declares Criterion as a development dependency; no global installation is required.
 
 ```bash
-# Install dependencies
-cargo install criterion
+# Compile the exact benchmark target without running measurements.
+cargo bench --bench lock_benchmarks --no-run
 
-# Run all benchmarks
-cargo bench
-
-# Run specific benchmark group
-cargo bench -- acquire
-
-# Generate detailed HTML reports
-cargo bench -- --save-baseline main
+# Run the direct-store suite and generate Criterion reports.
+cargo bench --bench lock_benchmarks
 ```
 
-## Expected Performance Characteristics
-
-Based on the architecture (DashMap + SQLite + Axum):
-
-- **Single acquire/release**: Sub-millisecond latency
-- **Lock contention**: Graceful degradation with multiple threads
-- **Fencing tokens**: Monotonic, persistent counter performance
-- **HTTP overhead**: Minimal added latency over direct API calls
-
-## Future Improvements
-
-Once compilation issues are resolved:
-
-1. Run full benchmark suite
-2. Establish performance baselines
-3. Monitor regression over time
-4. Add memory usage benchmarks
-5. Test under various load patterns
-
----
-
-*Generated on 2026-02-13 via OpenClaw automation*
+Before publishing performance results for the agent-first release, separately measure local p50 and p95 for acquire, renew, and first watch event under a stated HTTP concurrency and database configuration. Hosted measurements must be labeled separately and must not be presented as an SLA without an independently maintained production measurement lane.

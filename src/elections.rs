@@ -13,13 +13,20 @@ use crate::{
 use axum::{
     extract::{ConnectInfo, Path, State},
     http::{HeaderMap, StatusCode},
+    response::sse::{Event, KeepAlive, Sse},
     Json,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::{DateTime, Utc};
+use futures::{stream, Stream, StreamExt};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use std::net::{IpAddr, SocketAddr};
+use std::{
+    convert::Infallible,
+    net::{IpAddr, SocketAddr},
+    time::Duration,
+};
+use tokio_stream::wrappers::BroadcastStream;
 use uuid::Uuid;
 
 const ELECTION_PREFIX: &str = "__election/";
@@ -47,14 +54,15 @@ pub struct LeaderActionRequest {
     pub ttl_seconds: Option<u32>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateElectionResponse {
     pub election_id: String,
     pub campaign_path: String,
     pub status_path: String,
+    pub watch_path: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ElectionLeader {
     pub candidate_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -63,7 +71,7 @@ pub struct ElectionLeader {
     pub expires_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "lowercase")]
 pub enum CampaignResponse {
     Leader {
@@ -79,20 +87,30 @@ pub enum CampaignResponse {
     },
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ElectionStatusResponse {
     pub election_id: String,
-    pub status: &'static str,
+    pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub leader: Option<ElectionLeader>,
     pub retry_after_ms: u64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResignResponse {
     pub election_id: String,
-    pub status: &'static str,
+    pub status: String,
     pub previous_term: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ElectionWatchEvent {
+    pub schema_version: u8,
+    pub election_id: String,
+    pub status: String,
+    pub leader: Option<ElectionLeader>,
+    pub retry_after_ms: u64,
+    pub observed_at: DateTime<Utc>,
 }
 
 pub fn is_reserved_lock_name(name: &str) -> bool {
@@ -203,6 +221,45 @@ fn remaining_ms(expires_at: DateTime<Utc>) -> u64 {
     (expires_at - Utc::now()).num_milliseconds().max(0) as u64
 }
 
+fn current_election_status(
+    store: &crate::store::LockStore,
+    election_id: &str,
+) -> Result<ElectionStatusResponse> {
+    let name = internal_name(election_id);
+    match store.get_lock(&name) {
+        Some(lock) if !lock.is_expired() => {
+            let leader = leader_from_lock(&lock)?;
+            Ok(ElectionStatusResponse {
+                election_id: election_id.to_string(),
+                status: "leader".to_string(),
+                retry_after_ms: remaining_ms(leader.expires_at),
+                leader: Some(leader),
+            })
+        }
+        _ => Ok(ElectionStatusResponse {
+            election_id: election_id.to_string(),
+            status: "vacant".to_string(),
+            leader: None,
+            retry_after_ms: 0,
+        }),
+    }
+}
+
+fn watch_event(status: ElectionStatusResponse) -> Result<Event> {
+    let data = serde_json::to_string(&ElectionWatchEvent {
+        schema_version: 1,
+        election_id: status.election_id,
+        status: status.status,
+        leader: status.leader,
+        retry_after_ms: status.retry_after_ms,
+        observed_at: Utc::now(),
+    })?;
+    Ok(Event::default()
+        .event("state")
+        .retry(Duration::from_secs(1))
+        .data(data))
+}
+
 fn admission_client_key(
     headers: &HeaderMap,
     connect_info: Option<ConnectInfo<SocketAddr>>,
@@ -253,6 +310,7 @@ pub async fn create_election(
         Json(CreateElectionResponse {
             campaign_path: format!("/elections/{election_id}/campaign"),
             status_path: format!("/elections/{election_id}"),
+            watch_path: format!("/elections/{election_id}/watch"),
             election_id,
         }),
     ))
@@ -309,6 +367,9 @@ pub async fn campaign(
                 leader,
             }))
         }
+        Ok(AcquireLockOutcome::Delayed { .. }) => Err(AppError::Internal(anyhow::anyhow!(
+            "public election unexpectedly entered a lock release delay"
+        ))),
         Err(error) => Err(error),
     }
 }
@@ -319,25 +380,68 @@ pub async fn election_status(
 ) -> Result<Json<ElectionStatusResponse>> {
     ensure_enabled(&state)?;
     validate_election_id(&election_id)?;
-    let name = internal_name(&election_id);
+    Ok(Json(current_election_status(
+        &state.lock_handlers.store,
+        &election_id,
+    )?))
+}
 
-    match state.lock_handlers.store.get_lock(&name) {
-        Some(lock) if !lock.is_expired() => {
-            let leader = leader_from_lock(&lock)?;
-            Ok(Json(ElectionStatusResponse {
-                election_id,
-                status: "leader",
-                retry_after_ms: remaining_ms(leader.expires_at),
-                leader: Some(leader),
-            }))
-        }
-        _ => Ok(Json(ElectionStatusResponse {
-            election_id,
-            status: "vacant",
-            leader: None,
-            retry_after_ms: 0,
-        })),
-    }
+pub async fn watch_election(
+    Path(election_id): Path<String>,
+    State(state): State<crate::AppState>,
+    headers: HeaderMap,
+    connect_info: Option<ConnectInfo<SocketAddr>>,
+) -> Result<Sse<impl Stream<Item = std::result::Result<Event, Infallible>>>> {
+    ensure_enabled(&state)?;
+    validate_election_id(&election_id)?;
+
+    let client_key = admission_client_key(&headers, connect_info);
+    let permit = state
+        .public_election_watch_limiter
+        .try_acquire(&client_key)
+        .map_err(|error| match error {
+            crate::rate_limit::WatchAdmissionError::ClientLimit => AppError::RateLimited {
+                retry_after_seconds: 30,
+            },
+            crate::rate_limit::WatchAdmissionError::GlobalCapacity => AppError::RateLimited {
+                retry_after_seconds: 1,
+            },
+        })?;
+
+    let name = internal_name(&election_id);
+    let receiver = state.lock_handlers.store.watch_lock(&name)?;
+    let initial = watch_event(current_election_status(
+        &state.lock_handlers.store,
+        &election_id,
+    )?)?;
+
+    let update_store = state.lock_handlers.store.clone();
+    let update_election_id = election_id.clone();
+    let updates = BroadcastStream::new(receiver)
+        .take_while(|message| futures::future::ready(message.is_ok()))
+        .map(move |_| {
+            current_election_status(&update_store, &update_election_id)
+                .and_then(watch_event)
+                .ok()
+        })
+        .take_while(|event| futures::future::ready(event.is_some()))
+        .map(|event| Ok(event.expect("event checked by take_while")));
+
+    let stream = stream::once(async move { Ok(initial) })
+        .chain(updates)
+        .map(move |event| {
+            let _keep_permit_alive = &permit;
+            event
+        })
+        .take_until(tokio::time::sleep(Duration::from_secs(
+            state.config.public_election_watch_max_seconds,
+        )));
+
+    Ok(Sse::new(stream).keep_alive(
+        KeepAlive::new()
+            .interval(Duration::from_secs(15))
+            .text("keepalive"),
+    ))
 }
 
 pub async fn renew_leadership(
@@ -380,7 +484,7 @@ pub async fn resign_leadership(
         .store
         .get_lock(&name)
         .map(|lock| lock.fencing_token)
-        .ok_or_else(|| AppError::NotFound("Election has no current leader".to_string()))?;
+        .ok_or(AppError::LeaseNotCurrent)?;
 
     state
         .lock_handlers
@@ -390,7 +494,7 @@ pub async fn resign_leadership(
 
     Ok(Json(ResignResponse {
         election_id,
-        status: "vacant",
+        status: "vacant".to_string(),
         previous_term,
     }))
 }
@@ -418,6 +522,18 @@ mod tests {
         max_public_elections: usize,
         requests_per_minute: u32,
     ) -> (Router, NamedTempFile) {
+        let (app, temp_file, _) =
+            test_app_with_all_limits(max_public_elections, requests_per_minute, 100, 8, 900).await;
+        (app, temp_file)
+    }
+
+    async fn test_app_with_all_limits(
+        max_public_elections: usize,
+        requests_per_minute: u32,
+        watch_streams_global: usize,
+        watch_streams_per_client: usize,
+        watch_max_seconds: u64,
+    ) -> (Router, NamedTempFile, crate::store::LockStore) {
         let temp_file = NamedTempFile::new().unwrap();
         let config = Config {
             bind_addr: "127.0.0.1:3000".to_string(),
@@ -425,13 +541,19 @@ mod tests {
             github_client_id: None,
             github_client_secret: None,
             github_redirect_uri: "http://localhost:3000/callback".to_string(),
+            oauth_api_base_url: None,
+            oauth_dashboard_url: None,
             admin_key: None,
             admin_username: None,
             static_tokens: None,
             static_tokens_file: None,
+            local_registration_enabled: false,
             public_elections_enabled: true,
             max_public_elections,
             public_election_requests_per_minute: requests_per_minute,
+            public_election_watch_streams_global: watch_streams_global,
+            public_election_watch_streams_per_client: watch_streams_per_client,
+            public_election_watch_max_seconds: watch_max_seconds,
         };
         let db: DbConn = Arc::new(Mutex::new(Connection::open(&config.database_url).unwrap()));
         let auth_service = AuthService::new(config.clone(), db.clone()).unwrap();
@@ -439,12 +561,16 @@ mod tests {
         let session_store = SessionStore::new(db.clone()).unwrap();
         let webhook_store = WebhookStore::new(db).unwrap();
         let state = crate::AppState {
-            lock_handlers: LockHandlers::new(lock_store),
+            lock_handlers: LockHandlers::new(lock_store.clone()),
             auth_service,
             config,
             metrics: Metrics::new(),
             public_election_rate_limiter: crate::rate_limit::PublicElectionRateLimiter::new(
                 requests_per_minute,
+            ),
+            public_election_watch_limiter: crate::rate_limit::PublicElectionWatchLimiter::new(
+                watch_streams_global,
+                watch_streams_per_client,
             ),
             session_store,
             webhook_store,
@@ -453,11 +579,12 @@ mod tests {
         let app = Router::new()
             .route("/elections", post(create_election))
             .route("/elections/:id", get(election_status))
+            .route("/elections/:id/watch", get(watch_election))
             .route("/elections/:id/campaign", post(campaign))
             .route("/elections/:id/renew", post(renew_leadership))
             .route("/elections/:id/resign", post(resign_leadership))
             .with_state(state);
-        (app, temp_file)
+        (app, temp_file, lock_store)
     }
 
     async fn test_app_with_limit(max_public_elections: usize) -> (Router, NamedTempFile) {
@@ -489,6 +616,234 @@ mod tests {
             .as_str()
             .unwrap()
             .starts_with("/elections/"));
+        assert!(body["watch_path"].as_str().unwrap().ends_with("/watch"));
+    }
+
+    async fn next_sse_json(body: &mut axum::body::BodyDataStream) -> Value {
+        let chunk = tokio::time::timeout(Duration::from_secs(2), body.next())
+            .await
+            .expect("SSE event should arrive before timeout")
+            .expect("SSE stream should remain open")
+            .expect("SSE body should not fail");
+        let text = String::from_utf8(chunk.to_vec()).unwrap();
+        assert!(
+            text.contains("event: state\n"),
+            "unexpected SSE frame: {text}"
+        );
+        assert!(
+            text.contains("retry:1000\n"),
+            "unexpected SSE frame: {text}"
+        );
+        assert!(!text.contains("id:"), "watch must not imply replay support");
+        let data = text
+            .lines()
+            .find_map(|line| line.strip_prefix("data: "))
+            .expect("SSE state frame must contain data");
+        serde_json::from_str(data).unwrap()
+    }
+
+    #[tokio::test]
+    async fn watch_starts_with_snapshot_and_reconciles_state_transitions() {
+        let (app, _temp, _store) = test_app_with_all_limits(100, 600, 100, 8, 900).await;
+        let election_id = "watch-room-123";
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(format!("/elections/{election_id}/watch"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("content-type")
+                .and_then(|value| value.to_str().ok()),
+            Some("text/event-stream")
+        );
+        let mut stream = response.into_body().into_data_stream();
+
+        let vacant = next_sse_json(&mut stream).await;
+        assert_eq!(vacant["schema_version"], 1);
+        assert_eq!(vacant["election_id"], election_id);
+        assert_eq!(vacant["status"], "vacant");
+        assert!(vacant["leader"].is_null());
+        assert_eq!(vacant["retry_after_ms"], 0);
+        assert!(vacant["observed_at"].is_string());
+
+        let elected = app
+            .clone()
+            .oneshot(
+                Request::post(format!("/elections/{election_id}/campaign"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"candidate_id":"agent-a","ttl_seconds":30}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let elected = json_body(elected).await;
+        let leader_token = elected["leader_token"].as_str().unwrap().to_string();
+        let first_expiry = elected["leader"]["expires_at"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let leader = next_sse_json(&mut stream).await;
+        assert_eq!(leader["status"], "leader");
+        assert_eq!(leader["leader"]["candidate_id"], "agent-a");
+        assert_eq!(leader["leader"]["term"], elected["leader"]["term"]);
+        assert!(leader.get("leader_token").is_none());
+        assert!(!leader.to_string().contains(&leader_token));
+
+        let renewed = app
+            .clone()
+            .oneshot(
+                Request::post(format!("/elections/{election_id}/renew"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"leader_token":leader_token,"ttl_seconds":60}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(renewed.status(), StatusCode::OK);
+        let renewal = next_sse_json(&mut stream).await;
+        assert_eq!(renewal["leader"]["term"], leader["leader"]["term"]);
+        assert_ne!(renewal["leader"]["expires_at"], first_expiry);
+
+        let resigned = app
+            .oneshot(
+                Request::post(format!("/elections/{election_id}/resign"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"leader_token":leader_token}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resigned.status(), StatusCode::OK);
+        let resigned = next_sse_json(&mut stream).await;
+        assert_eq!(resigned["status"], "vacant");
+        assert!(resigned["leader"].is_null());
+    }
+
+    #[tokio::test]
+    async fn watch_emits_vacant_after_expiry_cleanup() {
+        let (app, _temp, store) = test_app_with_all_limits(100, 600, 100, 8, 900).await;
+        let election_id = "expiry-room-123";
+        let elected = app
+            .clone()
+            .oneshot(
+                Request::post(format!("/elections/{election_id}/campaign"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"candidate_id":"agent-a","ttl_seconds":5}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(elected.status(), StatusCode::OK);
+
+        let response = app
+            .oneshot(
+                Request::get(format!("/elections/{election_id}/watch"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let mut stream = response.into_body().into_data_stream();
+        assert_eq!(next_sse_json(&mut stream).await["status"], "leader");
+
+        tokio::time::sleep(Duration::from_millis(5_100)).await;
+        store.cleanup_expired_locks_for_test().await;
+        let expired = next_sse_json(&mut stream).await;
+        assert_eq!(expired["status"], "vacant");
+        assert!(expired["leader"].is_null());
+    }
+
+    #[tokio::test]
+    async fn watch_enforces_limits_releases_permits_and_has_bounded_lifetime() {
+        let (app, _temp, _store) = test_app_with_all_limits(100, 600, 1, 1, 1).await;
+        let first = app
+            .clone()
+            .oneshot(
+                Request::get("/elections/watch-limit-room/watch")
+                    .extension(ConnectInfo(
+                        "198.51.100.10:45100".parse::<SocketAddr>().unwrap(),
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(first.status(), StatusCode::OK);
+        let mut first_stream = first.into_body().into_data_stream();
+        let _ = next_sse_json(&mut first_stream).await;
+
+        let per_client_limited = app
+            .clone()
+            .oneshot(
+                Request::get("/elections/watch-limit-room/watch")
+                    .extension(ConnectInfo(
+                        "198.51.100.10:45101".parse::<SocketAddr>().unwrap(),
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(per_client_limited.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(
+            per_client_limited.headers().get("retry-after").unwrap(),
+            "30"
+        );
+        let per_client_limited = json_body(per_client_limited).await;
+        assert_eq!(per_client_limited["code"], "rate_limited");
+        assert_eq!(per_client_limited["retry_after_ms"], 30_000);
+
+        let globally_limited = app
+            .clone()
+            .oneshot(
+                Request::get("/elections/watch-limit-room/watch")
+                    .extension(ConnectInfo(
+                        "198.51.100.11:45102".parse::<SocketAddr>().unwrap(),
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(globally_limited.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(globally_limited.headers().get("retry-after").unwrap(), "1");
+        let globally_limited = json_body(globally_limited).await;
+        assert_eq!(globally_limited["code"], "rate_limited");
+        assert_eq!(globally_limited["retry_after_ms"], 1_000);
+
+        let ended = tokio::time::timeout(Duration::from_secs(2), first_stream.next())
+            .await
+            .expect("bounded watch should close")
+            .is_none();
+        assert!(ended);
+        drop(first_stream);
+
+        let admitted = app
+            .oneshot(
+                Request::get("/elections/watch-limit-room/watch")
+                    .extension(ConnectInfo(
+                        "198.51.100.11:45103".parse::<SocketAddr>().unwrap(),
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(admitted.status(), StatusCode::OK);
     }
 
     #[tokio::test]
@@ -728,6 +1083,81 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn stale_capability_responses_match_the_openapi_contract() {
+        let (app, _temp) = test_app().await;
+        let election_id = "stale-capability-room";
+        let elected = app
+            .clone()
+            .oneshot(
+                Request::post(format!("/elections/{election_id}/campaign"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"candidate_id":"agent-a"}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(elected.status(), StatusCode::OK);
+        let leader_token = json_body(elected).await["leader_token"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let resigned = app
+            .clone()
+            .oneshot(
+                Request::post(format!("/elections/{election_id}/resign"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"leader_token":leader_token}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resigned.status(), StatusCode::OK);
+
+        let stale_renew = app
+            .clone()
+            .oneshot(
+                Request::post(format!("/elections/{election_id}/renew"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"leader_token":leader_token,"ttl_seconds":30}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(stale_renew.status(), StatusCode::NOT_FOUND);
+        let stale_renew = json_body(stale_renew).await;
+        assert_eq!(stale_renew["code"], "lease_not_current");
+        assert!(stale_renew["request_id"].as_str().is_some());
+
+        let stale_resign = app
+            .oneshot(
+                Request::post(format!("/elections/{election_id}/resign"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"leader_token":leader_token}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(stale_resign.status(), StatusCode::NOT_FOUND);
+        let stale_resign = json_body(stale_resign).await;
+        assert_eq!(stale_resign["code"], "lease_not_current");
+        assert!(stale_resign["request_id"].as_str().is_some());
+
+        let openapi: serde_yaml::Value =
+            serde_yaml::from_str(include_str!("../openapi.yaml")).unwrap();
+        for operation in ["renew", "resign"] {
+            assert_eq!(
+                openapi["paths"][format!("/elections/{{election_id}}/{operation}")]["post"]
+                    ["responses"]["404"]["$ref"]
+                    .as_str(),
+                Some("#/components/responses/LeaseNotCurrent")
+            );
+        }
     }
 
     #[tokio::test]

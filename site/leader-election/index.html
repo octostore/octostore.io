@@ -1,13 +1,13 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Leader election in two HTTP calls — OctoStore</title>
-  <meta name="description" content="A 60-second guide to simple leader election over HTTP. Create a room, campaign from every process, renew the winner, and recover automatically after crashes.">
+  <title>Give two agents one coordinator — OctoStore leader election</title>
+  <meta name="description" content="Create one hosted room, give every candidate the same ID, and let the OctoStore CLI hold one short-lived coordinator lease.">
   <meta name="theme-color" content="#171224">
-  <meta property="og:title" content="Leader election in two HTTP calls — OctoStore">
-  <meta property="og:description" content="No account. No API key. No SDK. One short-lived leader from any process that speaks HTTP.">
+  <meta property="og:title" content="Give two agents one coordinator — OctoStore">
+  <meta property="og:description" content="One shared room. One short-lived leader. Stop when authority is uncertain.">
   <meta property="og:type" content="article">
   <meta property="og:url" content="https://octostore.io/leader-election/">
   <meta property="og:image" content="https://octostore.io/assets/octostore-og.png">
@@ -15,8 +15,8 @@
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="OctoStore signal board showing one process elected leader while two processes wait">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Leader election in two HTTP calls — OctoStore">
-  <meta name="twitter:description" content="No account. No API key. No SDK. Any language.">
+  <meta name="twitter:title" content="Give two agents one coordinator — OctoStore">
+  <meta name="twitter:description" content="Hosted leader election with no login, plus a supervised CLI hold loop.">
   <meta name="twitter:image" content="https://octostore.io/assets/octostore-og.png">
   <link rel="canonical" href="https://octostore.io/leader-election/">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -34,27 +34,55 @@
         <a href="/coordination/">Coordination</a>
         <a href="/docs/">Docs</a>
         <a href="https://github.com/octostore/octostore.io">GitHub</a>
-        <a class="nav-cta" href="/#live-race">Try it live</a>
+        <a class="nav-cta" href="/#live-coordination-wire">Try it live</a>
       </div>
     </nav>
   </div>
 
   <main id="main" class="reading-wrap">
     <header class="page-header guide-hero">
-      <div class="signal-label">The 60-second guide</div>
-      <h1>Leader election in two HTTP calls.</h1>
-      <p class="lede">Create a room once. Let every candidate campaign. One process receives a short lease and a secret leader token. Everyone else receives the leader and when to try again.</p>
+      <div class="signal-label">Hosted coordination · no login</div>
+      <h1>Give two agents one coordinator.</h1>
+      <p class="lede">Create a room once outside the candidates. Give every agent the same room ID. One supervised process leads; the others wait and can take over after expiry.</p>
       <div class="button-row">
-        <a class="button primary" href="#quickstart">Copy the quickstart</a>
-        <a class="button" href="/#live-race">Watch a live election</a>
+        <a class="button primary" href="/agents/SKILL.md">Give the agent the skill</a>
+        <a class="button" href="#quickstart">Use the CLI</a>
       </div>
     </header>
 
     <section class="content-section" id="quickstart">
-      <h2>Copy this. You have a leader.</h2>
+      <h2>Create once. Hold from every agent.</h2>
       <div class="code-window">
-        <div class="code-head"><span>shell · hosted API</span><button class="copy-button" type="button" data-copy-target="#leader-quickstart">Copy</button></div>
-        <pre id="leader-quickstart"><code>ROOM=$(curl -s -X POST https://api.octostore.io/elections \
+        <div class="code-head"><span>OctoStore CLI · hosted election</span><button class="copy-button" type="button" data-copy-target="#leader-quickstart">Copy</button></div>
+        <pre id="leader-quickstart"><code>ROOM=$(octostore election create --json | jq -r .election_id)
+export ROOM
+ATLAS_WORKER=./run-agent-atlas
+COMET_WORKER=./run-agent-comet
+
+octostore-supervisor election "$ROOM" agent-atlas "$ATLAS_WORKER" -- \
+  octostore election hold "$ROOM" \
+    --candidate agent-atlas --ttl 30 \
+    --acquire-timeout 60 --json &amp;
+ATLAS_SUPERVISOR_PID=$!
+
+<span class="code-comment"># Reuse $ROOM while Atlas is running.</span>
+octostore-supervisor election "$ROOM" agent-comet "$COMET_WORKER" -- \
+  octostore election hold "$ROOM" \
+    --candidate agent-comet --ttl 30 \
+    --acquire-timeout 60 --json &amp;
+COMET_SUPERVISOR_PID=$!
+
+wait "$ATLAS_SUPERVISOR_PID" "$COMET_SUPERVISOR_PID"</code></pre>
+      </div>
+      <p>The first live winner emits <code>leader</code>; the other emits <code>waiting</code>. The hold loop renews in process and never reacquires after post-acquisition loss. A supervisor must gate the worker and stop or fence it on <code>lost</code>, <code>uncertain</code>, malformed output, or unexpected exit.</p>
+    </section>
+
+    <section class="content-section">
+      <h2>The response tells you what to do next.</h2>
+      <p>Humans and non-CLI clients can use the same HTTP source of truth directly:</p>
+      <div class="code-window">
+        <div class="code-head"><span>raw HTTP · campaign one candidate</span><button class="copy-button" type="button" data-copy-target="#leader-http">Copy</button></div>
+        <pre id="leader-http"><code>ROOM=$(curl -s -X POST https://api.octostore.io/elections \
   | jq -r .election_id)
 
 curl -s -X POST \
@@ -62,11 +90,6 @@ curl -s -X POST \
   -H "Content-Type: application/json" \
   -d '{"candidate_id":"worker-a","ttl_seconds":30}'</code></pre>
       </div>
-      <p>Run the campaign call from every candidate. The first live winner gets <code>status: "leader"</code>. The others get <code>status: "follower"</code>. They all see the same candidate ID, term, expiry, and retry timing.</p>
-    </section>
-
-    <section class="content-section">
-      <h2>The response tells you what to do next.</h2>
       <div class="response-pair">
         <div>
           <h3>If you won</h3>
@@ -126,7 +149,7 @@ curl -s -X POST \
     <section class="content-section">
       <h2>Why the term matters.</h2>
       <p>A lease tells candidates who should be leader now. It cannot erase an old process's memory. A paused leader can wake up after its lease expires and still believe it is in charge.</p>
-      <div class="term-story" aria-label="Fencing term example">
+      <div class="term-story" role="img" aria-label="Fencing term example">
         <span><strong>Term 1842</strong> Worker A pauses</span>
         <span aria-hidden="true">→</span>
         <span><strong>Term 1843</strong> Worker B wins</span>

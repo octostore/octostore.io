@@ -1,6 +1,6 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
-use octostore::models::{validate_ttl, validate_metadata, AcquireLockRequest};
+use octostore::models::{validate_metadata, validate_ttl, AcquireLockRequest};
 
 fuzz_target!(|data: &[u8]| {
     if let Ok(req) = serde_json::from_slice::<AcquireLockRequest>(data) {

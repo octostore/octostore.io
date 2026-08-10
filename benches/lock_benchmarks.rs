@@ -19,13 +19,19 @@ fn create_test_config() -> Config {
         github_client_id: Some("test_client_id".to_string()),
         github_client_secret: Some("test_client_secret".to_string()),
         github_redirect_uri: "http://localhost:3000/callback".to_string(),
+        oauth_api_base_url: Some("http://localhost:3000".to_string()),
+        oauth_dashboard_url: Some("http://localhost:4173/dashboard.html".to_string()),
         admin_key: Some("test_admin_key".to_string()),
         admin_username: None,
         static_tokens: None,
         static_tokens_file: None,
+        local_registration_enabled: false,
         public_elections_enabled: true,
         max_public_elections: 100,
         public_election_requests_per_minute: 600,
+        public_election_watch_streams_global: 1_024,
+        public_election_watch_streams_per_client: 8,
+        public_election_watch_max_seconds: 900,
     }
 }
 

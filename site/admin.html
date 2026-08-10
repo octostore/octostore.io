@@ -3,12 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-xC4SYj8npN54xnzdTODAik61CNsEGOVX54Qn+C6aasY='; style-src 'unsafe-inline'; connect-src https: http://localhost:* http://127.0.0.1:* http://[::1]:*; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
     <title>OctoStore Admin Dashboard</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
             --bg-primary: #0a0a0b;
@@ -369,16 +365,15 @@
         <header>
             <h1>🔧 Admin Dashboard</h1>
             <div id="authStatus" style="font-size:12px;color:#71717a;margin-top:4px;"></div>
-            <button id="resetKeyBtn" title="Set admin key"
-                style="position:absolute;top:16px;right:20px;background:none;border:none;color:#52525b;font-size:18px;cursor:pointer;opacity:0.5;"
-                onclick="app.promptKey()">⚙️</button>
+            <button id="resetKeyBtn" title="Set admin key" type="button"
+                    style="position:absolute;top:16px;right:20px;background:none;border:none;color:#52525b;font-size:18px;cursor:pointer;opacity:0.5;">⚙️</button>
         </header>
 
         <!-- Tab bar -->
         <div class="tab-bar">
-            <button class="tab-btn active" data-tab="overview">📊 Overview</button>
-            <button class="tab-btn" data-tab="telemetry">📡 OpenTelemetry</button>
-            <button class="tab-btn" data-tab="users">👥 Users & Locks</button>
+            <button class="tab-btn active" data-tab="overview" type="button">📊 Overview</button>
+            <button class="tab-btn" data-tab="telemetry" type="button">📡 Metrics</button>
+            <button class="tab-btn" data-tab="users" type="button">👥 Users &amp; Locks</button>
         </div>
 
         <!-- ═══════════════════ OVERVIEW TAB ═══════════════════ -->
@@ -387,10 +382,10 @@
             <div class="last-updated" id="lastUpdated">Last updated: Never</div>
 
             <div class="time-window-selector">
-                <button class="time-btn active" data-window="1h">1 Hour</button>
-                <button class="time-btn" data-window="12h">12 Hours</button>
-                <button class="time-btn" data-window="24h">24 Hours</button>
-                <button class="time-btn" data-window="7d">1 Week</button>
+                <button class="time-btn active" data-window="1h" type="button">1 Hour</button>
+                <button class="time-btn" data-window="12h" type="button">12 Hours</button>
+                <button class="time-btn" data-window="24h" type="button">24 Hours</button>
+                <button class="time-btn" data-window="7d" type="button">1 Week</button>
             </div>
 
             <div class="stats-grid">
@@ -436,35 +431,23 @@
             </div>
         </div>
 
-        <!-- ═══════════════════ TELEMETRY TAB ═══════════════════ -->
+        <!-- ═══════════════════ METRICS TAB ═══════════════════ -->
         <div class="tab-panel" id="tab-telemetry">
             <div class="otel-header">
-                <span class="otel-badge">OpenTelemetry</span>
+                <span class="otel-badge">Built-in metrics</span>
                 <span id="otelStatusText" style="font-size:13px;color:var(--text-muted);">
-                    <span class="otel-status-dot" id="otelDot"></span>Checking…
+                    <span class="otel-status-dot enabled"></span>Validated server snapshot
                 </span>
                 <span style="flex:1"></span>
                 <div class="auto-refresh"><div class="refresh-dot"></div> Live — refreshing every 10s</div>
             </div>
 
-            <!-- OTEL not configured notice (shown when disabled) -->
-            <div id="otelNotConfigured" class="otel-section" style="display:none;">
+            <div class="otel-section">
                 <div class="otel-placeholder">
-                    <h3>OpenTelemetry not configured</h3>
-                    <p>Set the endpoint env var to enable OTEL export to your collector:</p>
-                    <pre>OTEL_EXPORTER_OTLP_ENDPOINT=http://your-collector:4317
-OTEL_SERVICE_NAME=octostore          # optional, defaults to "octostore"
-OTEL_SDK_DISABLED=false              # optional</pre>
-                    <p style="margin-top:16px;font-size:13px;">
-                        Works with any OTEL-compatible backend:<br>
-                        <a href="https://grafana.com/oss/tempo/" target="_blank" style="color:var(--accent)">Grafana Tempo</a> ·
-                        <a href="https://www.jaegertracing.io/" target="_blank" style="color:var(--accent)">Jaeger</a> ·
-                        <a href="https://honeycomb.io" target="_blank" style="color:var(--accent)">Honeycomb</a> ·
-                        <a href="https://opentelemetry.io/docs/collector/" target="_blank" style="color:var(--accent)">OTEL Collector</a>
-                    </p>
-                    <p style="margin-top:12px;font-size:12px;color:var(--text-muted);">
-                        Internal metrics below are always collected regardless of OTEL export status.
-                    </p>
+                    <h3>In-process operational metrics</h3>
+                    <p>This view reads the authenticated <code>/metrics</code> and
+                        <code>/admin/metrics/timeseries</code> endpoints. This release does not
+                        expose or configure OpenTelemetry export.</p>
                 </div>
             </div>
 
@@ -500,12 +483,6 @@ OTEL_SDK_DISABLED=false              # optional</pre>
                             <td><div class="latency-bar-wrap"><div class="latency-bar-bg"><div class="latency-bar-fill warn" id="bar_lock_expired" style="width:0%"></div></div></div></td>
                         </tr>
                         <tr>
-                            <td class="metric-name">octostore.locks.contention</td>
-                            <td><span class="metric-badge badge-counter">counter</span></td>
-                            <td id="m_lock_contention">—</td>
-                            <td><div class="latency-bar-wrap"><div class="latency-bar-bg"><div class="latency-bar-fill bad" id="bar_lock_contention" style="width:0%"></div></div></div></td>
-                        </tr>
-                        <tr>
                             <td class="metric-name">octostore.locks.active</td>
                             <td><span class="metric-badge badge-gauge">gauge</span></td>
                             <td id="m_lock_active">—</td>
@@ -517,7 +494,7 @@ OTEL_SDK_DISABLED=false              # optional</pre>
 
             <!-- HTTP endpoint breakdown -->
             <div class="otel-section">
-                <div class="otel-section-title">HTTP Endpoints — http.server.request.duration</div>
+                <div class="otel-section-title">HTTP endpoint request metrics</div>
                 <div class="endpoint-grid" id="endpointGrid">
                     <div class="loading">Loading endpoint metrics…</div>
                 </div>
@@ -525,7 +502,7 @@ OTEL_SDK_DISABLED=false              # optional</pre>
 
             <!-- Latency percentiles -->
             <div class="otel-section">
-                <div class="otel-section-title">Lock Hold Duration — octostore.locks.held_duration</div>
+                <div class="otel-section-title">Acquire endpoint request latency</div>
                 <div class="charts-grid" style="grid-template-columns: 1fr 1fr;">
                     <div>
                         <div style="margin-bottom:12px;">
@@ -557,52 +534,6 @@ OTEL_SDK_DISABLED=false              # optional</pre>
                 </div>
             </div>
 
-            <!-- Session metrics -->
-            <div class="otel-section">
-                <div class="otel-section-title">Sessions</div>
-                <table class="metric-table">
-                    <thead>
-                        <tr><th>Metric</th><th>Type</th><th>Value</th></tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td class="metric-name">octostore.sessions.created</td>
-                            <td><span class="metric-badge badge-counter">counter</span></td>
-                            <td id="m_sessions_created">—</td>
-                        </tr>
-                        <tr>
-                            <td class="metric-name">octostore.sessions.expired</td>
-                            <td><span class="metric-badge badge-counter">counter</span></td>
-                            <td id="m_sessions_expired">—</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- OTEL config reference -->
-            <div class="otel-section">
-                <div class="otel-section-title">Export Configuration</div>
-                <table class="metric-table">
-                    <thead><tr><th>Env Var</th><th>Current</th><th>Description</th></tr></thead>
-                    <tbody>
-                        <tr>
-                            <td class="metric-name">OTEL_EXPORTER_OTLP_ENDPOINT</td>
-                            <td id="cfg_endpoint">—</td>
-                            <td style="color:var(--text-muted);font-family:inherit;font-size:12px;">gRPC endpoint for OTLP export</td>
-                        </tr>
-                        <tr>
-                            <td class="metric-name">OTEL_SERVICE_NAME</td>
-                            <td id="cfg_service">—</td>
-                            <td style="color:var(--text-muted);font-family:inherit;font-size:12px;">Service name in traces</td>
-                        </tr>
-                        <tr>
-                            <td class="metric-name">OTEL_SDK_DISABLED</td>
-                            <td id="cfg_disabled">—</td>
-                            <td style="color:var(--text-muted);font-family:inherit;font-size:12px;">Hard disable all OTEL</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
         </div>
 
         <!-- ═══════════════════ USERS TAB ═══════════════════ -->
@@ -616,8 +547,21 @@ OTEL_SDK_DISABLED=false              # optional</pre>
 
     <script>
     /* ════════════════════════════════════════════════════════════
-       OctoStore Admin — unified dashboard + OTEL viewer
+       OctoStore Admin — dashboard + validated built-in metrics
        ════════════════════════════════════════════════════════════ */
+    const HOSTED_API_BASE = 'https://api.octostore.io';
+
+    function normalizeApiBase(value) {
+        const parsed = new URL(value);
+        const loopback = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' ||
+            parsed.hostname === '[::1]';
+        if ((parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && loopback)) ||
+            parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) {
+            throw new Error('OAuth issuer must be an HTTPS origin or an explicit loopback HTTP origin');
+        }
+        return parsed.origin;
+    }
+
     class AdminApp {
         constructor() {
             // Auth
@@ -625,11 +569,14 @@ OTEL_SDK_DISABLED=false              # optional</pre>
             try { gh = JSON.parse(localStorage.getItem('octostore_auth')); } catch (_) {}
             if (gh?.token) {
                 this.token = gh.token;
+                this.apiBase = normalizeApiBase(gh.api_base || HOSTED_API_BASE);
                 this.usingGithubToken = true;
             } else {
-                const hash = window.location.hash.slice(1);
-                if (hash) { localStorage.setItem('adminToken', hash); history.replaceState(null,'',location.pathname); }
+                // OAuth handoff codes are exchanged only by dashboard.html.
+                // Never reinterpret arbitrary legacy URL fragments as tokens.
+                if (window.location.hash) history.replaceState(null, '', window.location.pathname);
                 this.token = localStorage.getItem('adminToken') || '';
+                this.apiBase = HOSTED_API_BASE;
                 this.usingGithubToken = false;
             }
 
@@ -640,12 +587,13 @@ OTEL_SDK_DISABLED=false              # optional</pre>
 
             this._bindTabs();
             this._bindTimeWindows();
+            document.getElementById('resetKeyBtn').addEventListener('click', () => this.promptKey());
             this._initCharts();
             this._initOtelChart();
 
             if (!this.token) {
                 localStorage.setItem('post_auth_redirect', '/admin.html');
-                window.location.href = 'https://api.octostore.io/auth/github';
+                window.location.href = `${this.apiBase}/auth/github`;
                 return;
             }
 
@@ -657,7 +605,7 @@ OTEL_SDK_DISABLED=false              # optional</pre>
 
             this._loadAll();
             setInterval(() => this._loadAll(), 30000);
-            // OTEL refreshes faster
+            // The metrics snapshot refreshes faster than the overview.
             setInterval(() => this._loadTelemetry(), 10000);
         }
 
@@ -672,6 +620,10 @@ OTEL_SDK_DISABLED=false              # optional</pre>
                 'Authorization': t.startsWith('Bearer ') ? t : `Bearer ${t}`,
                 'X-Admin-Key': t
             };
+        }
+
+        _api(path) {
+            return `${normalizeApiBase(this.apiBase)}${path}`;
         }
 
         /* ── Tabs ── */
@@ -700,62 +652,209 @@ OTEL_SDK_DISABLED=false              # optional</pre>
         }
 
         /* ── Charts init ── */
-        _chartDefaults() {
-            return {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
-                scales: {
-                    x: { grid: { color: 'rgba(255,255,255,0.08)' }, ticks: { color: '#a1a1aa', maxTicksLimit: 8 } },
-                    y: { grid: { color: 'rgba(255,255,255,0.08)' }, ticks: { color: '#a1a1aa' }, beginAtZero: true }
-                }
-            };
-        }
-
-        _initCharts() {
-            const mk = (id, type, color, fill=false) => new Chart(
-                document.getElementById(id).getContext('2d'),
-                { type, data: { labels:[], datasets:[{ data:[], borderColor:color,
-                    backgroundColor: fill ? color.replace(')',',0.1)').replace('rgb','rgba') : color,
-                    fill, tension:0.4, borderWidth:2,
-                    ...(type==='bar'?{backgroundColor:color,borderColor:color,borderWidth:1}:{})
-                }]}, options: this._chartDefaults() }
-            );
-
-            this.charts.requestVolume = mk('requestVolumeChart','line','#6366f1',true);
-            this.charts.activeLocks   = mk('activeLocksChart',  'line','#10b981',true);
-            this.charts.acquireRate   = mk('acquireRateChart',  'bar', '#f59e0b');
-            this.charts.releaseRate   = mk('releaseRateChart',  'bar', '#ef4444');
-        }
-
-        _initOtelChart() {
-            const ctx = document.getElementById('latencyChart').getContext('2d');
-            this.charts.latency = new Chart(ctx, {
-                type: 'line',
+        _makeChart(id, type, series) {
+            const canvas = document.getElementById(id);
+            const chart = {
+                canvas,
+                type,
                 data: {
                     labels: [],
-                    datasets: [
-                        { label:'p50', data:[], borderColor:'#10b981', backgroundColor:'transparent', tension:0.4, borderWidth:2, pointRadius:0 },
-                        { label:'p95', data:[], borderColor:'#f59e0b', backgroundColor:'transparent', tension:0.4, borderWidth:2, pointRadius:0 },
-                        { label:'p99', data:[], borderColor:'#ef4444', backgroundColor:'transparent', tension:0.4, borderWidth:2, pointRadius:0 },
-                    ]
+                    datasets: series.map(({ label = '', color }) => ({ label, data: [], borderColor: color }))
                 },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: true, labels: { color: '#a1a1aa', boxWidth: 12, font: { size: 11 } } }
-                    },
-                    scales: {
-                        x: { grid:{color:'rgba(255,255,255,0.08)'}, ticks:{color:'#a1a1aa', maxTicksLimit:6} },
-                        y: { grid:{color:'rgba(255,255,255,0.08)'}, ticks:{color:'#a1a1aa'}, beginAtZero:true,
-                             title:{display:true,text:'ms',color:'#a1a1aa',font:{size:11}} }
-                    }
+                update: () => this._drawChart(chart)
+            };
+            window.addEventListener('resize', chart.update, { passive: true });
+            return chart;
+        }
+
+        _drawChart(chart) {
+            const canvas = chart.canvas;
+            const bounds = canvas.getBoundingClientRect();
+            const width = Math.max(240, Math.floor(bounds.width));
+            const height = Math.max(120, Math.floor(bounds.height));
+            const ratio = Math.min(window.devicePixelRatio || 1, 2);
+            if (canvas.width !== Math.floor(width * ratio) || canvas.height !== Math.floor(height * ratio)) {
+                canvas.width = Math.floor(width * ratio);
+                canvas.height = Math.floor(height * ratio);
+            }
+            const ctx = canvas.getContext('2d');
+            ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+            ctx.clearRect(0, 0, width, height);
+
+            const left = 38;
+            const right = 10;
+            const top = chart.data.datasets.some(dataset => dataset.label) ? 26 : 10;
+            const bottom = 24;
+            const plotWidth = Math.max(1, width - left - right);
+            const plotHeight = Math.max(1, height - top - bottom);
+            const values = chart.data.datasets.flatMap(dataset => dataset.data)
+                .map(Number)
+                .filter(Number.isFinite);
+            const maximum = Math.max(1, ...values);
+
+            ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+            ctx.fillStyle = '#a1a1aa';
+            ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
+            ctx.lineWidth = 1;
+            for (let step = 0; step <= 4; step += 1) {
+                const y = top + (plotHeight * step / 4);
+                ctx.beginPath();
+                ctx.moveTo(left, y);
+                ctx.lineTo(width - right, y);
+                ctx.stroke();
+                const value = Math.round(maximum * (1 - step / 4));
+                ctx.fillText(String(value), 2, y + 4);
+            }
+
+            const count = Math.max(1, chart.data.labels.length);
+            const xFor = index => left + (count === 1 ? plotWidth / 2 : plotWidth * index / (count - 1));
+            const yFor = value => top + plotHeight - (Math.max(0, Number(value) || 0) / maximum * plotHeight);
+
+            if (chart.type === 'bar') {
+                const valuesForBars = chart.data.datasets[0]?.data || [];
+                const barWidth = Math.max(2, Math.min(18, plotWidth / Math.max(1, valuesForBars.length) * 0.65));
+                ctx.fillStyle = chart.data.datasets[0]?.borderColor || '#6366f1';
+                valuesForBars.forEach((value, index) => {
+                    const x = xFor(index) - barWidth / 2;
+                    const y = yFor(value);
+                    ctx.fillRect(x, y, barWidth, top + plotHeight - y);
+                });
+            } else {
+                chart.data.datasets.forEach(dataset => {
+                    ctx.strokeStyle = dataset.borderColor;
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    dataset.data.forEach((value, index) => {
+                        const x = xFor(index);
+                        const y = yFor(value);
+                        if (index === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                    });
+                    ctx.stroke();
+                });
+            }
+
+            const labels = chart.data.labels;
+            if (labels.length > 0) {
+                ctx.fillStyle = '#a1a1aa';
+                ctx.fillText(String(labels[0]), left, height - 5);
+                if (labels.length > 1) {
+                    const finalLabel = String(labels[labels.length - 1]);
+                    const finalWidth = ctx.measureText(finalLabel).width;
+                    ctx.fillText(finalLabel, width - right - finalWidth, height - 5);
                 }
+            }
+
+            let legendX = left;
+            chart.data.datasets.filter(dataset => dataset.label).forEach(dataset => {
+                ctx.fillStyle = dataset.borderColor;
+                ctx.fillRect(legendX, 5, 12, 3);
+                ctx.fillStyle = '#a1a1aa';
+                ctx.fillText(dataset.label, legendX + 17, 10);
+                legendX += 58;
             });
         }
 
+        _initCharts() {
+            this.charts.requestVolume = this._makeChart('requestVolumeChart', 'line', [{ color: '#6366f1' }]);
+            this.charts.activeLocks = this._makeChart('activeLocksChart', 'line', [{ color: '#10b981' }]);
+            this.charts.acquireRate = this._makeChart('acquireRateChart', 'bar', [{ color: '#f59e0b' }]);
+            this.charts.releaseRate = this._makeChart('releaseRateChart', 'bar', [{ color: '#ef4444' }]);
+        }
+
+        _initOtelChart() {
+            this.charts.latency = this._makeChart('latencyChart', 'line', [
+                { label: 'p50', color: '#10b981' },
+                { label: 'p95', color: '#f59e0b' },
+                { label: 'p99', color: '#ef4444' }
+            ]);
+        }
+
         /* ── Data loading ── */
+        _isRecord(value) {
+            return value !== null && typeof value === 'object' && !Array.isArray(value);
+        }
+
+        _isNonNegativeInteger(value) {
+            return Number.isSafeInteger(value) && value >= 0;
+        }
+
+        _isNonNegativeNumber(value) {
+            return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+        }
+
+        _validateAdminStatus(status) {
+            const requiredCounters = [
+                status?.uptime_seconds, status?.active_locks, status?.total_users,
+                status?.total_acquires, status?.total_releases
+            ];
+            const validUsers = Array.isArray(status?.users) && status.users.length <= 10000 &&
+                status.users.every(user => this._isRecord(user) &&
+                    typeof user.id === 'string' && typeof user.github_username === 'string' &&
+                    typeof user.created_at === 'string');
+            const validLocks = Array.isArray(status?.locks) && status.locks.length <= 10000 &&
+                status.locks.every(lock => this._isRecord(lock) && typeof lock.name === 'string' &&
+                    typeof lock.holder_username === 'string' &&
+                    (lock.metadata === null || typeof lock.metadata === 'string') &&
+                    this._isNonNegativeInteger(lock.fencing_token) &&
+                    typeof lock.expires_at === 'string' &&
+                    this._isNonNegativeInteger(lock.ttl_remaining_seconds));
+            if (!this._isRecord(status) || status.healthy !== true ||
+                !requiredCounters.every(value => this._isNonNegativeInteger(value)) ||
+                !validUsers || !validLocks || status.total_users !== status.users.length ||
+                status.active_locks !== status.locks.length) {
+                throw new Error('admin status response did not match the expected schema');
+            }
+            return status;
+        }
+
+        _validateTimeseries(series) {
+            const fields = ['timestamps', 'request_volume', 'acquire_rates', 'release_rates', 'active_locks'];
+            const arrays = fields.map(field => series?.[field]);
+            const length = arrays[0]?.length;
+            if (!this._isRecord(series) || !['1h', '12h', '24h', '7d'].includes(series.window) ||
+                !arrays.every(values => Array.isArray(values) && values.length === length &&
+                    values.length <= 10080 && values.every(value => this._isNonNegativeInteger(value))) ||
+                series.window !== this.currentWindow ||
+                !series.timestamps.every((value, index, values) => index === 0 || value >= values[index - 1])) {
+                throw new Error('metrics time-series response did not match the expected schema');
+            }
+            return series;
+        }
+
+        _validateMetrics(snapshot) {
+            const topLevelIntegers = [snapshot?.uptime_seconds, snapshot?.total_requests,
+                snapshot?.active_locks, snapshot?.total_users, snapshot?.memory_bytes];
+            const requiredStoreCounters = ['total_acquires', 'total_releases', 'total_expirations',
+                'cache_hits', 'cache_misses'];
+            const validStore = this._isRecord(snapshot?.lock_store) && requiredStoreCounters.every(
+                field => this._isNonNegativeInteger(snapshot.lock_store[field])
+            );
+            const endpointNames = this._isRecord(snapshot?.endpoints) ? Object.keys(snapshot.endpoints) : [];
+            const validEndpoints = endpointNames.length <= 32 && endpointNames.every(name => {
+                const endpoint = snapshot.endpoints[name];
+                const decimalFields = ['avg_ms', 'p50_ms', 'p95_ms', 'p99_ms'];
+                return /^[a-z][a-z0-9_-]{0,63}$/.test(name) && this._isRecord(endpoint) &&
+                    ['count', 'errors', 'min_ms', 'max_ms'].every(
+                        field => this._isNonNegativeInteger(endpoint[field])) &&
+                    decimalFields.every(field => typeof endpoint[field] === 'string' &&
+                        /^\d+(?:\.\d+)?$/.test(endpoint[field]) && Number.isFinite(Number(endpoint[field])));
+            });
+            if (!this._isRecord(snapshot) ||
+                !topLevelIntegers.every(value => this._isNonNegativeInteger(value)) ||
+                !this._isNonNegativeNumber(snapshot.requests_per_second) || !validStore ||
+                endpointNames.length === 0 || !validEndpoints) {
+                throw new Error('metrics snapshot response did not match the expected schema');
+            }
+            return snapshot;
+        }
+
+        async _fetchJson(url, label, validate) {
+            const response = await fetch(url, { headers: this._headers() });
+            if (!response.ok) throw new Error(`${label} request failed (${response.status})`);
+            const payload = await response.json();
+            return validate.call(this, payload);
+        }
+
         async _loadAll() {
             await Promise.all([this._loadOverview(), this._loadTelemetry()]);
             document.getElementById('lastUpdated').textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
@@ -764,8 +863,8 @@ OTEL_SDK_DISABLED=false              # optional</pre>
         async _loadOverview() {
             try {
                 const [status, ts] = await Promise.all([
-                    fetch('https://api.octostore.io/admin/status', { headers: this._headers() }).then(r=>r.json()),
-                    fetch(`https://api.octostore.io/admin/metrics/timeseries?window=${this.currentWindow}`, { headers: this._headers() }).then(r=>r.json())
+                    this._fetchJson(this._api('/admin/status'), 'admin status', this._validateAdminStatus),
+                    this._fetchJson(this._api(`/admin/metrics/timeseries?window=${this.currentWindow}`), 'metrics time series', this._validateTimeseries)
                 ]);
                 this._updateStats(status);
                 this._updateUsers(status.users, status.locks);
@@ -778,21 +877,13 @@ OTEL_SDK_DISABLED=false              # optional</pre>
 
         async _loadTelemetry() {
             try {
-                // Primary: /admin/metrics (always available)
-                const snap = await fetch('https://api.octostore.io/admin/metrics', { headers: this._headers() }).then(r=>r.json());
+                const snap = await this._fetchJson(
+                    this._api('/metrics'), 'metrics snapshot', this._validateMetrics
+                );
                 this._renderTelemetry(snap);
             } catch(e) {
-                // silently ignore — telemetry tab shows stale data
-                console.warn('telemetry fetch failed', e);
-            }
-
-            // Secondary: /admin/telemetry (only exists when OTEL is configured in backend)
-            try {
-                const otel = await fetch('https://api.octostore.io/admin/telemetry', { headers: this._headers() }).then(r=>r.json());
-                this._renderOtelConfig(otel);
-            } catch(_) {
-                // endpoint may not exist yet — no-op
-                this._renderOtelConfig(null);
+                document.getElementById('authStatus').textContent = `Error: ${e.message}`;
+                document.getElementById('authStatus').style.color = '#ef4444';
             }
         }
 
@@ -811,10 +902,27 @@ OTEL_SDK_DISABLED=false              # optional</pre>
             const lockCounts = {};
             locks.forEach(l => { const h = l.holder_username||'?'; lockCounts[h]=(lockCounts[h]||0)+1; });
             const name = u => typeof u==='string' ? u : (u.github_username||u.id||'?');
-            document.getElementById('usersList').innerHTML = (users||[]).map(u => {
+            const list = document.getElementById('usersList');
+            list.replaceChildren();
+            (users||[]).forEach(u => {
                 const n = name(u);
-                return `<div class="user-item"><div class="user-name">${n}</div><div class="user-locks">${lockCounts[n]||0} locks</div></div>`;
-            }).join('') || '<p style="color:var(--text-muted)">No users found.</p>';
+                const item = document.createElement('div');
+                item.className = 'user-item';
+                const userName = document.createElement('div');
+                userName.className = 'user-name';
+                userName.textContent = String(n);
+                const userLocks = document.createElement('div');
+                userLocks.className = 'user-locks';
+                userLocks.textContent = `${lockCounts[n]||0} locks`;
+                item.append(userName, userLocks);
+                list.append(item);
+            });
+            if (!list.hasChildNodes()) {
+                const empty = document.createElement('p');
+                empty.style.color = 'var(--text-muted)';
+                empty.textContent = 'No users found.';
+                list.append(empty);
+            }
         }
 
         _updateCharts(d) {
@@ -836,26 +944,19 @@ OTEL_SDK_DISABLED=false              # optional</pre>
             const acquired   = ls.total_acquires   || 0;
             const released   = ls.total_releases   || 0;
             const expired    = ls.total_expirations|| 0;
-            const contention = ls.lock_contention  || 0;
             const active     = snap.active_locks   || 0;
 
             document.getElementById('m_lock_acquired').textContent   = acquired.toLocaleString();
             document.getElementById('m_lock_released').textContent   = released.toLocaleString();
             document.getElementById('m_lock_expired').textContent    = expired.toLocaleString();
-            document.getElementById('m_lock_contention').textContent = contention.toLocaleString();
             document.getElementById('m_lock_active').textContent     = active.toLocaleString();
 
-            // Session metrics (from timeseries or lock_store if available)
-            document.getElementById('m_sessions_created').textContent = (ls.total_sessions_created||'—').toLocaleString?.() ?? '—';
-            document.getElementById('m_sessions_expired').textContent = (ls.total_sessions_expired||'—').toLocaleString?.() ?? '—';
-
             // Scale bars relative to largest counter
-            const maxVal = Math.max(1, acquired, released, expired, contention);
+            const maxVal = Math.max(1, acquired, released, expired);
             const pct = v => Math.round(v/maxVal*100)+'%';
             document.getElementById('bar_lock_acquired').style.width   = pct(acquired);
             document.getElementById('bar_lock_released').style.width   = pct(released);
             document.getElementById('bar_lock_expired').style.width    = pct(expired);
-            document.getElementById('bar_lock_contention').style.width = pct(contention);
 
             // Endpoint cards
             this._renderEndpoints(eps);
@@ -892,65 +993,65 @@ OTEL_SDK_DISABLED=false              # optional</pre>
 
         _renderEndpoints(eps) {
             const names = Object.keys(eps);
+            const grid = document.getElementById('endpointGrid');
+            grid.replaceChildren();
             if (!names.length) {
-                document.getElementById('endpointGrid').innerHTML = '<p style="color:var(--text-muted);font-size:13px;">No endpoint data yet.</p>';
+                const empty = document.createElement('p');
+                empty.style.color = 'var(--text-muted)';
+                empty.style.fontSize = '13px';
+                empty.textContent = 'No endpoint data yet.';
+                grid.append(empty);
                 return;
             }
             const COLORS = { acquire:'#f59e0b', release:'#10b981', renew:'#6366f1', status:'#06b6d4', list:'#a855f7', auth:'#f97316' };
-            document.getElementById('endpointGrid').innerHTML = names.map(name => {
+            names.forEach(name => {
                 const e = eps[name] || {};
                 const count = e.count || 0;
                 const errors = e.errors || 0;
                 const errPct = count > 0 ? Math.round(errors/count*100) : 0;
                 const color = COLORS[name] || '#6366f1';
-                return `
-                <div class="endpoint-card">
-                    <div class="endpoint-name">
-                        <span style="color:${color}">/${name}</span>
-                        <span class="endpoint-count">${count.toLocaleString()} req</span>
-                    </div>
-                    <div class="endpoint-stats">
-                        <div><div class="ep-stat-val">${e.avg_ms||'—'}</div><div class="ep-stat-lbl">avg</div></div>
-                        <div><div class="ep-stat-val">${e.p95_ms||'—'}</div><div class="ep-stat-lbl">p95</div></div>
-                        <div><div class="ep-stat-val">${e.p99_ms||'—'}</div><div class="ep-stat-lbl">p99</div></div>
-                    </div>
-                    <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">
-                        ${errors} error${errors!==1?'s':''} (${errPct}%) · min ${e.min_ms||0}ms · max ${e.max_ms||0}ms
-                    </div>
-                    <div class="ep-error-bar">
-                        <div class="ep-error-fill" style="width:${Math.min(100,errPct*5)}%"></div>
-                    </div>
-                </div>`;
-            }).join('');
+                const card = document.createElement('div');
+                card.className = 'endpoint-card';
+                const heading = document.createElement('div');
+                heading.className = 'endpoint-name';
+                const endpointName = document.createElement('span');
+                endpointName.style.color = color;
+                endpointName.textContent = `/${name}`;
+                const endpointCount = document.createElement('span');
+                endpointCount.className = 'endpoint-count';
+                endpointCount.textContent = `${Number(count).toLocaleString()} req`;
+                heading.append(endpointName, endpointCount);
+
+                const stats = document.createElement('div');
+                stats.className = 'endpoint-stats';
+                for (const [value, label] of [[e.avg_ms, 'avg'], [e.p95_ms, 'p95'], [e.p99_ms, 'p99']]) {
+                    const stat = document.createElement('div');
+                    const statValue = document.createElement('div');
+                    statValue.className = 'ep-stat-val';
+                    statValue.textContent = String(value || '—');
+                    const statLabel = document.createElement('div');
+                    statLabel.className = 'ep-stat-lbl';
+                    statLabel.textContent = label;
+                    stat.append(statValue, statLabel);
+                    stats.append(stat);
+                }
+
+                const errorSummary = document.createElement('div');
+                errorSummary.style.fontSize = '11px';
+                errorSummary.style.color = 'var(--text-muted)';
+                errorSummary.style.marginBottom = '4px';
+                errorSummary.textContent = `${errors} error${errors!==1?'s':''} (${errPct}%) · min ${e.min_ms||0}ms · max ${e.max_ms||0}ms`;
+                const errorBar = document.createElement('div');
+                errorBar.className = 'ep-error-bar';
+                const errorFill = document.createElement('div');
+                errorFill.className = 'ep-error-fill';
+                errorFill.style.width = `${Math.min(100, errPct * 5)}%`;
+                errorBar.append(errorFill);
+                card.append(heading, stats, errorSummary, errorBar);
+                grid.append(card);
+            });
         }
 
-        _renderOtelConfig(otel) {
-            const dot  = document.getElementById('otelDot');
-            const text = document.getElementById('otelStatusText');
-            const placeholder = document.getElementById('otelNotConfigured');
-
-            if (!otel) {
-                // /admin/telemetry endpoint not found yet — backend not updated
-                dot.className = 'otel-status-dot disabled';
-                text.innerHTML = '<span class="otel-status-dot disabled"></span>Not configured — set OTEL_EXPORTER_OTLP_ENDPOINT';
-                placeholder.style.display = '';
-                document.getElementById('cfg_endpoint').textContent = 'not set';
-                document.getElementById('cfg_service').textContent  = 'octostore (default)';
-                document.getElementById('cfg_disabled').textContent = 'false';
-                return;
-            }
-
-            const enabled = otel.enabled && otel.endpoint;
-            dot.className = `otel-status-dot ${enabled ? 'enabled' : 'disabled'}`;
-            text.innerHTML = enabled
-                ? `<span class="otel-status-dot enabled"></span>Exporting to <code style="font-size:12px;color:var(--green)">${otel.endpoint}</code>`
-                : `<span class="otel-status-dot disabled"></span>OTEL configured but disabled`;
-            placeholder.style.display = enabled ? 'none' : '';
-
-            document.getElementById('cfg_endpoint').textContent = otel.endpoint  || 'not set';
-            document.getElementById('cfg_service').textContent  = otel.service_name || 'octostore';
-            document.getElementById('cfg_disabled').textContent = otel.disabled ? 'true' : 'false';
-        }
     }
 
     /* Boot */

@@ -1,13 +1,13 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OctoStore documentation — leader election and coordination</title>
-  <meta name="description" content="Elect one leader in two HTTP calls, self-host OctoStore, and coordinate shared tasks with short leases and fencing terms.">
+  <title>OctoStore docs — coordinate agents with a skill and CLI</title>
+  <meta name="description" content="Give an agent the OctoStore skill, coordinate two candidates with the CLI, then go deeper into elections, locks, self-hosting, and HTTP.">
   <meta name="theme-color" content="#171224">
-  <meta property="og:title" content="Leader election in two calls — OctoStore docs">
-  <meta property="og:description" content="Start with account-free leader election. Add self-hosted task coordination only when you need it.">
+  <meta property="og:title" content="Coordinate two agents first — OctoStore docs">
+  <meta property="og:description" content="Skill and CLI first. HTTP and operations when you need the depth.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://octostore.io/docs/">
   <meta property="og:image" content="https://octostore.io/assets/octostore-og.png">
@@ -35,13 +35,13 @@
 
   <header class="page-header wrap">
     <div class="signal-label">Documentation</div>
-    <h1>Start with one leader.</h1>
-    <p class="lede">The hosted quickstart takes two calls and no credentials. Self-host the same election API when you need a private boundary, or add named task locks when leadership alone is not enough.</p>
+    <h1>Give your agent one coordination rule.</h1>
+    <p class="lede">Install the focused skill, create one shared room, and let the CLI hold authority safely. The HTTP contract remains here when a human or another client needs exact control.</p>
   </header>
 
   <main id="main" class="docs-layout wrap">
     <nav class="docs-nav" aria-label="Documentation sections">
-      <a href="#quickstart">Quickstart</a>
+      <a href="#quickstart">Skill and CLI</a>
       <a href="#leader-election">Leader election</a>
       <a href="#task-locks">Task locks</a>
       <a href="#self-host">Self-hosting</a>
@@ -52,11 +52,39 @@
 
     <div class="docs-content">
       <section id="quickstart">
-        <h2>Quickstart: elect one leader.</h2>
-        <p>This flow uses the hosted API and requires no login or API key. Create a random room, share the ID with your processes, and let each one campaign.</p>
+        <h2>Start with the agent surface.</h2>
+        <p>Inspect the <a href="/agents/SKILL.md">plain-text skill</a>, then install the pinned v0.14.0 copy. It tells an agent when to choose an election or lock and when to stop.</p>
         <div class="code-window">
-          <div class="code-head"><span>shell</span><button class="copy-button" type="button" data-copy-target="#quickstart-code">Copy</button></div>
-          <pre id="quickstart-code"><code>ROOM=$(curl -s -X POST https://api.octostore.io/elections \
+          <div class="code-head"><span>skills CLI · pinned release</span><button class="copy-button" type="button" data-copy-target="#skill-code">Copy</button></div>
+          <pre id="skill-code"><code>git clone --branch v0.14.0 --depth 1 https://github.com/octostore/octostore.io
+cd octostore.io
+npm ci --ignore-scripts --no-audit --no-fund
+./node_modules/.bin/skills add \
+  https://github.com/octostore/octostore.io/tree/v0.14.0 \
+  --skill octostore --agent codex -y</code></pre>
+        </div>
+        <p>Create one hosted room outside the candidates. Give both agents the same returned ID; only the candidate ID and protected worker change.</p>
+        <div class="code-window">
+          <div class="code-head"><span>installed supervisor · one candidate per agent host</span><button class="copy-button" type="button" data-copy-target="#quickstart-code">Copy</button></div>
+          <pre id="quickstart-code"><code><span class="code-comment"># Create once, then share this exact value.</span>
+ROOM=$(octostore election create --json | jq -r .election_id)
+export ROOM
+
+<span class="code-comment"># Set a unique ID and protected executable in each agent host.</span>
+octostore-supervisor election "$ROOM" "$AGENT_ID" "$AGENT_WORKER" -- \
+  octostore election hold "$ROOM" \
+    --candidate "$AGENT_ID" --ttl 30 \
+    --acquire-timeout 60 --json</code></pre>
+        </div>
+        <p>Run the template concurrently with different <code>AGENT_ID</code> and <code>AGENT_WORKER</code> values. Exactly one supervisor opens its worker gate; the other waits. Terminal lifecycle output is published only after the protected process groups are contained.</p>
+      </section>
+
+      <section id="leader-election">
+        <h2>Account-free leader election.</h2>
+        <p>Election rooms are capability-based, not identity-based. The room ID is a shared coordination address. The leader token is the authority to mutate the current term.</p>
+        <div class="code-window">
+          <div class="code-head"><span>raw HTTP · create once, campaign from each candidate</span><button class="copy-button" type="button" data-copy-target="#election-http-code">Copy</button></div>
+          <pre id="election-http-code"><code>ROOM=$(curl -s -X POST https://api.octostore.io/elections \
   | jq -r .election_id)
 
 curl -s -X POST \
@@ -64,13 +92,8 @@ curl -s -X POST \
   -H "Content-Type: application/json" \
   -d '{"candidate_id":"worker-a","ttl_seconds":30}'</code></pre>
         </div>
-        <p>A winner gets <code>status: "leader"</code>, a monotonic <code>term</code>, and a secret <code>leader_token</code>. Every other candidate gets <code>status: "follower"</code>, the current leader, and <code>retry_after_ms</code>.</p>
-      </section>
-
-      <section id="leader-election">
-        <h2>Account-free leader election.</h2>
-        <p>Election rooms are capability-based, not identity-based. The room ID is a shared coordination address. The leader token is the authority to mutate the current term.</p>
-        <div class="table-scroll" role="region" aria-label="Leader election endpoints" tabindex="0">
+        <p>A winner receives <code>status: "leader"</code>, a monotonic <code>term</code>, and a secret <code>leader_token</code>. Followers receive the same current leader and <code>retry_after_ms</code>.</p>
+        <section class="table-scroll" aria-label="Leader election endpoints" tabindex="0">
         <table class="status-table">
           <caption class="sr-only">Leader election endpoints</caption>
           <thead><tr><th>Method</th><th>Path</th><th>Purpose</th></tr></thead>
@@ -82,7 +105,7 @@ curl -s -X POST \
             <tr><td><code>POST</code></td><td><code>/elections/:id/resign</code></td><td>Release leadership immediately</td></tr>
           </tbody>
         </table>
-        </div>
+        </section>
 
         <h3>Renew at half the TTL</h3>
         <div class="code-window">
@@ -105,42 +128,48 @@ curl -s -X POST \
       </section>
 
       <section id="task-locks">
-        <h2>Durable task locks.</h2>
-        <p>Locks are the authenticated primitive for self-hosted coordination. Give a task a deterministic name, acquire it before side effects, renew while work runs, and release when complete.</p>
+        <h2>Authenticated task ownership.</h2>
+        <p>Locks are authenticated on both the hosted and self-hosted authorities. For the hosted path, sign in at <a href="/dashboard.html">the OctoStore dashboard</a>, save the issued bearer credential in an owner-only file, and let the CLI own the session and heartbeat lifecycle while the installed supervisor gates the protected worker. Self-host when coordination traffic or identity must stay on your network.</p>
         <div class="code-window">
-          <div class="code-head"><span>shell</span><button class="copy-button" type="button" data-copy-target="#lock-code">Copy</button></div>
-          <pre id="lock-code"><code>export OCTOSTORE_URL=http://localhost:3000
-export OCTOSTORE_TOKEN=change-me
-
-curl -s -X POST "$OCTOSTORE_URL/locks/issue-1842/acquire" \
-  -H "Authorization: Bearer $OCTOSTORE_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"ttl_seconds":120,"metadata":"agent=atlas"}'</code></pre>
+          <div class="code-head"><span>installed supervisor · exact item</span><button class="copy-button" type="button" data-copy-target="#lock-code">Copy</button></div>
+          <pre id="lock-code"><code>chmod 600 /path/to/octostore-token
+OCTOSTORE_URL=https://api.octostore.io \
+OCTOSTORE_TOKEN_FILE=/path/to/octostore-token \
+octostore-supervisor lock "repo/octostore/issue-1842" - "$AGENT_WORKER" -- \
+  octostore lock hold "repo/octostore/issue-1842" \
+    --ttl 120 --acquire-timeout 60 --json</code></pre>
         </div>
-        <p>Lock responses return <code>acquired</code>, <code>held</code>, or <code>delayed</code>. Each successful acquisition includes a lease ID and a fencing token. Lock names may be hierarchical, such as <code>repos/acme/app/issues/1842</code>.</p>
+        <p>The CLI emits <code>acquired</code>, <code>waiting</code>, <code>renewed</code>, and terminal loss events without printing the lease or bearer capability. Raw lock responses expose <code>acquired</code>, <code>held</code>, or <code>delayed</code> and a fencing token for downstream stale-write rejection.</p>
       </section>
 
       <section id="self-host">
-        <h2>Self-host in one minute.</h2>
-        <p>The release installer verifies the published SHA-256 checksum and binary version before placing <code>octostore</code> in <code>/usr/local/bin</code>.</p>
+        <h2>Self-host one authority.</h2>
+        <p>Download the v0.14.0 installer, inspect it, and execute the pinned copy. The installer verifies the published SHA-256 checksum and binary version before placing <code>octostore</code> in <code>/usr/local/bin</code>.</p>
         <div class="code-window">
-          <div class="code-head"><span>shell</span><button class="copy-button" type="button" data-copy-target="#install-code">Copy</button></div>
-          <pre id="install-code"><code>curl -fsSL \
-  https://raw.githubusercontent.com/octostore/octostore.io/main/install.sh \
-  | sh
+          <div class="code-head"><span>pinned, inspectable install</span><button class="copy-button" type="button" data-copy-target="#install-code">Copy</button></div>
+          <pre id="install-code"><code>VERSION=v0.14.0
+curl -fsSLo octostore-install.sh \
+  "https://raw.githubusercontent.com/octostore/octostore.io/$VERSION/install.sh"
+cat octostore-install.sh
+OCTOSTORE_VERSION="$VERSION" sh octostore-install.sh
 
-STATIC_TOKENS='ops:change-me' \
+install -m 600 /dev/null ./octostore.tokens
+printf 'ops:%s\n' "$(openssl rand -hex 32)" &gt; ./octostore.tokens
+
+BIND_ADDR='127.0.0.1:3000' \
+STATIC_TOKENS_FILE='./octostore.tokens' \
 DATABASE_URL='./octostore.db' \
 octostore
 
 curl http://localhost:3000/health</code></pre>
         </div>
-        <p>The server binds to <code>0.0.0.0:3000</code> by default and stores state in one SQLite file using WAL mode. Put TLS and network policy in your existing reverse proxy.</p>
+        <p>The server default is <code>0.0.0.0:3000</code>; this first-run command overrides it to loopback. Configure TLS, network policy, and durable secret storage before exposing the service. The supported topology is one OctoStore process with one SQLite database, not an HA consensus cluster.</p>
+        <p>Local HTTP registration is disabled by default. A temporary <code>LOCAL_REGISTRATION=true</code> bootstrap requires an explicit numeric loopback bind and no OAuth or static-token source. Usernames are unique case-insensitively across local, static, and OAuth identities; collisions return <code>409</code> without reissuing the existing token, and ambiguous legacy databases fail startup. Disable registration after enrollment.</p>
       </section>
 
       <section id="configuration">
         <h2>Configuration.</h2>
-        <div class="table-scroll" role="region" aria-label="OctoStore configuration variables" tabindex="0">
+        <section class="table-scroll" aria-label="OctoStore configuration variables" tabindex="0">
         <table class="status-table">
           <caption class="sr-only">OctoStore configuration variables</caption>
           <thead><tr><th>Variable</th><th>Default</th><th>Meaning</th></tr></thead>
@@ -148,15 +177,18 @@ curl http://localhost:3000/health</code></pre>
             <tr><td><code>BIND_ADDR</code></td><td><code>0.0.0.0:3000</code></td><td>HTTP listen address</td></tr>
             <tr><td><code>DATABASE_URL</code></td><td><code>octostore.db</code></td><td>SQLite database path</td></tr>
             <tr><td><code>STATIC_TOKENS</code></td><td>unset</td><td>Comma-separated <code>user:token</code> credentials</td></tr>
-            <tr><td><code>STATIC_TOKENS_FILE</code></td><td>unset</td><td>Newline-delimited static token file</td></tr>
-            <tr><td><code>PUBLIC_ELECTIONS</code></td><td><code>true</code></td><td>Enable account-free election endpoints</td></tr>
+<tr><td><code>STATIC_TOKENS_FILE</code></td><td>unset</td><td>Newline-delimited static token file</td></tr>
+<tr><td><code>LOCAL_REGISTRATION</code></td><td><code>false</code></td><td>Explicit loopback-only local enrollment; incompatible with OAuth and static token sources</td></tr>
+<tr><td><code>PUBLIC_ELECTIONS</code></td><td><code>true</code></td><td>Enable account-free election endpoints</td></tr>
             <tr><td><code>MAX_PUBLIC_ELECTIONS</code></td><td><code>10000</code></td><td>Maximum simultaneous public rooms</td></tr>
             <tr><td><code>PUBLIC_ELECTION_REQUESTS_PER_MINUTE</code></td><td><code>600</code></td><td>Per-client admission limit for room creation and campaigns</td></tr>
             <tr><td><code>GITHUB_CLIENT_ID</code></td><td>unset</td><td>Enable optional GitHub OAuth when paired with the secret</td></tr>
             <tr><td><code>ADMIN_KEY</code></td><td>unset</td><td>Protect admin and metrics endpoints</td></tr>
+            <tr><td><code>OCTOSTORE_CA_BUNDLE</code></td><td>system roots only</td><td>Additional PEM CA bundle for CLI HTTPS and webhook delivery</td></tr>
+            <tr><td><code>OCTOSTORE_WEBHOOK_ALLOW_PRIVATE_NETWORKS</code></td><td><code>false</code></td><td>Keep webhook delivery on public addresses; set <code>OCTOSTORE_WEBHOOK_ALLOW_PRIVATE_NETWORKS=true</code> only for an intentionally private self-hosted network</td></tr>
           </tbody>
         </table>
-        </div>
+        </section>
       </section>
 
       <section id="safety">
@@ -168,14 +200,15 @@ curl http://localhost:3000/health</code></pre>
           <li><strong>Room IDs are not access controls.</strong> Use generated IDs and self-host when room discovery or traffic must be private.</li>
           <li><strong>Election admission is rate limited per client.</strong> Status, renewal, and resignation stay available so load cannot strand a current leader.</li>
           <li><strong>Locks are advisory.</strong> Downstream systems should be idempotent and reject stale fencing terms where possible.</li>
+          <li><strong>Webhook destinations are public by default.</strong> HTTPS callbacks reject localhost plus private, link-local, and reserved literal or DNS-resolved addresses on every delivery attempt. Redirects are never followed.</li>
         </ul>
       </section>
 
       <section id="api-reference">
         <h2>Full API reference.</h2>
-        <p>The interactive OpenAPI reference covers elections, locks, sessions, webhooks, authentication, health, and admin operations.</p>
+        <p>The read-only API index links to the versioned OpenAPI contract for elections, locks, sessions, webhooks, authentication, health, and admin operations. It never collects credentials or executes third-party runtime JavaScript.</p>
         <div class="button-row">
-          <a class="button primary" href="https://api.octostore.io/docs">Open interactive reference</a>
+          <a class="button primary" href="https://api.octostore.io/docs">Open API index</a>
           <a class="button" href="https://api.octostore.io/openapi.yaml">Download OpenAPI YAML</a>
         </div>
       </section>

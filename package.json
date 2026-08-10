@@ -1,0 +1,19 @@
+{
+  "name": "octostore-site-contracts",
+  "private": true,
+  "scripts": {
+    "lint:html": "html-validate site/index.html site/agents/index.html site/docs/index.html site/leader-election/index.html site/coordination/index.html site/dashboard.html site/status.html && html-validate --rule=no-inline-style:off site/admin.html",
+    "lint:openapi": "redocly lint openapi.yaml",
+    "serve:site": "node scripts/serve-site.mjs",
+    "test:site:static": "node scripts/check-site.mjs && node scripts/check-site-behavior.mjs",
+    "test:site:browser": "env -u NO_COLOR playwright test",
+    "test:site:browser:evidence": "env -u NO_COLOR OCTOSTORE_BROWSER_EVIDENCE_DIR=evidence/browser/2026-08-04 playwright test"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.12.1",
+    "@playwright/test": "1.62.1",
+    "@redocly/cli": "2.44.1",
+    "html-validate": "10.10.0",
+    "skills": "1.5.21"
+  }
+}

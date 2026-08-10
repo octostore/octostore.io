@@ -4,12 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Existing stable release tag to redeploy (for example v0.13.0)"
+        description: "Existing stable release tag to redeploy (for example v0.14.0)"
         required: true
         type: string
 
 permissions:
   contents: read
+  attestations: read
+  deployments: write
 
 concurrency:
   group: production-deploy
@@ -18,25 +20,247 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: production
     steps:
-      - name: Validate stable release exists
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
-        run: |
-          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "ERROR: expected a stable semver tag such as v0.13.0, got '$RELEASE_TAG'."
-            exit 1
-          fi
-          gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" >/dev/null
-
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           # Always use the hardened deploy runner from the default branch.
           # The runner itself checks out the exact requested release tag on
           # the host, so redeploying an older release cannot downgrade the
           # safety logic before it runs.
           ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - name: Require an exact stable redeploy tag
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: scripts/require-stable-release-tag.sh "$RELEASE_TAG"
+
+      - name: Resolve stable release to an immutable commit
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          RELEASE_IS_DEPLOYABLE="$(
+            gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" \
+              --json isDraft,isPrerelease,isImmutable \
+              --jq '(.isDraft == false) and (.isPrerelease == false) and (.isImmutable == true)'
+          )"
+          if [[ "$RELEASE_IS_DEPLOYABLE" != true ]]; then
+            echo "ERROR: manual redeploy requires a published, immutable, non-prerelease GitHub release."
+            exit 1
+          fi
+          EXPECTED_COMMIT="$(gh api "repos/${{ github.repository }}/commits/$RELEASE_TAG" --jq .sha)"
+          if [[ ! "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "ERROR: release tag did not resolve to an immutable commit SHA."
+            exit 1
+          fi
+          git fetch --force origin main "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          TAG_COMMIT="$(git rev-parse "${RELEASE_TAG}^{commit}")"
+          if [[ "$TAG_COMMIT" != "$EXPECTED_COMMIT" ]]; then
+            echo "ERROR: local tag resolves to $TAG_COMMIT, release API resolved $EXPECTED_COMMIT."
+            exit 1
+          fi
+          git merge-base --is-ancestor "$EXPECTED_COMMIT" origin/main || {
+            echo "ERROR: release commit must be reachable from origin/main."
+            exit 1
+          }
+
+          VERIFY_DIR="$(mktemp -d)"
+          trap 'rm -rf "$VERIFY_DIR"' EXIT
+          ASSET="$VERIFY_DIR/octostore-linux-amd64"
+          gh release download "$RELEASE_TAG" --repo "${{ github.repository }}" \
+            --dir "$VERIFY_DIR" --pattern octostore-linux-amd64
+          gh attestation verify "$ASSET" \
+            --repo "${{ github.repository }}" \
+            --signer-workflow "github.com/${{ github.repository }}/.github/workflows/release.yml" \
+            --source-ref "refs/heads/main" \
+            --source-digest "$EXPECTED_COMMIT" \
+            --deny-self-hosted-runners >/dev/null
+          EXPECTED_ASSET_SHA="$(sha256sum "$ASSET" | awk '{print $1}')"
+          [[ "$EXPECTED_ASSET_SHA" =~ ^[0-9a-f]{64}$ ]]
+          PREVIOUS_TAG=""
+          while IFS=$'\t' read -r DEPLOYMENT_ID DEPLOYMENT_REF; do
+            STATUS=$(gh api \
+              "repos/${{ github.repository }}/deployments/$DEPLOYMENT_ID/statuses?per_page=1" \
+              --jq '.[0].state // ""')
+            if [[ "$STATUS" == success ]]; then
+              PREVIOUS_TAG=$DEPLOYMENT_REF
+              break
+            fi
+          done < <(gh api \
+            "repos/${{ github.repository }}/deployments?environment=production&per_page=100" \
+            --jq 'sort_by(.id) | reverse | .[] | [.id, .ref] | @tsv')
+          if [[ -z "$PREVIOUS_TAG" ]]; then
+            PREVIOUS_TAG=v0.13.2
+            echo "EVIDENCE production_deployment_bootstrap tag=$PREVIOUS_TAG"
+          fi
+          scripts/require-stable-release-tag.sh "$PREVIOUS_TAG"
+          if [[ "$PREVIOUS_TAG" == v0.13.2 ]]; then
+            PREVIOUS_ASSET_SHA=df765cdb233991b58303ab2bd9ff7faf297915d23231ce3f8fd7752fdb9e5623
+          else
+            PREVIOUS_ASSET="$VERIFY_DIR/previous-octostore-linux-amd64"
+            PREVIOUS_COMMIT=$(gh api \
+              "repos/${{ github.repository }}/commits/$PREVIOUS_TAG" --jq .sha)
+            [[ "$PREVIOUS_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+            gh release verify "$PREVIOUS_TAG" --repo "${{ github.repository }}" >/dev/null
+            gh release download "$PREVIOUS_TAG" --repo "${{ github.repository }}" \
+              --output "$PREVIOUS_ASSET" --pattern octostore-linux-amd64
+            gh attestation verify "$PREVIOUS_ASSET" \
+              --repo "${{ github.repository }}" \
+              --signer-workflow "github.com/${{ github.repository }}/.github/workflows/release.yml" \
+              --source-digest "$PREVIOUS_COMMIT" \
+              --deny-self-hosted-runners >/dev/null
+            PREVIOUS_ASSET_SHA=$(sha256sum "$PREVIOUS_ASSET" | awk '{print $1}')
+          fi
+          {
+            echo "expected_commit=$EXPECTED_COMMIT"
+            echo "asset_sha256=$EXPECTED_ASSET_SHA"
+            echo "previous_tag=$PREVIOUS_TAG"
+            echo "previous_asset_sha256=$PREVIOUS_ASSET_SHA"
+          } >> "$GITHUB_OUTPUT"
+
+      # Deployment records are audit evidence, not an approval mechanism. This
+      # API check fails closed if the environment that authorized this job no
+      # longer has an active human-review rule before any production mutation.
+      - name: Require protected production environment
+        env:
+          RELEASE_POLICY_TOKEN: ${{ secrets.OCTOSTORE_RELEASE_POLICY_TOKEN }}
+        run: |
+          if [[ -z "$RELEASE_POLICY_TOKEN" ]]; then
+            echo "ERROR: OCTOSTORE_RELEASE_POLICY_TOKEN with repository administration-read access is required." >&2
+            exit 1
+          fi
+          ENVIRONMENT_JSON="$(GH_TOKEN="$RELEASE_POLICY_TOKEN" gh api "repos/$GITHUB_REPOSITORY/environments/production")" || {
+            echo "ERROR: production environment is unavailable to the administration-read policy token." >&2
+            exit 1
+          }
+          if ! jq -e '
+            (.deployment_branch_policy.protected_branches == true)
+            and (.deployment_branch_policy.custom_branch_policies == false)
+            and ([
+              .protection_rules[]?
+              | select(.type == "required_reviewers")
+              | select((.enabled // true) == true)
+              | select(.prevent_self_review == true)
+              | select((.reviewers // []) | length > 0)
+            ] | length > 0)
+          ' <<<"$ENVIRONMENT_JSON" >/dev/null; then
+            echo "ERROR: production must require non-self review and protected-branch-only deployment." >&2
+            exit 1
+          fi
+          echo "EVIDENCE production_environment_required_reviewers_verified"
+
+      - name: Migrate production SSH secrets
+        env:
+          MIGRATION_TOKEN: ${{ secrets.OCTOSTORE_MIGRATION_TOKEN }}
+          DEPLOY_HOST_VALUE: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SSH_KEY_VALUE: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_KNOWN_HOSTS_VALUE: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+        run: |
+          if [[ -z "$MIGRATION_TOKEN" ]]; then
+            echo "ERROR: OCTOSTORE_MIGRATION_TOKEN with production secret-migration write access is required." >&2
+            exit 1
+          fi
+          REQUIRED_SECRETS=(DEPLOY_HOST DEPLOY_SSH_KEY DEPLOY_SSH_KNOWN_HOSTS)
+          has_secret_name() {
+            grep -Fxq -- "$1" <<<"$2"
+          }
+          REPOSITORY_SECRET_NAMES="$(
+            GH_TOKEN="$MIGRATION_TOKEN" gh api \
+              "repos/$GITHUB_REPOSITORY/actions/secrets?per_page=100" \
+              --paginate \
+              --jq '.secrets[].name'
+          )" || {
+            echo "ERROR: failed to inspect repository Actions secret names." >&2
+            exit 1
+          }
+          REPOSITORY_COPIES=()
+          for SECRET_NAME in "${REQUIRED_SECRETS[@]}"; do
+            if has_secret_name "$SECRET_NAME" "$REPOSITORY_SECRET_NAMES"; then
+              REPOSITORY_COPIES+=("$SECRET_NAME")
+            fi
+          done
+
+          if ((${#REPOSITORY_COPIES[@]} == 0)); then
+            ENVIRONMENT_SECRET_NAMES="$(
+              GH_TOKEN="$MIGRATION_TOKEN" gh api \
+                "repos/$GITHUB_REPOSITORY/environments/production/secrets?per_page=100" \
+                --paginate \
+                --jq '.secrets[].name'
+            )" || {
+              echo "ERROR: failed to inspect production environment secret names." >&2
+              exit 1
+            }
+            for SECRET_NAME in "${REQUIRED_SECRETS[@]}"; do
+              if ! has_secret_name "$SECRET_NAME" "$ENVIRONMENT_SECRET_NAMES"; then
+                echo "ERROR: production environment is missing required SSH secret $SECRET_NAME." >&2
+                exit 1
+              fi
+            done
+            echo "EVIDENCE production_ssh_secrets_already_environment_scoped"
+            exit 0
+          fi
+
+          for SECRET_NAME in "${REQUIRED_SECRETS[@]}"; do
+            VALUE_VARIABLE="${SECRET_NAME}_VALUE"
+            if [[ -z ${!VALUE_VARIABLE:-} ]]; then
+              echo "ERROR: resolved value for required SSH secret $SECRET_NAME is empty." >&2
+              exit 1
+            fi
+          done
+          for SECRET_NAME in "${REQUIRED_SECRETS[@]}"; do
+            VALUE_VARIABLE="${SECRET_NAME}_VALUE"
+            SECRET_VALUE=${!VALUE_VARIABLE}
+            if ! printf '%s' "$SECRET_VALUE" | GH_TOKEN="$MIGRATION_TOKEN" \
+              gh secret set "$SECRET_NAME" --env production --repo "$GITHUB_REPOSITORY"; then
+              echo "ERROR: failed to set production environment secret $SECRET_NAME." >&2
+              exit 1
+            fi
+            unset SECRET_VALUE
+          done
+
+          ENVIRONMENT_SECRET_NAMES="$(
+            GH_TOKEN="$MIGRATION_TOKEN" gh api \
+              "repos/$GITHUB_REPOSITORY/environments/production/secrets?per_page=100" \
+              --paginate \
+              --jq '.secrets[].name'
+          )" || {
+            echo "ERROR: failed to verify production environment secret names." >&2
+            exit 1
+          }
+          for SECRET_NAME in "${REQUIRED_SECRETS[@]}"; do
+            if ! has_secret_name "$SECRET_NAME" "$ENVIRONMENT_SECRET_NAMES"; then
+              echo "ERROR: production environment secret verification failed for $SECRET_NAME; repository rollback copies were retained." >&2
+              exit 1
+            fi
+          done
+
+          for SECRET_NAME in "${REPOSITORY_COPIES[@]}"; do
+            if ! GH_TOKEN="$MIGRATION_TOKEN" gh api --method DELETE \
+              "repos/$GITHUB_REPOSITORY/actions/secrets/$SECRET_NAME"; then
+              echo "ERROR: failed to delete repository Actions secret $SECRET_NAME after environment verification." >&2
+              exit 1
+            fi
+          done
+          REMAINING_REPOSITORY_SECRET_NAMES="$(
+            GH_TOKEN="$MIGRATION_TOKEN" gh api \
+              "repos/$GITHUB_REPOSITORY/actions/secrets?per_page=100" \
+              --paginate \
+              --jq '.secrets[].name'
+          )" || {
+            echo "ERROR: failed to verify repository Actions secret deletion." >&2
+            exit 1
+          }
+          for SECRET_NAME in "${REQUIRED_SECRETS[@]}"; do
+            if has_secret_name "$SECRET_NAME" "$REMAINING_REPOSITORY_SECRET_NAMES"; then
+              echo "ERROR: repository Actions secret $SECRET_NAME remains after migration." >&2
+              exit 1
+            fi
+          done
+          echo "EVIDENCE production_ssh_secrets_migrated_to_environment"
 
       - name: Set up SSH
         run: |
@@ -48,7 +272,30 @@ jobs:
       - name: Redeploy release to production
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
+          EXPECTED_COMMIT: ${{ steps.release.outputs.expected_commit }}
+          EXPECTED_ASSET_SHA: ${{ steps.release.outputs.asset_sha256 }}
+          EXPECTED_PREVIOUS_ASSET_SHA: ${{ steps.release.outputs.previous_asset_sha256 }}
         run: |
+          scripts/require-stable-release-tag.sh "$RELEASE_TAG"
           ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes \
             daaronch@${{ secrets.DEPLOY_HOST }} \
-            bash -s -- "$RELEASE_TAG" < deploy/deploy.sh
+            bash -s -- "$RELEASE_TAG" "$EXPECTED_COMMIT" "$EXPECTED_ASSET_SHA" \
+              "$EXPECTED_PREVIOUS_ASSET_SHA" < deploy/deploy.sh
+
+      - name: Record the successful production deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          DEPLOYMENT_ID=$(jq -cn \
+            --arg ref "$RELEASE_TAG" \
+            '{ref:$ref,environment:"production",description:"OctoStore manual production redeploy",auto_merge:false,required_contexts:[]}' \
+            | gh api --method POST "repos/$GITHUB_REPOSITORY/deployments" --input - --jq .id)
+          [[ "$DEPLOYMENT_ID" =~ ^[0-9]+$ ]]
+          jq -cn \
+            --arg environment_url https://octostore.io \
+            --arg log_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            '{state:"success",environment:"production",environment_url:$environment_url,log_url:$log_url,auto_inactive:true}' \
+            | gh api --method POST \
+              "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT_ID/statuses" --input - >/dev/null
+          echo "EVIDENCE production_deployment_recorded id=$DEPLOYMENT_ID tag=$RELEASE_TAG"

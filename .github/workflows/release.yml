@@ -1,48 +1,158 @@
 name: Release
 
 on:
-  push:
-    tags: ['v*']
+  repository_dispatch:
+    types: [stable-release]
 
-permissions:
-  contents: write
+permissions: {}
+
+# repository_dispatch always loads this workflow from the trusted default
+# branch. The requested tag is untrusted data until validate proves that it is
+# stable and resolves exactly to the checked-out default-branch commit.
+env:
+  RELEASE_TAG: ${{ github.event.client_payload.tag }}
 
 jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Establish trusted default-branch release authority
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" != repository_dispatch \
+            || "$GITHUB_REF" != refs/heads/main ]]; then
+            echo "ERROR: stable releases must execute trusted workflow code from refs/heads/main." >&2
+            exit 1
+          fi
+          scripts/require-stable-release-tag.sh "$RELEASE_TAG"
+          git fetch --force origin main "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          TAG_COMMIT="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          if [[ "$TAG_COMMIT" != "$GITHUB_SHA" ]]; then
+            echo "ERROR: remote tag $RELEASE_TAG resolves to $TAG_COMMIT, not trusted main SHA $GITHUB_SHA." >&2
+            exit 1
+          fi
+          git checkout --detach "$GITHUB_SHA"
+          if [[ "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]]; then
+            echo "ERROR: checkout HEAD does not match event SHA $GITHUB_SHA." >&2
+            exit 1
+          fi
+          git merge-base --is-ancestor "$TAG_COMMIT" origin/main || {
+            echo "ERROR: release tag must point to a commit on origin/main."
+            exit 1
+          }
+          echo "EVIDENCE trusted_default_branch_release tag=$RELEASE_TAG sha=$GITHUB_SHA"
+      - name: Require immutable releases before release work
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_POLICY_TOKEN: ${{ secrets.OCTOSTORE_RELEASE_POLICY_TOKEN }}
+        run: |
+          if [[ -z "$RELEASE_POLICY_TOKEN" ]]; then
+            echo "ERROR: OCTOSTORE_RELEASE_POLICY_TOKEN with repository administration-read access is required." >&2
+            exit 1
+          fi
+          ENABLED=$(GH_TOKEN="$RELEASE_POLICY_TOKEN" \
+            gh api "repos/$GITHUB_REPOSITORY/immutable-releases" --jq '.enabled')
+          if [[ "$ENABLED" != true ]]; then
+            echo "ERROR: repository immutable releases must be enabled before a release can run." >&2
+            exit 1
+          fi
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.11.1
+          cache: npm
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: 1.26.5
+          cache: false
+      - name: Install locked browser tooling
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          ./node_modules/.bin/playwright install --with-deps chromium
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.92.0
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: Validate release tag matches Cargo.toml
+        run: |
+          TAG_VERSION="${RELEASE_TAG#v}"
+          CARGO_VERSION="$(awk -F '\"' '/^version = / { print $2; exit }' Cargo.toml)"
+          test "$TAG_VERSION" = "$CARGO_VERSION"
+      - name: Exact-SHA local CI equivalent, including warning-free package dry run
+        run: scripts/ci-local.sh
+      - name: Exact-SHA release install and coordination fixture
+        run: scripts/smoke-release-fixture.sh
+      - name: Install the advertised remote tagged skill with the locked CLI
+        env:
+          OCTOSTORE_SKILL_SOURCE: https://github.com/${{ github.repository }}/tree/${{ github.event.client_payload.tag }}
+        run: scripts/smoke-skill-install.sh
+
   build:
+    needs: validate
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     strategy:
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-22.04
             name: octostore-linux-amd64
-          - target: aarch64-unknown-linux-gnu
+          - target: aarch64-unknown-linux-musl
             os: ubuntu-24.04-arm
             name: octostore-linux-arm64
           - target: x86_64-apple-darwin
-            os: macos-latest
+            os: macos-15-intel
             name: octostore-macos-amd64
           - target: aarch64-apple-darwin
-            os: macos-latest
+            os: macos-15
             name: octostore-macos-arm64
 
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Require exact tag/SHA binding before build
+        run: |
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          TAG_COMMIT="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          if [[ "$TAG_COMMIT" != "$GITHUB_SHA" ]]; then
+            echo "ERROR: remote tag $RELEASE_TAG resolves to $TAG_COMMIT, not event SHA $GITHUB_SHA." >&2
+            exit 1
+          fi
+          git checkout --detach "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.92.0
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+
+      - name: Install musl toolchain for portable Linux assets
+        if: contains(matrix.target, 'linux-musl')
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes musl-tools
 
       - name: Validate release tag matches Cargo.toml
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${RELEASE_TAG}"
           if [[ "$TAG" != v* ]]; then
             echo "ERROR: expected release tag to start with 'v', got '$TAG'."
             exit 1
           fi
 
           TAG_VERSION="${TAG#v}"
-          CARGO_VERSION="$(python3 -c "import tomllib; print(tomllib.load(open('Cargo.toml', 'rb'))['package']['version'])")"
+          CARGO_VERSION="$(awk -F '\"' '/^version = / { print $2; exit }' Cargo.toml)"
 
           if [[ "$TAG_VERSION" != "$CARGO_VERSION" ]]; then
             echo "ERROR: tag version '$TAG_VERSION' does not match Cargo.toml version '$CARGO_VERSION'."
@@ -57,48 +167,323 @@ jobs:
       - name: Rename binary
         run: cp target/${{ matrix.target }}/release/octostore ${{ matrix.name }}
 
-      - uses: actions/upload-artifact@v4
+      - name: Verify native installer, checksum, version, and lease lifecycle
+        run: |
+          chmod +x "${{ matrix.name }}"
+          OCTOSTORE_SMOKE_BINARY="$PWD/${{ matrix.name }}" scripts/smoke-release-fixture.sh
+
+      - name: Record native execution evidence
+        shell: bash
+        run: |
+          ASSET="${{ matrix.name }}"
+          if command -v sha256sum >/dev/null 2>&1; then
+            ASSET_SHA="$(sha256sum "$ASSET" | awk '{print $1}')"
+          else
+            ASSET_SHA="$(shasum -a 256 "$ASSET" | awk '{print $1}')"
+          fi
+          VERSION_OUTPUT="$("./$ASSET" --version)"
+          EXPECTED_VERSION="octostore ${RELEASE_TAG#v}"
+          test "$VERSION_OUTPUT" = "$EXPECTED_VERSION"
+          printf '%s\t%s\t%s\n' "$ASSET" "$ASSET_SHA" "$VERSION_OUTPUT" \
+            >"release-evidence-$ASSET.tsv"
+
+      - name: Attest native binary provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ matrix.name }}
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.name }}
-          path: ${{ matrix.name }}
+          path: |
+            ${{ matrix.name }}
+            release-evidence-${{ matrix.name }}.tsv
 
   release:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Require exact tag/SHA binding before release artifact packaging
+        run: |
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          TAG_COMMIT="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          if [[ "$TAG_COMMIT" != "$GITHUB_SHA" ]]; then
+            echo "ERROR: remote tag $RELEASE_TAG resolves to $TAG_COMMIT, not event SHA $GITHUB_SHA." >&2
+            exit 1
+          fi
+          git checkout --detach "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           merge-multiple: true
 
-      - name: Generate release checksums
-        run: sha256sum octostore-* > SHA256SUMS
+      - name: Package skill, supervisor, and release checksums
+        run: |
+          NATIVE_ASSETS=(
+            octostore-linux-amd64
+            octostore-linux-arm64
+            octostore-macos-amd64
+            octostore-macos-arm64
+          )
+          for ASSET in "${NATIVE_ASSETS[@]}"; do
+            test -f "$ASSET"
+            test -f "release-evidence-$ASSET.tsv"
+            IFS=$'\t' read -r EVIDENCE_ASSET EVIDENCE_SHA EVIDENCE_VERSION \
+              <"release-evidence-$ASSET.tsv"
+            test "$EVIDENCE_ASSET" = "$ASSET"
+            test "$EVIDENCE_VERSION" = "octostore ${RELEASE_TAG#v}"
+            test "$EVIDENCE_SHA" = "$(sha256sum "$ASSET" | awk '{print $1}')"
+          done
+          cp skills/octostore/SKILL.md octostore-agent-skill.md
+          cp scripts/reference-supervisor.sh octostore-reference-supervisor.sh
+          sha256sum \
+            "${NATIVE_ASSETS[@]}" \
+            octostore-agent-skill.md \
+            octostore-reference-supervisor.sh \
+            > SHA256SUMS
+
+      - name: Attest supervisor provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: octostore-reference-supervisor.sh
+
+      - name: Attest agent skill provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: octostore-agent-skill.md
+
+      - name: Recheck immutable-release policy before creating the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_POLICY_TOKEN: ${{ secrets.OCTOSTORE_RELEASE_POLICY_TOKEN }}
+        run: |
+          if [[ -z "$RELEASE_POLICY_TOKEN" ]]; then
+            echo "ERROR: OCTOSTORE_RELEASE_POLICY_TOKEN with repository administration-read access is required." >&2
+            exit 1
+          fi
+          ENABLED=$(GH_TOKEN="$RELEASE_POLICY_TOKEN" \
+            gh api "repos/$GITHUB_REPOSITORY/immutable-releases" --jq '.enabled')
+          if [[ "$ENABLED" != true ]]; then
+            echo "ERROR: repository immutable releases were disabled before draft creation." >&2
+            exit 1
+          fi
+          if RELEASE_JSON=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" 2>/dev/null); then
+            if [[ $(jq -r '.draft' <<<"$RELEASE_JSON") != true ]]; then
+              echo "ERROR: refusing to update an already-public release for $RELEASE_TAG." >&2
+              exit 1
+            fi
+          fi
+
+      - name: Require exact tag/SHA binding before draft creation
+        run: |
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          TAG_COMMIT="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          if [[ "$TAG_COMMIT" != "$GITHUB_SHA" ]]; then
+            echo "ERROR: remote tag $RELEASE_TAG resolves to $TAG_COMMIT, not event SHA $GITHUB_SHA." >&2
+            exit 1
+          fi
+          git checkout --detach "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: |
             octostore-*
             SHA256SUMS
           generate_release_notes: true
+          draft: true
+          tag_name: ${{ github.event.client_payload.tag }}
+          target_commitish: ${{ github.sha }}
+
+      - name: Verify the exact draft release asset set and matrix provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          RELEASE_TARGET_COMMIT="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json targetCommitish --jq '.targetCommitish')"
+          test "$RELEASE_TARGET_COMMIT" = "$GITHUB_SHA"
+          EXPECTED_ASSETS=(
+            SHA256SUMS
+            octostore-agent-skill.md
+            octostore-linux-amd64
+            octostore-linux-arm64
+            octostore-macos-amd64
+            octostore-macos-arm64
+            octostore-reference-supervisor.sh
+          )
+          mapfile -t ACTUAL_ASSETS < <(
+            gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --json assets --jq '.assets[].name' | sort
+          )
+          diff \
+            <(printf '%s\n' "${EXPECTED_ASSETS[@]}" | sort) \
+            <(printf '%s\n' "${ACTUAL_ASSETS[@]}")
+
+          VERIFY_DIR="$(mktemp -d)"
+          trap 'rm -rf "$VERIFY_DIR"' EXIT
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --dir "$VERIFY_DIR" --pattern '*'
+          (cd "$VERIFY_DIR" && sha256sum --check SHA256SUMS)
+
+          for ASSET in \
+            octostore-linux-amd64 \
+            octostore-linux-arm64 \
+            octostore-macos-amd64 \
+            octostore-macos-arm64
+          do
+            IFS=$'\t' read -r EVIDENCE_ASSET EVIDENCE_SHA EVIDENCE_VERSION \
+              <"release-evidence-$ASSET.tsv"
+            test "$EVIDENCE_ASSET" = "$ASSET"
+            test "$EVIDENCE_VERSION" = "octostore ${RELEASE_TAG#v}"
+            test "$EVIDENCE_SHA" = "$(sha256sum "$VERIFY_DIR/$ASSET" | awk '{print $1}')"
+            gh attestation verify "$VERIFY_DIR/$ASSET" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+              --source-ref "$GITHUB_REF" \
+              --source-digest "$GITHUB_SHA" \
+              --deny-self-hosted-runners >/dev/null
+          done
+          for ASSET in octostore-reference-supervisor.sh octostore-agent-skill.md; do
+            gh attestation verify "$VERIFY_DIR/$ASSET" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+              --source-ref "$GITHUB_REF" \
+              --source-digest "$GITHUB_SHA" \
+              --deny-self-hosted-runners >/dev/null
+          done
 
   publish:
-    needs: build
+    needs: release
     runs-on: ubuntu-latest
+    environment:
+      name: production
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Require protected production environment before publication
+        env:
+          RELEASE_POLICY_TOKEN: ${{ secrets.OCTOSTORE_RELEASE_POLICY_TOKEN }}
+        run: |
+          if [[ -z "$RELEASE_POLICY_TOKEN" ]]; then
+            echo "ERROR: OCTOSTORE_RELEASE_POLICY_TOKEN with repository administration-read access is required." >&2
+            exit 1
+          fi
+          ENVIRONMENT_JSON="$(GH_TOKEN="$RELEASE_POLICY_TOKEN" gh api "repos/$GITHUB_REPOSITORY/environments/production")" || {
+            echo "ERROR: production environment is unavailable to the administration-read policy token." >&2
+            exit 1
+          }
+          if ! jq -e '
+            (.deployment_branch_policy.protected_branches == true)
+            and (.deployment_branch_policy.custom_branch_policies == false)
+            and ([
+              .protection_rules[]?
+              | select(.type == "required_reviewers")
+              | select((.enabled // true) == true)
+              | select(.prevent_self_review == true)
+              | select((.reviewers // []) | length > 0)
+            ] | length > 0)
+          ' <<<"$ENVIRONMENT_JSON" >/dev/null; then
+            echo "ERROR: production must require non-self review and protected-branch-only deployment before publication." >&2
+            exit 1
+          fi
+          echo "EVIDENCE release_publication_required_reviewers_verified"
+      - name: Migrate crates.io credential into the approved environment
+        env:
+          MIGRATION_TOKEN: ${{ secrets.OCTOSTORE_MIGRATION_TOKEN }}
+          CARGO_REGISTRY_TOKEN_VALUE: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [[ -z "$MIGRATION_TOKEN" ]]; then
+            echo "ERROR: OCTOSTORE_MIGRATION_TOKEN with production secret-migration write access is required." >&2
+            exit 1
+          fi
+          REPOSITORY_SECRET_NAMES="$(
+            GH_TOKEN="$MIGRATION_TOKEN" gh api \
+              "repos/$GITHUB_REPOSITORY/actions/secrets?per_page=100" \
+              --paginate --jq '.secrets[].name'
+          )"
+          ENVIRONMENT_SECRET_NAMES="$(
+            GH_TOKEN="$MIGRATION_TOKEN" gh api \
+              "repos/$GITHUB_REPOSITORY/environments/production/secrets?per_page=100" \
+              --paginate --jq '.secrets[].name'
+          )"
+          if ! grep -Fxq CARGO_REGISTRY_TOKEN <<<"$REPOSITORY_SECRET_NAMES"; then
+            if ! grep -Fxq CARGO_REGISTRY_TOKEN <<<"$ENVIRONMENT_SECRET_NAMES"; then
+              echo "ERROR: CARGO_REGISTRY_TOKEN is absent from both repository and production environment." >&2
+              exit 1
+            fi
+            echo "EVIDENCE crates_io_token_already_environment_scoped"
+            exit 0
+          fi
+          if [[ -z "$CARGO_REGISTRY_TOKEN_VALUE" ]]; then
+            echo "ERROR: resolved CARGO_REGISTRY_TOKEN value is empty; repository rollback copy retained." >&2
+            exit 1
+          fi
+          if ! printf '%s' "$CARGO_REGISTRY_TOKEN_VALUE" | GH_TOKEN="$MIGRATION_TOKEN" \
+            gh secret set CARGO_REGISTRY_TOKEN --env production --repo "$GITHUB_REPOSITORY"; then
+            echo "ERROR: failed to set production CARGO_REGISTRY_TOKEN; repository rollback copy retained." >&2
+            exit 1
+          fi
+          ENVIRONMENT_SECRET_NAMES="$(
+            GH_TOKEN="$MIGRATION_TOKEN" gh api \
+              "repos/$GITHUB_REPOSITORY/environments/production/secrets?per_page=100" \
+              --paginate --jq '.secrets[].name'
+          )"
+          if ! grep -Fxq CARGO_REGISTRY_TOKEN <<<"$ENVIRONMENT_SECRET_NAMES"; then
+            echo "ERROR: production CARGO_REGISTRY_TOKEN verification failed; repository rollback copy retained." >&2
+            exit 1
+          fi
+          GH_TOKEN="$MIGRATION_TOKEN" gh api --method DELETE \
+            "repos/$GITHUB_REPOSITORY/actions/secrets/CARGO_REGISTRY_TOKEN"
+          REMAINING_REPOSITORY_SECRET_NAMES="$(
+            GH_TOKEN="$MIGRATION_TOKEN" gh api \
+              "repos/$GITHUB_REPOSITORY/actions/secrets?per_page=100" \
+              --paginate --jq '.secrets[].name'
+          )"
+          if grep -Fxq CARGO_REGISTRY_TOKEN <<<"$REMAINING_REPOSITORY_SECRET_NAMES"; then
+            echo "ERROR: repository CARGO_REGISTRY_TOKEN remains after verified migration." >&2
+            exit 1
+          fi
+          echo "EVIDENCE crates_io_token_migrated_to_environment"
+      - name: Require exact tag/SHA binding before crate packaging
+        run: |
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          TAG_COMMIT="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          if [[ "$TAG_COMMIT" != "$GITHUB_SHA" ]]; then
+            echo "ERROR: remote tag $RELEASE_TAG resolves to $TAG_COMMIT, not event SHA $GITHUB_SHA." >&2
+            exit 1
+          fi
+          git checkout --detach "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.92.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Validate release tag matches Cargo.toml
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${RELEASE_TAG}"
           if [[ "$TAG" != v* ]]; then
             echo "ERROR: expected release tag to start with 'v', got '$TAG'."
             exit 1
           fi
 
           TAG_VERSION="${TAG#v}"
-          CARGO_VERSION="$(python3 -c "import tomllib; print(tomllib.load(open('Cargo.toml', 'rb'))['package']['version'])")"
+          CARGO_VERSION="$(awk -F '\"' '/^version = / { print $2; exit }' Cargo.toml)"
 
           if [[ "$TAG_VERSION" != "$CARGO_VERSION" ]]; then
             echo "ERROR: tag version '$TAG_VERSION' does not match Cargo.toml version '$CARGO_VERSION'."
@@ -108,46 +493,338 @@ jobs:
           git diff --exit-code
           echo "Release tag '$TAG' matches Cargo.toml version '$CARGO_VERSION' and tree is clean."
 
+      - name: Build the exact crate archive
+        run: cargo package --locked
+
       - name: Publish to crates.io
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          STATUS=$(curl --retry 3 --retry-all-errors --silent --show-error \
-            --user-agent 'octostore-release-check (+https://github.com/octostore/octostore.io)' \
-            --output /dev/null --write-out '%{http_code}' \
-            "https://crates.io/api/v1/crates/octostore/$VERSION")
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          TAG_COMMIT="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          if [[ "$TAG_COMMIT" != "$GITHUB_SHA" ]]; then
+            echo "ERROR: remote tag $RELEASE_TAG resolves to $TAG_COMMIT, not event SHA $GITHUB_SHA." >&2
+            exit 1
+          fi
+          git checkout --detach "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          VERSION="${RELEASE_TAG#v}"
+          CRATE="target/package/octostore-$VERSION.crate"
+          RESULT="$(scripts/verify-crates-io-package.sh live "$VERSION" "$CRATE")"
 
-          case "$STATUS" in
-            200)
-              echo "octostore $VERSION is already published; skipping upload."
+          case "$RESULT" in
+            exact)
+              echo "octostore $VERSION is already published with the exact unyanked candidate archive; skipping upload."
               ;;
-            404)
+            absent)
               cargo publish --locked
               ;;
             *)
-              echo "ERROR: crates.io version check returned HTTP $STATUS."
+              echo "ERROR: unexpected crates.io package verification result '$RESULT'."
               exit 1
               ;;
           esac
 
-  deploy:
-    needs: [release, publish]
+          if [[ "$RESULT" == absent ]]; then
+            for _ in {1..24}; do
+              RESULT="$(scripts/verify-crates-io-package.sh live "$VERSION" "$CRATE")"
+              if [[ "$RESULT" == exact ]]; then
+                break
+              fi
+              sleep 5
+            done
+            [[ "$RESULT" == exact ]] || {
+              echo "ERROR: published crate did not become visible with the exact checksum."
+              exit 1
+            }
+          fi
+
+  finalize:
+    needs: publish
     runs-on: ubuntu-latest
+    environment:
+      name: production
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Require protected production environment before immutable publication
+        env:
+          RELEASE_POLICY_TOKEN: ${{ secrets.OCTOSTORE_RELEASE_POLICY_TOKEN }}
+        run: |
+          if [[ -z "$RELEASE_POLICY_TOKEN" ]]; then
+            echo "ERROR: OCTOSTORE_RELEASE_POLICY_TOKEN with repository administration-read access is required." >&2
+            exit 1
+          fi
+          ENVIRONMENT_JSON="$(GH_TOKEN="$RELEASE_POLICY_TOKEN" gh api "repos/$GITHUB_REPOSITORY/environments/production")" || {
+            echo "ERROR: production environment is unavailable to the administration-read policy token." >&2
+            exit 1
+          }
+          if ! jq -e '
+            (.deployment_branch_policy.protected_branches == true)
+            and (.deployment_branch_policy.custom_branch_policies == false)
+            and ([
+              .protection_rules[]?
+              | select(.type == "required_reviewers")
+              | select((.enabled // true) == true)
+              | select(.prevent_self_review == true)
+              | select((.reviewers // []) | length > 0)
+            ] | length > 0)
+          ' <<<"$ENVIRONMENT_JSON" >/dev/null; then
+            echo "ERROR: production must require non-self review and protected-branch-only deployment before immutable publication." >&2
+            exit 1
+          fi
+          echo "EVIDENCE immutable_publication_required_reviewers_verified"
+      - name: Publish the validated draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_POLICY_TOKEN: ${{ secrets.OCTOSTORE_RELEASE_POLICY_TOKEN }}
+        run: |
+          set -euo pipefail
+          PUBLISHED=false
+          cleanup_failed_publication() {
+            status=$?
+            trap - EXIT
+            if ((status != 0)) && [[ "$PUBLISHED" == true ]]; then
+              RELEASE_JSON=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" 2>/dev/null || true)
+              if [[ -n "$RELEASE_JSON" \
+                && $(jq -r '.draft' <<<"$RELEASE_JSON") == false \
+                && $(jq -r '.immutable' <<<"$RELEASE_JSON") != true ]]; then
+                echo "ERROR: release verification failed while the release was mutable; deleting public release." >&2
+                if ! gh release delete "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --yes; then
+                  echo "ERROR: failed to delete the public mutable release." >&2
+                  exit 2
+                fi
+                if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+                  echo "ERROR: public mutable release still exists after cleanup." >&2
+                  exit 2
+                fi
+                echo "EVIDENCE public_mutable_release_removed tag=$RELEASE_TAG"
+              fi
+            fi
+            exit "$status"
+          }
+          trap cleanup_failed_publication EXIT
+
+          if [[ -z "$RELEASE_POLICY_TOKEN" ]]; then
+            echo "ERROR: OCTOSTORE_RELEASE_POLICY_TOKEN with repository administration-read access is required." >&2
+            exit 1
+          fi
+          ENABLED=$(GH_TOKEN="$RELEASE_POLICY_TOKEN" \
+            gh api "repos/$GITHUB_REPOSITORY/immutable-releases" --jq '.enabled')
+          if [[ "$ENABLED" != true ]]; then
+            echo "ERROR: repository immutable releases must remain enabled through publication." >&2
+            exit 1
+          fi
+          RELEASE_JSON=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")
+          if [[ $(jq -r '.draft' <<<"$RELEASE_JSON") != true ]]; then
+            echo "ERROR: expected a private draft immediately before publication." >&2
+            exit 1
+          fi
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          TAG_COMMIT="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          if [[ "$TAG_COMMIT" != "$GITHUB_SHA" ]]; then
+            echo "ERROR: remote tag $RELEASE_TAG resolves to $TAG_COMMIT, not event SHA $GITHUB_SHA." >&2
+            exit 1
+          fi
+          git checkout --detach "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --draft=false --verify-tag
+          PUBLISHED=true
+
+          RELEASE_JSON=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")
+          if [[ $(jq -r '.draft' <<<"$RELEASE_JSON") != false \
+            || $(jq -r '.immutable' <<<"$RELEASE_JSON") != true ]]; then
+            echo "ERROR: published release is not immutable." >&2
+            exit 1
+          fi
+
+          release_verified=false
+          for _ in {1..12}; do
+            if gh release verify "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY"; then
+              release_verified=true
+              break
+            fi
+            sleep 5
+          done
+          if [[ "$release_verified" != true ]]; then
+            echo "ERROR: immutable release attestation did not verify." >&2
+            exit 1
+          fi
+
+          VERIFY_DIR=$(mktemp -d)
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir "$VERIFY_DIR"
+          while IFS= read -r asset; do
+            gh release verify-asset "$RELEASE_TAG" "$VERIFY_DIR/$asset" \
+              --repo "$GITHUB_REPOSITORY"
+          done < <(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq '.assets[].name')
+          rm -rf "$VERIFY_DIR"
+          trap - EXIT
+          echo "EVIDENCE immutable_release_verified tag=$RELEASE_TAG"
+
+  deploy:
+    needs: finalize
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    permissions:
+      contents: read
+      attestations: read
+      deployments: write
     concurrency:
       group: production-deploy
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
 
-      - name: Refuse pre-release tags
+      # Deployment records are audit evidence, not an approval mechanism. This
+      # API check fails closed if the environment that authorized this job no
+      # longer has an active human-review rule before any production mutation.
+      - name: Require protected production environment
+        env:
+          RELEASE_POLICY_TOKEN: ${{ secrets.OCTOSTORE_RELEASE_POLICY_TOKEN }}
         run: |
-          TAG="${{ github.ref_name }}"
-          if [[ "$TAG" =~ -(dev|alpha|beta|rc)([.0-9]*)$ ]]; then
-            echo "ERROR: refusing to deploy pre-release tag '$TAG' to production."
+          if [[ -z "$RELEASE_POLICY_TOKEN" ]]; then
+            echo "ERROR: OCTOSTORE_RELEASE_POLICY_TOKEN with repository administration-read access is required." >&2
             exit 1
           fi
-          echo "Tag '$TAG' is a clean release — proceeding."
+          ENVIRONMENT_JSON="$(GH_TOKEN="$RELEASE_POLICY_TOKEN" gh api "repos/$GITHUB_REPOSITORY/environments/production")" || {
+            echo "ERROR: production environment is unavailable to the administration-read policy token." >&2
+            exit 1
+          }
+          if ! jq -e '
+            (.deployment_branch_policy.protected_branches == true)
+            and (.deployment_branch_policy.custom_branch_policies == false)
+            and ([
+              .protection_rules[]?
+              | select(.type == "required_reviewers")
+              | select((.enabled // true) == true)
+              | select(.prevent_self_review == true)
+              | select((.reviewers // []) | length > 0)
+            ] | length > 0)
+          ' <<<"$ENVIRONMENT_JSON" >/dev/null; then
+            echo "ERROR: production must require non-self review and protected-branch-only deployment." >&2
+            exit 1
+          fi
+          echo "EVIDENCE production_environment_required_reviewers_verified"
+
+      - name: Migrate production SSH secrets
+        env:
+          MIGRATION_TOKEN: ${{ secrets.OCTOSTORE_MIGRATION_TOKEN }}
+          DEPLOY_HOST_VALUE: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SSH_KEY_VALUE: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_KNOWN_HOSTS_VALUE: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+        run: |
+          if [[ -z "$MIGRATION_TOKEN" ]]; then
+            echo "ERROR: OCTOSTORE_MIGRATION_TOKEN with production secret-migration write access is required." >&2
+            exit 1
+          fi
+          REQUIRED_SECRETS=(DEPLOY_HOST DEPLOY_SSH_KEY DEPLOY_SSH_KNOWN_HOSTS)
+          has_secret_name() {
+            grep -Fxq -- "$1" <<<"$2"
+          }
+          REPOSITORY_SECRET_NAMES="$(
+            GH_TOKEN="$MIGRATION_TOKEN" gh api \
+              "repos/$GITHUB_REPOSITORY/actions/secrets?per_page=100" \
+              --paginate \
+              --jq '.secrets[].name'
+          )" || {
+            echo "ERROR: failed to inspect repository Actions secret names." >&2
+            exit 1
+          }
+          REPOSITORY_COPIES=()
+          for SECRET_NAME in "${REQUIRED_SECRETS[@]}"; do
+            if has_secret_name "$SECRET_NAME" "$REPOSITORY_SECRET_NAMES"; then
+              REPOSITORY_COPIES+=("$SECRET_NAME")
+            fi
+          done
+
+          if ((${#REPOSITORY_COPIES[@]} == 0)); then
+            ENVIRONMENT_SECRET_NAMES="$(
+              GH_TOKEN="$MIGRATION_TOKEN" gh api \
+                "repos/$GITHUB_REPOSITORY/environments/production/secrets?per_page=100" \
+                --paginate \
+                --jq '.secrets[].name'
+            )" || {
+              echo "ERROR: failed to inspect production environment secret names." >&2
+              exit 1
+            }
+            for SECRET_NAME in "${REQUIRED_SECRETS[@]}"; do
+              if ! has_secret_name "$SECRET_NAME" "$ENVIRONMENT_SECRET_NAMES"; then
+                echo "ERROR: production environment is missing required SSH secret $SECRET_NAME." >&2
+                exit 1
+              fi
+            done
+            echo "EVIDENCE production_ssh_secrets_already_environment_scoped"
+            exit 0
+          fi
+
+          for SECRET_NAME in "${REQUIRED_SECRETS[@]}"; do
+            VALUE_VARIABLE="${SECRET_NAME}_VALUE"
+            if [[ -z ${!VALUE_VARIABLE:-} ]]; then
+              echo "ERROR: resolved value for required SSH secret $SECRET_NAME is empty." >&2
+              exit 1
+            fi
+          done
+          for SECRET_NAME in "${REQUIRED_SECRETS[@]}"; do
+            VALUE_VARIABLE="${SECRET_NAME}_VALUE"
+            SECRET_VALUE=${!VALUE_VARIABLE}
+            if ! printf '%s' "$SECRET_VALUE" | GH_TOKEN="$MIGRATION_TOKEN" \
+              gh secret set "$SECRET_NAME" --env production --repo "$GITHUB_REPOSITORY"; then
+              echo "ERROR: failed to set production environment secret $SECRET_NAME." >&2
+              exit 1
+            fi
+            unset SECRET_VALUE
+          done
+
+          ENVIRONMENT_SECRET_NAMES="$(
+            GH_TOKEN="$MIGRATION_TOKEN" gh api \
+              "repos/$GITHUB_REPOSITORY/environments/production/secrets?per_page=100" \
+              --paginate \
+              --jq '.secrets[].name'
+          )" || {
+            echo "ERROR: failed to verify production environment secret names." >&2
+            exit 1
+          }
+          for SECRET_NAME in "${REQUIRED_SECRETS[@]}"; do
+            if ! has_secret_name "$SECRET_NAME" "$ENVIRONMENT_SECRET_NAMES"; then
+              echo "ERROR: production environment secret verification failed for $SECRET_NAME; repository rollback copies were retained." >&2
+              exit 1
+            fi
+          done
+
+          for SECRET_NAME in "${REPOSITORY_COPIES[@]}"; do
+            if ! GH_TOKEN="$MIGRATION_TOKEN" gh api --method DELETE \
+              "repos/$GITHUB_REPOSITORY/actions/secrets/$SECRET_NAME"; then
+              echo "ERROR: failed to delete repository Actions secret $SECRET_NAME after environment verification." >&2
+              exit 1
+            fi
+          done
+          REMAINING_REPOSITORY_SECRET_NAMES="$(
+            GH_TOKEN="$MIGRATION_TOKEN" gh api \
+              "repos/$GITHUB_REPOSITORY/actions/secrets?per_page=100" \
+              --paginate \
+              --jq '.secrets[].name'
+          )" || {
+            echo "ERROR: failed to verify repository Actions secret deletion." >&2
+            exit 1
+          }
+          for SECRET_NAME in "${REQUIRED_SECRETS[@]}"; do
+            if has_secret_name "$SECRET_NAME" "$REMAINING_REPOSITORY_SECRET_NAMES"; then
+              echo "ERROR: repository Actions secret $SECRET_NAME remains after migration." >&2
+              exit 1
+            fi
+          done
+          echo "EVIDENCE production_ssh_secrets_migrated_to_environment"
 
       - name: Set up SSH
         run: |
@@ -156,9 +833,99 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           echo "${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
 
+      - name: Verify deploy asset provenance
+        id: asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.client_payload.tag }}
+        run: |
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          TAG_COMMIT="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          if [[ "$TAG_COMMIT" != "$GITHUB_SHA" ]]; then
+            echo "ERROR: remote tag $RELEASE_TAG resolves to $TAG_COMMIT, not event SHA $GITHUB_SHA." >&2
+            exit 1
+          fi
+          git checkout --detach "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          VERIFY_DIR="$(mktemp -d)"
+          trap 'rm -rf "$VERIFY_DIR"' EXIT
+          ASSET="$VERIFY_DIR/octostore-linux-amd64"
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --dir "$VERIFY_DIR" --pattern octostore-linux-amd64
+          EXPECTED_COMMIT="$(git rev-parse HEAD)"
+          gh attestation verify "$ASSET" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+            --source-ref "refs/heads/main" \
+            --source-digest "$EXPECTED_COMMIT" \
+            --deny-self-hosted-runners >/dev/null
+          EXPECTED_ASSET_SHA="$(sha256sum "$ASSET" | awk '{print $1}')"
+          [[ "$EXPECTED_ASSET_SHA" =~ ^[0-9a-f]{64}$ ]]
+          PREVIOUS_TAG=""
+          while IFS=$'\t' read -r DEPLOYMENT_ID DEPLOYMENT_REF; do
+            STATUS=$(gh api \
+              "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT_ID/statuses?per_page=1" \
+              --jq '.[0].state // ""')
+            if [[ "$STATUS" == success ]]; then
+              PREVIOUS_TAG=$DEPLOYMENT_REF
+              break
+            fi
+          done < <(gh api "repos/$GITHUB_REPOSITORY/deployments?environment=production&per_page=100" \
+            --jq 'sort_by(.id) | reverse | .[] | [.id, .ref] | @tsv')
+          if [[ -z "$PREVIOUS_TAG" ]]; then
+            PREVIOUS_TAG=v0.13.2
+            echo "EVIDENCE production_deployment_bootstrap tag=$PREVIOUS_TAG"
+          fi
+          scripts/require-stable-release-tag.sh "$PREVIOUS_TAG"
+          if [[ "$PREVIOUS_TAG" == v0.13.2 ]]; then
+            PREVIOUS_ASSET_SHA=df765cdb233991b58303ab2bd9ff7faf297915d23231ce3f8fd7752fdb9e5623
+          else
+            PREVIOUS_ASSET="$VERIFY_DIR/previous-octostore-linux-amd64"
+            PREVIOUS_COMMIT=$(gh api \
+              "repos/$GITHUB_REPOSITORY/commits/$PREVIOUS_TAG" --jq .sha)
+            [[ "$PREVIOUS_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+            gh release verify "$PREVIOUS_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+            gh release download "$PREVIOUS_TAG" --repo "$GITHUB_REPOSITORY" \
+              --output "$PREVIOUS_ASSET" --pattern octostore-linux-amd64
+            gh attestation verify "$PREVIOUS_ASSET" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+              --source-digest "$PREVIOUS_COMMIT" \
+              --deny-self-hosted-runners >/dev/null
+            PREVIOUS_ASSET_SHA=$(sha256sum "$PREVIOUS_ASSET" | awk '{print $1}')
+          fi
+          {
+            echo "sha256=$EXPECTED_ASSET_SHA"
+            echo "previous_tag=$PREVIOUS_TAG"
+            echo "previous_sha256=$PREVIOUS_ASSET_SHA"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Deploy to production
         run: |
-          RELEASE_TAG="${{ github.ref_name }}"
+          scripts/require-stable-release-tag.sh "${{ github.event.client_payload.tag }}"
+          RELEASE_TAG="${{ github.event.client_payload.tag }}"
+          EXPECTED_COMMIT="$(git rev-parse HEAD)"
+          EXPECTED_ASSET_SHA="${{ steps.asset.outputs.sha256 }}"
+          EXPECTED_PREVIOUS_ASSET_SHA="${{ steps.asset.outputs.previous_sha256 }}"
           ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes \
             daaronch@${{ secrets.DEPLOY_HOST }} \
-            bash -s -- "$RELEASE_TAG" < deploy/deploy.sh
+            bash -s -- "$RELEASE_TAG" "$EXPECTED_COMMIT" "$EXPECTED_ASSET_SHA" \
+              "$EXPECTED_PREVIOUS_ASSET_SHA" < deploy/deploy.sh
+
+      - name: Record the successful production deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.client_payload.tag }}
+        run: |
+          DEPLOYMENT_ID=$(jq -cn \
+            --arg ref "$RELEASE_TAG" \
+            '{ref:$ref,environment:"production",description:"OctoStore production release",auto_merge:false,required_contexts:[]}' \
+            | gh api --method POST "repos/$GITHUB_REPOSITORY/deployments" --input - --jq .id)
+          [[ "$DEPLOYMENT_ID" =~ ^[0-9]+$ ]]
+          jq -cn \
+            --arg environment_url https://octostore.io \
+            --arg log_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            '{state:"success",environment:"production",environment_url:$environment_url,log_url:$log_url,auto_inactive:true}' \
+            | gh api --method POST \
+              "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT_ID/statuses" --input - >/dev/null
+          echo "EVIDENCE production_deployment_recorded id=$DEPLOYMENT_ID tag=$RELEASE_TAG"
