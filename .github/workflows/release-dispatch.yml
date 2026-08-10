@@ -1,0 +1,81 @@
+name: Continue trusted release
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions: {}
+
+# This workflow is evaluated from the default branch after a completed CI run.
+# It never accepts a tag or SHA from a caller: it derives both from the
+# successful push-to-main run, then invokes the separately hardened release
+# workflow with data that has been bound to that exact main commit.
+jobs:
+  dispatch:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    env:
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Bind a stable version tag to the successful main commit
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" != workflow_run \
+            || ! "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "ERROR: release continuation requires a workflow_run with a full commit SHA." >&2
+            exit 1
+          fi
+
+          git fetch --force origin main --tags
+          MAIN_SHA="$(git rev-parse origin/main)"
+          if [[ "$MAIN_SHA" != "$RELEASE_SHA" ]]; then
+            echo "main advanced from successful CI commit $RELEASE_SHA to $MAIN_SHA; a newer CI run owns release continuation."
+            exit 0
+          fi
+          git checkout --detach "$RELEASE_SHA"
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+
+          VERSION="$(awk -F '"' '/^version = / { print $2; exit }' Cargo.toml)"
+          RELEASE_TAG="v$VERSION"
+          scripts/require-stable-release-tag.sh "$RELEASE_TAG"
+
+          if git ls-remote --exit-code --refs origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+            TAG_SHA="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+            if [[ "$TAG_SHA" != "$RELEASE_SHA" ]]; then
+              echo "version tag $RELEASE_TAG already belongs to $TAG_SHA; no duplicate release is created."
+              exit 0
+            fi
+          else
+            git tag -a "$RELEASE_TAG" "$RELEASE_SHA" -m "Release $RELEASE_TAG"
+            git push origin "refs/tags/$RELEASE_TAG"
+          fi
+
+          printf 'tag=%s\n' "$RELEASE_TAG" >>"$GITHUB_OUTPUT"
+          echo "EVIDENCE trusted_release_continuation tag=$RELEASE_TAG sha=$RELEASE_SHA"
+
+      - name: Dispatch the hardened release workflow
+        if: steps.release.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/$GITHUB_REPOSITORY/dispatches" \
+            -f event_type=stable-release \
+            -F "client_payload[tag]=$RELEASE_TAG"
+          echo "EVIDENCE stable_release_dispatched tag=$RELEASE_TAG sha=$RELEASE_SHA"

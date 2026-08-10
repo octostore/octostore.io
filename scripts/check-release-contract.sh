@@ -94,6 +94,24 @@ if grep -Fq '>> metrics/${{ env.METRICS_FILE }}' .github/workflows/monitoring.ym
 fi
 
 require_text .github/workflows/release.yml 'permissions: {}'
+require_text .github/workflows/release-dispatch.yml 'workflow_run:'
+require_text .github/workflows/release-dispatch.yml 'workflows: [CI]'
+require_text .github/workflows/release-dispatch.yml "github.event.workflow_run.conclusion == 'success'"
+require_text .github/workflows/release-dispatch.yml "github.event.workflow_run.event == 'push'"
+require_text .github/workflows/release-dispatch.yml "github.event.workflow_run.head_branch == 'main'"
+require_text .github/workflows/release-dispatch.yml 'RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}'
+require_text .github/workflows/release-dispatch.yml '! "$RELEASE_SHA" =~ ^[0-9a-f]{40}$'
+require_text .github/workflows/release-dispatch.yml 'if [[ "$MAIN_SHA" != "$RELEASE_SHA" ]]'
+require_text .github/workflows/release-dispatch.yml 'scripts/require-stable-release-tag.sh "$RELEASE_TAG"'
+require_text .github/workflows/release-dispatch.yml 'git tag -a "$RELEASE_TAG" "$RELEASE_SHA"'
+require_text .github/workflows/release-dispatch.yml 'git push origin "refs/tags/$RELEASE_TAG"'
+require_text .github/workflows/release-dispatch.yml 'event_type=stable-release'
+require_text .github/workflows/release-dispatch.yml 'EVIDENCE trusted_release_continuation'
+require_text .github/workflows/release-dispatch.yml 'EVIDENCE stable_release_dispatched'
+if grep -Fq '${{ secrets.' .github/workflows/release-dispatch.yml; then
+  echo ".github/workflows/release-dispatch.yml: the unprotected dispatcher must not access secrets" >&2
+  exit 1
+fi
 if [[ $(grep -c '^    permissions:' .github/workflows/release.yml) -ne 6 ]]; then
   echo ".github/workflows/release.yml: every release job must declare minimal permissions" >&2
   exit 1
