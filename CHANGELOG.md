@@ -2,6 +2,12 @@
 
 All notable changes to Octostore will be documented in this file.
 
+## v0.14.4 - 2026-08-10
+
+### Fixed
+
+- Retry the complete isolated supervisor-containment proof when a transient loopback listener startup race occurs; each attempt must still prove worker gating and shutdown on authority loss.
+
 ## v0.14.3 - 2026-08-10
 
 ### Fixed
