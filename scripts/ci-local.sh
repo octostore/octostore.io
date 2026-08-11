@@ -8,7 +8,9 @@ cargo check --manifest-path fuzz/Cargo.toml --all-targets --locked
 RUST_TEST_THREADS=1 cargo test --all-targets --all-features --locked
 cargo clippy --all-targets --all-features --locked -- -D warnings
 scripts/check-package.sh
-shellcheck install.sh deploy/deploy.sh scripts/*.sh tests/fixtures/*.sh
+# ShellCheck's informational diagnostics have changed between runner images.
+# Keep this gate strict for actionable warnings and errors on every platform.
+shellcheck -S warning install.sh deploy/deploy.sh scripts/*.sh tests/fixtures/*.sh
 go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 scripts/check-release-contract.sh
 scripts/smoke-downgrade-compatibility.sh

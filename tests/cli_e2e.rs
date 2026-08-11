@@ -1377,13 +1377,50 @@ fn process_is_alive(pid: &str, process_group: bool) -> bool {
     } else {
         pid.to_string()
     };
+    let mut arguments = vec!["-0".to_owned()];
+    if process_group {
+        arguments.push("--".to_owned());
+    }
+    arguments.push(target);
     Command::new("kill")
-        .args(["-0", &target])
+        .args(&arguments)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
         .unwrap()
         .success()
+}
+
+fn assert_isolated_process_group(pid: u32) {
+    let process_group = |target: u32| {
+        let output = Command::new("ps")
+            .args(["-o", "pgid=", "-p", &target.to_string()])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "could not inspect process group for {target}"
+        );
+        output
+            .stdout
+            .iter()
+            .map(|byte| *byte as char)
+            .collect::<String>()
+            .trim()
+            .parse::<u32>()
+            .unwrap_or_else(|_| panic!("invalid process group for {target}"))
+    };
+
+    let child_group = process_group(pid);
+    let test_group = process_group(std::process::id());
+    assert_eq!(
+        child_group, pid,
+        "refusing to group-signal a child that is not its own process-group leader"
+    );
+    assert_ne!(
+        child_group, test_group,
+        "refusing to group-signal the test runner process group"
+    );
 }
 
 fn identity_process_group(identity: &str) -> String {
@@ -3549,7 +3586,7 @@ async fn reference_supervisor_gates_worker_before_publishing_handoff() {
         "gated work produced a side effect after the authority deadline"
     );
     let worker_status = Command::new("kill")
-        .args(["-0", &format!("-{worker_group}")])
+        .args(["-0", "--", &format!("-{worker_group}")])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -3642,7 +3679,7 @@ async fn reference_supervisor_keeps_a_watchdog_during_renewal_handoff() {
         "renewal handoff allowed a post-deadline worker side effect"
     );
     let worker_status = Command::new("kill")
-        .args(["-0", &format!("-{worker_group}")])
+        .args(["-0", "--", &format!("-{worker_group}")])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -3751,7 +3788,7 @@ async fn reference_supervisor_preserves_old_watchdog_during_replacement_arm_fail
         "replacement-arm failure allowed a post-deadline side effect"
     );
     let worker_status = Command::new("kill")
-        .args(["-0", &format!("-{worker_group}")])
+        .args(["-0", "--", &format!("-{worker_group}")])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -3872,7 +3909,7 @@ async fn old_watchdog_contains_replacement_arm_failure_after_supervisor_crash() 
         "a crashed supervisor allowed a post-deadline side effect"
     );
     let worker_status = Command::new("kill")
-        .args(["-0", &format!("-{worker_group}")])
+        .args(["-0", "--", &format!("-{worker_group}")])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -3948,6 +3985,7 @@ async fn detached_guardian_contains_hold_after_whole_supervisor_group_dies_befor
         .stderr(Stdio::null());
     command.process_group(0);
     let mut process = command.spawn().unwrap();
+    assert_isolated_process_group(process.id());
 
     let ready_deadline = Instant::now() + Duration::from_secs(3);
     while !hold_pids.exists() || supervisor_state_dirs(directory.path()).is_empty() {
@@ -3965,7 +4003,7 @@ async fn detached_guardian_contains_hold_after_whole_supervisor_group_dies_befor
     let hold_members = hold_members.lines().map(str::to_owned).collect::<Vec<_>>();
 
     let killed = Command::new("kill")
-        .args(["-KILL", &format!("-{}", process.id())])
+        .args(["-KILL", "--", &format!("-{}", process.id())])
         .status()
         .unwrap();
     assert!(
@@ -4028,6 +4066,7 @@ async fn detached_guardian_survives_whole_supervisor_group_kill_after_worker_sta
         .stderr(Stdio::null());
     command.process_group(0);
     let mut process = command.spawn().unwrap();
+    assert_isolated_process_group(process.id());
 
     let ready_deadline = Instant::now() + Duration::from_secs(3);
     while !worker_pids.exists() || !hold_pids.exists() {
@@ -4054,7 +4093,7 @@ async fn detached_guardian_survives_whole_supervisor_group_kill_after_worker_sta
         .collect::<Vec<_>>();
 
     let killed = Command::new("kill")
-        .args(["-KILL", &format!("-{}", process.id())])
+        .args(["-KILL", "--", &format!("-{}", process.id())])
         .status()
         .unwrap();
     assert!(
@@ -4207,6 +4246,7 @@ async fn substituted_worker_identity_cannot_redirect_guardian_group_signals() {
         .stderr(Stdio::null());
     sentinel_command.process_group(0);
     let mut sentinel = sentinel_command.spawn().unwrap();
+    assert_isolated_process_group(sentinel.id());
     let sentinel_pid = sentinel.id().to_string();
     let sentinel_identity_output = Command::new("ps")
         .args([
@@ -4289,7 +4329,7 @@ async fn substituted_worker_identity_cannot_redirect_guardian_group_signals() {
     );
 
     let _ = Command::new("kill")
-        .args(["-KILL", &format!("-{sentinel_pid}")])
+        .args(["-KILL", "--", &format!("-{sentinel_pid}")])
         .status();
     let _ = wait_for_child(&mut sentinel, Duration::from_secs(2)).await;
     wait_for_supervisor_state_removed(directory.path(), Duration::from_secs(2)).await;
@@ -4336,6 +4376,7 @@ async fn stale_pgid_identity_never_signals_reused_unrelated_group() {
         .stderr(Stdio::null());
     sentinel_command.process_group(0);
     let mut sentinel = sentinel_command.spawn().unwrap();
+    assert_isolated_process_group(sentinel.id());
     let sentinel_pid = sentinel.id().to_string();
     // Same numeric PID/PGID, deliberately old start time: this deterministically
     // models a stale published group identity after PID/PGID reuse.
@@ -4405,7 +4446,7 @@ async fn stale_pgid_identity_never_signals_reused_unrelated_group() {
     );
 
     let _ = Command::new("kill")
-        .args(["-KILL", &format!("-{sentinel_pid}")])
+        .args(["-KILL", "--", &format!("-{sentinel_pid}")])
         .status();
     let _ = wait_for_child(&mut sentinel, Duration::from_secs(2)).await;
     wait_for_supervisor_state_removed(directory.path(), Duration::from_secs(2)).await;
@@ -4885,6 +4926,20 @@ async fn main_fallback_contains_groups_when_detached_guardian_dies() {
     let hold_members = std::fs::read_to_string(&hold_pids).unwrap();
     let hold_members = hold_members.lines().map(str::to_owned).collect::<Vec<_>>();
 
+    // Worker startup can precede stdout delivery on Linux. Establish the
+    // leader handoff precondition before injecting guardian failure.
+    let leader_deadline = Instant::now() + Duration::from_secs(2);
+    while !std::fs::read_to_string(&events)
+        .unwrap()
+        .contains("\"event\":\"leader\"")
+    {
+        assert!(
+            Instant::now() < leader_deadline,
+            "leader handoff was not observable before guardian failure"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
     assert!(Command::new("kill")
         .args(["-KILL", guardian_pid])
         .status()
@@ -5001,7 +5056,7 @@ async fn guardian_signals_surviving_group_members_after_wrapper_leader_death() {
     let hold_members = hold_members.lines().map(str::to_owned).collect::<Vec<_>>();
 
     assert!(Command::new("kill")
-        .args(["-KILL", &worker_group])
+        .args(["-KILL", "--", &worker_group])
         .status()
         .unwrap()
         .success());
