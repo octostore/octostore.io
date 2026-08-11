@@ -48,6 +48,8 @@ jobs:
           fi
           git checkout --detach "$RELEASE_SHA"
           test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
           VERSION="$(awk -F '"' '/^version = / { print $2; exit }' Cargo.toml)"
           RELEASE_TAG="v$VERSION"
