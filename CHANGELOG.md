@@ -2,6 +2,12 @@
 
 All notable changes to Octostore will be documented in this file.
 
+## v0.14.3 - 2026-08-10
+
+### Fixed
+
+- Isolate release-build caches by pinned runner image and Rust target so a build script compiled against a newer glibc cannot be restored on the Ubuntu 22.04 Linux asset runner.
+
 ## v0.14.2 - 2026-08-10
 
 ### Fixed
