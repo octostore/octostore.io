@@ -4520,7 +4520,19 @@ async fn anchor_fails_closed_when_fixture_teardown_removes_supervisor_state() {
     // TempDir drops this directory if an assertion panics. The anchor must
     // make that path fail closed, rather than leave detached wrappers waiting
     // forever for TERM-resistant fixture children.
-    std::fs::remove_dir_all(&state).unwrap();
+    let removal_deadline = Instant::now() + Duration::from_secs(1);
+    loop {
+        match std::fs::remove_dir_all(&state) {
+            Ok(()) => break,
+            Err(error)
+                if error.kind() == std::io::ErrorKind::DirectoryNotEmpty
+                    && Instant::now() < removal_deadline =>
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            Err(error) => panic!("could not remove supervisor state anchor: {error}"),
+        }
+    }
 
     let mut protected = vec![(worker_group.as_str(), true), (hold_group.as_str(), true)];
     protected.extend(worker_members.iter().map(|pid| (*pid, false)));
