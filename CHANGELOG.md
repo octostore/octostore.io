@@ -2,6 +2,13 @@
 
 All notable changes to Octostore will be documented in this file.
 
+## v0.14.1 - 2026-08-10
+
+### Fixed
+
+- Make the supervisor containment integration test deterministic when a worker-group failure and a supervisor termination signal race; both proven-containment exit paths are now accepted.
+- Publish the next immutable agent-skill and installer release after the failed `v0.14.0` candidate rather than moving its tag.
+
 ## v0.14.0 - 2026-08-09
 
 OctoStore now gives agents a direct, supervised coordination path while keeping the HTTP API as the source of truth. Create one shared account-free hosted election for a coordinator or hold one authenticated hosted or self-hosted lock for an exact work item.
