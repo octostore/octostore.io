@@ -388,6 +388,7 @@ for workflow in .github/workflows/release.yml .github/workflows/deploy.yml; do
 done
 
 require_text .github/workflows/release.yml 'OCTOSTORE_SMOKE_BINARY="$PWD/${{ matrix.name }}" scripts/smoke-release-fixture.sh'
+require_text .github/workflows/release.yml 'key: ${{ matrix.os }}-${{ matrix.target }}'
 require_text .github/workflows/release.yml 'actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2'
 require_text .github/workflows/release.yml 'artifact-metadata: write'
 require_text .github/workflows/release.yml '--signer-workflow "github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml"'
