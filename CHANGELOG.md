@@ -2,6 +2,12 @@
 
 All notable changes to Octostore will be documented in this file.
 
+## v0.14.2 - 2026-08-10
+
+### Fixed
+
+- Retry a full isolated two-agent coordination fixture when its concurrent startup exits before proving authority; release validation still requires a complete successful run.
+
 ## v0.14.1 - 2026-08-10
 
 ### Fixed
