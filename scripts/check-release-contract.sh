@@ -102,6 +102,8 @@ require_text .github/workflows/release-dispatch.yml "github.event.workflow_run.h
 require_text .github/workflows/release-dispatch.yml 'RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}'
 require_text .github/workflows/release-dispatch.yml '! "$RELEASE_SHA" =~ ^[0-9a-f]{40}$'
 require_text .github/workflows/release-dispatch.yml 'if [[ "$MAIN_SHA" != "$RELEASE_SHA" ]]'
+require_text .github/workflows/release-dispatch.yml "git config user.name 'github-actions[bot]'"
+require_text .github/workflows/release-dispatch.yml "git config user.email '41898282+github-actions[bot]@users.noreply.github.com'"
 require_text .github/workflows/release-dispatch.yml 'scripts/require-stable-release-tag.sh "$RELEASE_TAG"'
 require_text .github/workflows/release-dispatch.yml 'git tag -a "$RELEASE_TAG" "$RELEASE_SHA"'
 require_text .github/workflows/release-dispatch.yml 'git push origin "refs/tags/$RELEASE_TAG"'
