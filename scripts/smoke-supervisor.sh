@@ -4,6 +4,26 @@ set -euo pipefail
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 BINARY=${1:-"$ROOT/target/debug/octostore"}
 SUPERVISOR=${2:-${OCTOSTORE_SUPERVISOR:-$ROOT/scripts/reference-supervisor.sh}}
+
+# A fresh runner can transiently lose the loopback bind race while a preceding
+# coordination fixture is releasing its listener. Retry the whole isolated
+# proof, never an individual assertion, and preserve the final failure.
+if [[ -z ${OCTOSTORE_SMOKE_SUPERVISOR_ATTEMPT:-} ]]; then
+  for attempt in 1 2 3; do
+    if OCTOSTORE_SMOKE_SUPERVISOR_ATTEMPT=$attempt \
+      OCTOSTORE_SMOKE_PORT=$((34000 + (( $$ + attempt * 7919 ) % 10000))) \
+      "$0" "$BINARY" "$SUPERVISOR"; then
+      exit 0
+    fi
+    if [[ "$attempt" -eq 3 ]]; then
+      echo "supervisor smoke failed after $attempt independent attempts" >&2
+      exit 70
+    fi
+    echo "supervisor smoke attempt $attempt exited before proving containment; retrying" >&2
+    sleep 0.1
+  done
+fi
+
 PORT=${OCTOSTORE_SMOKE_PORT:-$((34000 + ($$ % 10000)))}
 AUTHORITY="http://127.0.0.1:$PORT"
 SMOKE_DIR=$(mktemp -d "$ROOT/.smoke-supervisor.XXXXXX")
