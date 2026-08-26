@@ -11,6 +11,7 @@ scripts/check-package.sh
 # ShellCheck's informational diagnostics have changed between runner images.
 # Keep this gate strict for actionable warnings and errors on every platform.
 shellcheck -S warning install.sh deploy/deploy.sh scripts/*.sh tests/fixtures/*.sh
+
 python3 -m py_compile scripts/uptime_monitor.py
 go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 scripts/check-release-contract.sh
