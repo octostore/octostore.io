@@ -2,9 +2,9 @@
 name: octostore
 description: Coordinate independent agents so one leads a group or owns one exact task before side effects.
 metadata:
-  version: 0.14.0
-  octostore-cli: ">=0.14.0 <0.15.0"
-  octostore-api: ">=0.14.0 <0.15.0"
+version: 0.14.4
+octostore-cli: ">=0.14.4 <0.15.0"
+octostore-api: ">=0.14.4 <0.15.0"
 ---
 
 # Coordinate agent work with OctoStore
@@ -102,6 +102,6 @@ For read-only observation, use `election status|watch` or `lock status|watch`. W
 
 ## Installation and version
 
-Report what you read as `octostore skill 0.14.0`. Check the CLI with `octostore --version`; this skill supports CLI/API `0.14.x`.
+Report what you read as `octostore skill 0.14.4`. Check the CLI with `octostore --version`; this skill supports CLI/API `0.14.x`.
 
 If the CLI is missing, ask before installing software. Prefer a pinned release, inspect the installer first, and use its checksum-verified path. Never silently pipe an unreviewed network response into a shell. The repository is <https://github.com/octostore/octostore.io>; exact HTTP contracts are at <https://api.octostore.io/docs>.

@@ -146,11 +146,11 @@ test("agents page copy control works from the keyboard", async ({ browser }) => 
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("git clone");
   const skillInstall = await page.evaluate(() => navigator.clipboard.readText());
   expect(skillInstall).toContain(
-    "git clone --branch v0.14.0 --depth 1 https://github.com/octostore/octostore.io",
+    "git clone --branch v0.14.4 --depth 1 https://github.com/octostore/octostore.io",
   );
   expect(skillInstall).toContain("npm ci --ignore-scripts --no-audit --no-fund");
   expect(skillInstall).toContain("./node_modules/.bin/skills add \\");
-  expect(skillInstall).toContain("https://github.com/octostore/octostore.io/tree/v0.14.0");
+  expect(skillInstall).toContain("https://github.com/octostore/octostore.io/tree/v0.14.4");
   expect(skillInstall).toContain("--skill octostore --agent codex -y");
   expect(skillInstall).not.toMatch(/\bnpx\b/);
 

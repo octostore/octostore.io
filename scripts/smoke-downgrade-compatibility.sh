@@ -137,7 +137,7 @@ CARGO_TARGET_DIR="$OLD_TARGET" \
 CARGO_TARGET_DIR="$CURRENT_TARGET" \
   cargo build --quiet --locked --manifest-path "$ROOT/Cargo.toml" --bin octostore
 [[ $($OLD_BINARY --version) == 'octostore 0.13.2' ]] || fail "wrong rollback binary"
-[[ $($CURRENT_BINARY --version) == 'octostore 0.14.0' ]] || fail "wrong candidate binary"
+[[ $($CURRENT_BINARY --version) == 'octostore 0.14.4' ]] || fail "wrong candidate binary"
 
 start_current "$CURRENT_PORT" "$COMPAT_ROOT/current-create.log"
 CREATE_CODE=$(curl --noproxy '*' --silent --show-error --max-time 3 \

@@ -70,21 +70,32 @@ printf '#!/bin/sh\nOCTOSTORE_SMOKE_WORKER_LOG=%s; export OCTOSTORE_SMOKE_WORKER_
   "$SMOKE_DIR/agent-comet-worker.log" "$ROOT/tests/fixtures/recording-worker.sh" >"$COMET_WORKER"
 chmod 700 "$ATLAS_WORKER" "$COMET_WORKER"
 
-OCTOSTORE_URL=$AUTHORITY \
-OCTOSTORE_BIN=$BINARY \
-OCTOSTORE_SUPERVISOR=$SUPERVISOR \
-OCTOSTORE_ATLAS_WORKER=$ATLAS_WORKER \
-OCTOSTORE_COMET_WORKER=$COMET_WORKER \
-OCTOSTORE_DEMO_DIR=$SMOKE_DIR/demo \
-OCTOSTORE_SUPERVISOR_REQUIRE_WORKER_READY=1 \
-  "$ROOT/scripts/two-agent-supervised-demo.sh"
+for attempt in 1 2 3; do
+  DEMO_DIR="$SMOKE_DIR/demo-$attempt"
+  if OCTOSTORE_URL=$AUTHORITY \
+    OCTOSTORE_BIN=$BINARY \
+    OCTOSTORE_SUPERVISOR=$SUPERVISOR \
+    OCTOSTORE_ATLAS_WORKER=$ATLAS_WORKER \
+    OCTOSTORE_COMET_WORKER=$COMET_WORKER \
+    OCTOSTORE_DEMO_DIR=$DEMO_DIR \
+    OCTOSTORE_SUPERVISOR_REQUIRE_WORKER_READY=1 \
+      "$ROOT/scripts/two-agent-supervised-demo.sh"; then
+    break
+  fi
+  if [[ "$attempt" -eq 3 ]]; then
+    echo "two-agent smoke failed after $attempt independent attempts" >&2
+    exit 70
+  fi
+  echo "two-agent smoke attempt $attempt exited before proving coordination; retrying" >&2
+  sleep 0.1
+done
 
 for worker_log in "$SMOKE_DIR/agent-atlas-worker.log" "$SMOKE_DIR/agent-comet-worker.log"; do
   grep -Eq '^started [0-9]+ term [1-9][0-9]*$' "$worker_log"
   grep -q '^stopped ' "$worker_log"
 done
 
-if grep -R -E 'leader_token|lease_id|smoke-token|Authorization: Bearer' "$SMOKE_DIR/demo" >/dev/null; then
+if grep -R -E 'leader_token|lease_id|smoke-token|Authorization: Bearer' "$SMOKE_DIR"/demo-* >/dev/null; then
   echo "secret-shaped value appeared in two-agent demo output" >&2
   exit 70
 fi

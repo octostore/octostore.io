@@ -189,7 +189,7 @@ const supervisedDemo = fs.readFileSync(path.join(repositoryRoot, "scripts", "two
 const twoAgentSmoke = fs.readFileSync(path.join(repositoryRoot, "scripts", "smoke-two-agents.sh"), "utf8");
 const pinnedSkillCommand = "./node_modules/.bin/skills add";
 const immutableSkillArtifact =
-  "https://github.com/octostore/octostore.io/releases/download/v0.14.0/octostore-agent-skill.md";
+  "https://github.com/octostore/octostore.io/releases/download/v0.14.4/octostore-agent-skill.md";
 const supervisedDemoInvocation = [
   "OCTOSTORE_ATLAS_WORKER=./run-agent-atlas \\",
   "OCTOSTORE_COMET_WORKER=./run-agent-comet \\",
@@ -431,14 +431,14 @@ for (const [label, markup] of [
 }
 
 if (!homepage.includes(immutableSkillArtifact)) {
-  errors.push("index.html: primary agent-skill path must use the immutable v0.14.0 release artifact");
+  errors.push("index.html: primary agent-skill path must use the immutable v0.14.4 release artifact");
 }
 if (/href=["']\/agents\/SKILL\.md["']/.test(homepage)) {
   errors.push("index.html: mutable hosted skill must not be presented as a primary immutable release path");
 }
 for (const required of [
   immutableSkillArtifact,
-  "immutable v0.14.0 release artifact",
+  "immutable v0.14.4 release artifact",
   "The hosted [current skill](https://octostore.io/agents/SKILL.md) follows the site and may change between releases.",
 ]) {
   if (!readme.includes(required) && !homepage.includes(required)) {

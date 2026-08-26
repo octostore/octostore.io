@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Existing stable release tag to redeploy (for example v0.14.0)"
+        description: "Existing stable release tag to redeploy (for example v0.14.4)"
         required: true
         type: string
 

@@ -50,7 +50,7 @@
         <a href="#choose">Election or lock</a>
         <a href="/docs/">Docs</a>
         <a href="https://github.com/octostore/octostore.io">GitHub</a>
-        <a class="nav-cta" href="https://github.com/octostore/octostore.io/releases/download/v0.14.0/octostore-agent-skill.md">Get the v0.14 skill</a>
+        <a class="nav-cta" href="https://github.com/octostore/octostore.io/releases/download/v0.14.4/octostore-agent-skill.md">Get the v0.14 skill</a>
       </div>
     </nav>
   </div>
@@ -64,7 +64,7 @@
         <p class="agent-boundary"><strong>The honest boundary:</strong> OctoStore does not run agents or undo writes. Your agent host must stop or fence work when the lease is lost.</p>
         <div class="button-row">
           <button class="button primary" type="button" data-run-election aria-controls="live-coordination-wire">Create one shared room</button>
-          <a class="button" href="https://github.com/octostore/octostore.io/releases/download/v0.14.0/octostore-agent-skill.md">Give the v0.14 skill to your agent</a>
+          <a class="button" href="https://github.com/octostore/octostore.io/releases/download/v0.14.4/octostore-agent-skill.md">Give the v0.14 skill to your agent</a>
         </div>
         <p class="hero-note">Hosted election: no login · Task locks: authenticated, hosted or self-hosted · MIT licensed</p>
       </div>
@@ -139,17 +139,17 @@
             <span>Agent skill · installs as octostore</span>
             <button class="copy-button" type="button" data-copy-target="#skill-install-command">Copy</button>
           </div>
-          <pre id="skill-install-command" tabindex="0"><code>git clone --branch v0.14.0 --depth 1 https://github.com/octostore/octostore.io
+          <pre id="skill-install-command" tabindex="0"><code>git clone --branch v0.14.4 --depth 1 https://github.com/octostore/octostore.io
 cd octostore.io
 npm ci --ignore-scripts --no-audit --no-fund
 ./node_modules/.bin/skills add \
-  https://github.com/octostore/octostore.io/tree/v0.14.0 \
+  https://github.com/octostore/octostore.io/tree/v0.14.4 \
   --skill octostore --agent codex -y</code></pre>
-          <p>Or hand your agent the immutable v0.14.0 release artifact:</p>
-          <a class="raw-skill-link" href="https://github.com/octostore/octostore.io/releases/download/v0.14.0/octostore-agent-skill.md"><span>READ</span><span class="raw-skill-url">octostore-agent-skill.md · v0.14.0</span><b aria-hidden="true">↗</b></a>
+          <p>Or hand your agent the immutable v0.14.4 release artifact:</p>
+          <a class="raw-skill-link" href="https://github.com/octostore/octostore.io/releases/download/v0.14.4/octostore-agent-skill.md"><span>READ</span><span class="raw-skill-url">octostore-agent-skill.md · v0.14.4</span><b aria-hidden="true">↗</b></a>
         </div>
         <div class="skill-contract">
-          <span class="contract-version">SKILL 0.14.0</span>
+          <span class="contract-version">SKILL 0.14.4</span>
           <h3>Small enough to read. Strict enough to supervise.</h3>
           <ul>
             <li>Election or lock in the first screenful</li>
@@ -227,7 +227,7 @@ npm ci --ignore-scripts --no-audit --no-fund
         </div>
       </div>
       <p class="supervisor-note"><strong>Why a supervisor is required:</strong> a background heartbeat cannot stop an unrelated process. The installed reference supervisor gates worker start, validates authority age, contains its cooperative process groups, and only then publishes terminal release, loss, uncertainty, or error.</p>
-      <a class="text-link" href="https://github.com/octostore/octostore.io/blob/v0.14.0/scripts/reference-supervisor.sh">Read the v0.14.0 reference supervisor →</a>
+      <a class="text-link" href="https://github.com/octostore/octostore.io/blob/v0.14.4/scripts/reference-supervisor.sh">Read the v0.14.4 reference supervisor →</a>
     </section>
 
     <section class="agent-section boundary-section">
@@ -293,7 +293,7 @@ npm ci --ignore-scripts --no-audit --no-fund
         <div class="section-kicker">One referee. Independent agents.</div>
         <h2>Let the agents run. Settle who gets to move.</h2>
         <div class="button-row">
-        <a class="button primary" href="https://github.com/octostore/octostore.io/releases/download/v0.14.0/octostore-agent-skill.md">Give your agent the v0.14 skill</a>
+        <a class="button primary" href="https://github.com/octostore/octostore.io/releases/download/v0.14.4/octostore-agent-skill.md">Give your agent the v0.14 skill</a>
           <a class="button" href="/agents/">Follow the agent quickstart</a>
         </div>
       </div>
@@ -303,7 +303,7 @@ npm ci --ignore-scripts --no-audit --no-fund
   <footer class="site-footer wrap">
     <span>© <span data-current-year>2026</span> OctoStore · MIT licensed</span>
     <span class="footer-links">
-          <a href="https://github.com/octostore/octostore.io/releases/download/v0.14.0/octostore-agent-skill.md">v0.14 agent skill</a>
+          <a href="https://github.com/octostore/octostore.io/releases/download/v0.14.4/octostore-agent-skill.md">v0.14 agent skill</a>
       <a href="/leader-election/">Leader election</a>
       <a href="/coordination/">Task locks</a>
       <a href="/docs/">Docs</a>

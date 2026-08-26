@@ -1,7 +1,7 @@
 [package]
 name = "octostore"
 default-run = "octostore"
-version = "0.14.0"
+version = "0.14.4"
 edition = "2021"
 description = "Account-free hosted elections and authenticated hosted or self-hosted task locks for agents"
 license = "MIT"

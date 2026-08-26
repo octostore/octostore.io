@@ -52,7 +52,7 @@
         <p class="agent-boundary"><strong>Lease, not permission:</strong> your host still approves the task and must cancel or fence work when authority is lost or uncertain.</p>
       </div>
       <aside class="skill-card" aria-label="OctoStore skill contract">
-        <div class="skill-card-head"><span>SKILL.md</span><span>v0.14.0</span></div>
+        <div class="skill-card-head"><span>SKILL.md</span><span>v0.14.4</span></div>
         <img src="/assets/octostore-logo.svg" alt="" aria-hidden="true">
         <p><strong>Atlas</strong> leads and opens its work gate.</p>
         <p><strong>Comet</strong> waits without touching the task.</p>
@@ -72,11 +72,11 @@
           </div>
           <div class="code-window">
             <div class="code-head"><span>skills CLI · pinned and unattended</span><button class="copy-button" type="button" data-copy-target="#agent-skill-install">Copy</button></div>
-        <pre id="agent-skill-install" tabindex="0"><code>git clone --branch v0.14.0 --depth 1 https://github.com/octostore/octostore.io
+        <pre id="agent-skill-install" tabindex="0"><code>git clone --branch v0.14.4 --depth 1 https://github.com/octostore/octostore.io
 cd octostore.io
 npm ci --ignore-scripts --no-audit --no-fund
 ./node_modules/.bin/skills add \
-  https://github.com/octostore/octostore.io/tree/v0.14.0 \
+  https://github.com/octostore/octostore.io/tree/v0.14.4 \
   --skill octostore --agent codex -y</code></pre>
           </div>
         </div>
@@ -95,8 +95,8 @@ npm ci --ignore-scripts --no-audit --no-fund
             <p>The default destination is <code>/usr/local/bin</code>. The installer creates it when absent and requests <code>sudo</code> only when your account cannot create or write that path. Without <code>sudo</code>, set <code>OCTOSTORE_INSTALL_DIR="$HOME/.local/bin"</code> and add that directory to <code>PATH</code>.</p>
           </div>
           <div class="code-window">
-            <div class="code-head"><span>CLI v0.14.0 · pinned and verified</span><button class="copy-button" type="button" data-copy-target="#agent-cli-install">Copy</button></div>
-        <pre id="agent-cli-install" tabindex="0"><code>VERSION=v0.14.0
+            <div class="code-head"><span>CLI v0.14.4 · pinned and verified</span><button class="copy-button" type="button" data-copy-target="#agent-cli-install">Copy</button></div>
+        <pre id="agent-cli-install" tabindex="0"><code>VERSION=v0.14.4
 curl -fsSLo octostore-install.sh \
   "https://raw.githubusercontent.com/octostore/octostore.io/$VERSION/install.sh"
 cat octostore-install.sh
@@ -122,7 +122,7 @@ octostore --version</code></pre>
         </div>
         <div class="code-window">
           <div class="code-head"><span>repository checkout · exact smoke-tested demo</span><button class="copy-button" type="button" data-copy-target="#supervised-two-agent-demo">Copy</button></div>
-        <pre id="supervised-two-agent-demo" tabindex="0"><code>git clone --branch v0.14.0 --depth 1 \
+        <pre id="supervised-two-agent-demo" tabindex="0"><code>git clone --branch v0.14.4 --depth 1 \
   https://github.com/octostore/octostore.io
 cd octostore.io
 
@@ -187,8 +187,8 @@ two-agent supervised demo passed</code></pre>
         </div>
       </div>
       <div class="button-row">
-        <a class="button primary" href="https://github.com/octostore/octostore.io/blob/v0.14.0/scripts/reference-supervisor.sh">Read the v0.14.0 supervisor</a>
-        <a class="button" href="https://github.com/octostore/octostore.io/blob/v0.14.0/scripts/smoke-supervisor.sh">Read its smoke test</a>
+        <a class="button primary" href="https://github.com/octostore/octostore.io/blob/v0.14.4/scripts/reference-supervisor.sh">Read the v0.14.4 supervisor</a>
+        <a class="button" href="https://github.com/octostore/octostore.io/blob/v0.14.4/scripts/smoke-supervisor.sh">Read its smoke test</a>
       </div>
     </section>
 

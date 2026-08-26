@@ -56,42 +56,18 @@ while IFS= read -r workflow; do
   require_immutable_actions "$workflow"
 done < <(find .github/workflows -type f \( -name '*.yml' -o -name '*.yaml' \) | LC_ALL=C sort)
 
-if awk '
-  /^[[:space:]]+(run|script):[[:space:]]*\|/ {
-    block_indent = match($0, /[^ ]/) - 1
-    in_block = 1
-    next
-  }
-  in_block {
-    current_indent = match($0, /[^ ]/) - 1
-    if ($0 !~ /^[[:space:]]*$/ && current_indent <= block_indent) {
-      in_block = 0
-    } else if ($0 ~ /\$\{\{[[:space:]]*steps\./) {
-      print FNR ":" $0
-      found = 1
-    }
-  }
-  END { exit !found }
-' .github/workflows/monitoring.yml; then
-  echo ".github/workflows/monitoring.yml: untrusted step output is interpolated into executable source" >&2
+# Monitoring is deliberately outside GitHub Actions.  Keep the standalone
+# monitor's local-state and branch-write protections from being weakened.
+if [[ -e .github/workflows/monitoring.yml || -e .github/workflows/daily-report.yml ]]; then
+  echo "scheduled monitoring must not execute in GitHub Actions" >&2
   exit 1
 fi
-if grep -Fq '/tmp/probe.sh' .github/workflows/monitoring.yml; then
-  echo ".github/workflows/monitoring.yml: predictable shared executable path is forbidden" >&2
-  exit 1
-fi
-require_text .github/workflows/monitoring.yml 'verify_metrics_location()'
-require_text .github/workflows/monitoring.yml 'metrics checkout must be a real directory, not a symlink'
-require_text .github/workflows/monitoring.yml 'metrics path contains a symlink'
-require_text .github/workflows/monitoring.yml 'metrics path resolves outside the checkout'
-require_text .github/workflows/monitoring.yml 'git -C "$METRICS_ROOT" show "HEAD:$METRICS_FILE" >"$METRICS_TEMP"'
-require_text .github/workflows/monitoring.yml 'git add -- "$METRICS_FILE"'
-require_text .github/workflows/monitoring.yml 'git push origin "$METRICS_BRANCH"'
-require_text .github/workflows/monitoring.yml 'git ls-files -s -- "$METRICS_FILE"'
-if grep -Fq '>> metrics/${{ env.METRICS_FILE }}' .github/workflows/monitoring.yml; then
-  echo ".github/workflows/monitoring.yml: direct append to a branch-controlled path is forbidden" >&2
-  exit 1
-fi
+require_text scripts/uptime_monitor.py 'fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)'
+require_text scripts/uptime_monitor.py 'unsafe metrics target'
+require_text scripts/uptime_monitor.py 'target.is_symlink()'
+require_text scripts/uptime_monitor.py 'git", "reset", "--hard", "origin/monitoring-data"'
+require_text scripts/uptime_monitor.py 'git", "push", "origin", "monitoring-data"'
+require_text scripts/uptime_monitor.py 'for attempt in range(3):'
 
 require_text .github/workflows/release.yml 'permissions: {}'
 require_text .github/workflows/release-dispatch.yml 'workflow_run:'
@@ -388,6 +364,7 @@ for workflow in .github/workflows/release.yml .github/workflows/deploy.yml; do
 done
 
 require_text .github/workflows/release.yml 'OCTOSTORE_SMOKE_BINARY="$PWD/${{ matrix.name }}" scripts/smoke-release-fixture.sh'
+require_text .github/workflows/release.yml 'key: ${{ matrix.os }}-${{ matrix.target }}'
 require_text .github/workflows/release.yml 'actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2'
 require_text .github/workflows/release.yml 'artifact-metadata: write'
 require_text .github/workflows/release.yml '--signer-workflow "github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml"'
@@ -1129,66 +1106,6 @@ grep -Fq "remote tag v9.9.9 resolves to $retargeted_sha, not event SHA $event_sh
   echo "retargeted release tag did not report the tag/SHA provenance failure" >&2
   exit 1
 }
-
-monitor_run="$CONTRACT_TMP/monitor-append.sh"
-extract_workflow_run .github/workflows/monitoring.yml \
-  'Append metric record to monitoring branch' "$monitor_run"
-monitor_remote="$CONTRACT_TMP/monitoring.git"
-monitor_seed="$CONTRACT_TMP/monitor-seed"
-git init -q --bare "$monitor_remote"
-git init -q "$monitor_seed"
-git -C "$monitor_seed" checkout -q -b monitoring-data
-git -C "$monitor_seed" config user.name fixture
-git -C "$monitor_seed" config user.email fixture@example.invalid
-mkdir -p "$monitor_seed/data"
-printf '%s\n' '{"ts":"bootstrap","ok":1}' >"$monitor_seed/data/uptime.jsonl"
-git -C "$monitor_seed" add data/uptime.jsonl
-git -C "$monitor_seed" commit -q -m bootstrap
-git -C "$monitor_seed" remote add origin "$monitor_remote"
-git -C "$monitor_seed" push -q -u origin monitoring-data
-git --git-dir="$monitor_remote" symbolic-ref HEAD refs/heads/monitoring-data
-
-run_monitor_fixture() {
-  local workspace=$1
-  GITHUB_WORKSPACE="$workspace" \
-    METRICS_FILE=data/uptime.jsonl METRICS_BRANCH=monitoring-data \
-    PROBE_STATUS=ok HEALTH_CODE=200 HEALTH_MS=1 LOCKS_CODE=401 SITE_CODE=200 \
-    API_VERSION=9.9.9 USAGE_SUMMARY=skipped \
-    bash "$monitor_run"
-}
-
-monitor_safe="$CONTRACT_TMP/monitor-safe"
-mkdir -p "$monitor_safe"
-git clone -q --branch monitoring-data "$monitor_remote" "$monitor_safe/metrics"
-run_monitor_fixture "$monitor_safe"
-if [[ $(git --git-dir="$monitor_remote" ls-tree monitoring-data data/uptime.jsonl | awk '{print $1}') != 100644 ]]; then
-  echo "safe monitoring fixture did not retain a regular metrics file" >&2
-  exit 1
-fi
-
-git -C "$monitor_seed" pull -q --rebase origin monitoring-data
-sentinel="$CONTRACT_TMP/sentinel"
-printf '%s\n' untouched >"$sentinel"
-rm "$monitor_seed/data/uptime.jsonl"
-ln -s "$sentinel" "$monitor_seed/data/uptime.jsonl"
-git -C "$monitor_seed" add data/uptime.jsonl
-git -C "$monitor_seed" commit -q -m malicious-symlink
-git -C "$monitor_seed" push -q origin monitoring-data
-monitor_bad="$CONTRACT_TMP/monitor-bad"
-mkdir -p "$monitor_bad"
-git clone -q --branch monitoring-data "$monitor_remote" "$monitor_bad/metrics"
-set +e
-run_monitor_fixture "$monitor_bad" >"$CONTRACT_TMP/monitor-bad.out" 2>&1
-monitor_bad_status=$?
-set -e
-if ((monitor_bad_status == 0)); then
-  echo "branch-controlled metrics symlink unexpectedly passed" >&2
-  exit 1
-fi
-if [[ $(cat "$sentinel") != untouched ]]; then
-  echo "branch-controlled metrics symlink changed the external sentinel" >&2
-  exit 1
-fi
 
 if [[ ${OCTOSTORE_RELEASE_CONTRACT_SCOPE:-full} == workflow-only ]]; then
   echo "workflow release contract passed: trusted default-branch dispatch, reviewer-gated publication, split policy/migration authority, transactional crates.io and SSH-secret migration, immutable publication cleanup, durable deployment inputs, and contained metrics writes"

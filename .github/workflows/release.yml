@@ -135,7 +135,12 @@ jobs:
         with:
           toolchain: 1.92.0
           targets: ${{ matrix.target }}
+      # The cache action otherwise keys Linux artifacts only by runner OS and
+      # architecture. That can restore build scripts compiled against a newer
+      # glibc onto the pinned Ubuntu 22.04 amd64 release runner.
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: ${{ matrix.os }}-${{ matrix.target }}
 
       - name: Install musl toolchain for portable Linux assets
         if: contains(matrix.target, 'linux-musl')

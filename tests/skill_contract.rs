@@ -32,9 +32,9 @@ fn first_sixty_lines_contain_selection_bootstrap_and_stop_rules() {
 #[test]
 fn skill_has_versioned_contract_and_no_secret_output_anti_patterns() {
     for required in [
-        "version: 0.14.0",
-        "octostore-cli: \">=0.14.0 <0.15.0\"",
-        "octostore-api: \">=0.14.0 <0.15.0\"",
+        "version: 0.14.4",
+        "octostore-cli: \">=0.14.4 <0.15.0\"",
+        "octostore-api: \">=0.14.4 <0.15.0\"",
         "schema_version: 1",
         "authority_remaining_ms",
         "authority_observed_unix_ms",

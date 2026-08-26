@@ -17,15 +17,15 @@ It does not assign work, execute prompts, run tools, merge branches, or manage a
 Install the pinned `octostore` skill. This first step requires Git plus Node.js and npm; the fresh-machine commands below install them before the CLI prerequisites when they are not already present:
 
 ```bash
-git clone --branch v0.14.0 --depth 1 https://github.com/octostore/octostore.io
+git clone --branch v0.14.4 --depth 1 https://github.com/octostore/octostore.io
 cd octostore.io
 npm ci --ignore-scripts --no-audit --no-fund
 ./node_modules/.bin/skills add \
-  https://github.com/octostore/octostore.io/tree/v0.14.0 \
+  https://github.com/octostore/octostore.io/tree/v0.14.4 \
   --skill octostore --agent codex -y
 ```
 
-Or inspect the immutable [v0.14.0 agent-skill release artifact](https://github.com/octostore/octostore.io/releases/download/v0.14.0/octostore-agent-skill.md). It teaches primitive selection, shared bootstrap, the lease loop, supervisor coupling, machine events, exit codes, and the stop-on-loss rule. The hosted [current skill](https://octostore.io/agents/SKILL.md) follows the site and may change between releases.
+Or inspect the immutable [v0.14.4 agent-skill release artifact](https://github.com/octostore/octostore.io/releases/download/v0.14.4/octostore-agent-skill.md). It teaches primitive selection, shared bootstrap, the lease loop, supervisor coupling, machine events, exit codes, and the stop-on-loss rule. The hosted [current skill](https://octostore.io/agents/SKILL.md) follows the site and may change between releases.
 
 ## Install a pinned CLI
 
@@ -71,7 +71,7 @@ The clock command must exit successfully: the reference supervisor refuses to ru
 With those prerequisites already present, the install itself stays short:
 
 ```bash
-VERSION=v0.14.0
+VERSION=v0.14.4
 curl -fsSLo octostore-install.sh \
   "https://raw.githubusercontent.com/octostore/octostore.io/$VERSION/install.sh"
 cat octostore-install.sh

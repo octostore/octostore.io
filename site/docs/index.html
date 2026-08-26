@@ -53,14 +53,14 @@
     <div class="docs-content">
       <section id="quickstart">
         <h2>Start with the agent surface.</h2>
-        <p>Inspect the <a href="/agents/SKILL.md">plain-text skill</a>, then install the pinned v0.14.0 copy. It tells an agent when to choose an election or lock and when to stop.</p>
+        <p>Inspect the <a href="/agents/SKILL.md">plain-text skill</a>, then install the pinned v0.14.4 copy. It tells an agent when to choose an election or lock and when to stop.</p>
         <div class="code-window">
           <div class="code-head"><span>skills CLI · pinned release</span><button class="copy-button" type="button" data-copy-target="#skill-code">Copy</button></div>
-          <pre id="skill-code"><code>git clone --branch v0.14.0 --depth 1 https://github.com/octostore/octostore.io
+          <pre id="skill-code"><code>git clone --branch v0.14.4 --depth 1 https://github.com/octostore/octostore.io
 cd octostore.io
 npm ci --ignore-scripts --no-audit --no-fund
 ./node_modules/.bin/skills add \
-  https://github.com/octostore/octostore.io/tree/v0.14.0 \
+  https://github.com/octostore/octostore.io/tree/v0.14.4 \
   --skill octostore --agent codex -y</code></pre>
         </div>
         <p>Create one hosted room outside the candidates. Give both agents the same returned ID; only the candidate ID and protected worker change.</p>
@@ -144,10 +144,10 @@ octostore-supervisor lock "repo/octostore/issue-1842" - "$AGENT_WORKER" -- \
 
       <section id="self-host">
         <h2>Self-host one authority.</h2>
-        <p>Download the v0.14.0 installer, inspect it, and execute the pinned copy. The installer verifies the published SHA-256 checksum and binary version before placing <code>octostore</code> in <code>/usr/local/bin</code>.</p>
+        <p>Download the v0.14.4 installer, inspect it, and execute the pinned copy. The installer verifies the published SHA-256 checksum and binary version before placing <code>octostore</code> in <code>/usr/local/bin</code>.</p>
         <div class="code-window">
           <div class="code-head"><span>pinned, inspectable install</span><button class="copy-button" type="button" data-copy-target="#install-code">Copy</button></div>
-          <pre id="install-code"><code>VERSION=v0.14.0
+          <pre id="install-code"><code>VERSION=v0.14.4
 curl -fsSLo octostore-install.sh \
   "https://raw.githubusercontent.com/octostore/octostore.io/$VERSION/install.sh"
 cat octostore-install.sh
