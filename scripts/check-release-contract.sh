@@ -571,9 +571,14 @@ case "${1:-} ${2:-}" in
   'api repos/test/repo/immutable-releases')
     printf '%s\n' "$enabled"
     ;;
-  'api repos/test/repo/releases/tags/v9.9.9')
+  'api repos/test/repo/releases/tags/v9.9.9'|'api repos/test/repo/releases/123')
     [[ "$exists" == true ]] || exit 1
     printf '{"draft":%s,"immutable":%s}\n' "$draft" "$immutable"
+    ;;
+  'release view')
+    # Private drafts cannot be resolved through releases/tags/:tag. The
+    # workflow locates their immutable API ID with the CLI first.
+    printf '123\n'
     ;;
   'release edit')
     draft=false
