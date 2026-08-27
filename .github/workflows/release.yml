@@ -624,7 +624,12 @@ jobs:
             echo "ERROR: repository immutable releases must remain enabled through publication." >&2
             exit 1
           fi
-          RELEASE_JSON=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")
+          # GitHub's releases-by-tag endpoint returns 404 for a private draft.
+          # The CLI can locate it by tag, then its immutable API ID works for both
+          # the private-draft and public-release states.
+          RELEASE_ID=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json databaseId --jq '.databaseId')
+          RELEASE_JSON=$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID")
           if [[ $(jq -r '.draft' <<<"$RELEASE_JSON") != true ]]; then
             echo "ERROR: expected a private draft immediately before publication." >&2
             exit 1
