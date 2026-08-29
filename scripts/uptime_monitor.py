@@ -169,7 +169,15 @@ def probe(dry_run: bool, verbose: bool) -> str:
     record = {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"), "ok": int(ok), "health_code": health_code, "response_ms": health_ms, "locks_code": locks_code, "site_code": site_code, "version": version}
     if not dry_run:
         append_metric(record)
-    message = handle_outage(summary, not ok, dry_run)
+    try:
+        message = handle_outage(summary, not ok, dry_run)
+    except RuntimeError as exc:
+        # GitHub issue management is auxiliary. A transient API outage must not
+        # make a healthy availability probe look failed, nor suppress a real
+        # service-down alert.
+        if ok:
+            return f"healthy (GitHub metadata unavailable): {summary}" if verbose else ""
+        return f"🚨 **OctoStore down**\n\n{summary}\n\nIssue management unavailable: {exc}"
     if not message and verbose:
         return f"healthy: {summary}" if ok else f"degraded (existing incident): {summary}"
     return message

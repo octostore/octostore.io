@@ -12,7 +12,8 @@ scripts/check-package.sh
 # Keep this gate strict for actionable warnings and errors on every platform.
 shellcheck -S warning install.sh deploy/deploy.sh scripts/*.sh tests/fixtures/*.sh
 
-python3 -m py_compile scripts/uptime_monitor.py
+python3 -m py_compile scripts/uptime_monitor.py scripts/test-uptime-monitor.py
+python3 scripts/test-uptime-monitor.py
 go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 scripts/check-release-contract.sh
 scripts/smoke-downgrade-compatibility.sh
